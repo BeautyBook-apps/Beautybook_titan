@@ -5,7 +5,7 @@ import {
   ArrowLeft, CheckCircle2, Shield, Eye, EyeOff, ChevronRight,
   ExternalLink, Settings, Power, PowerOff, BarChart3, MessageCircle,
   Bot, Users, TrendingUp, Clock, Search, Sparkles, Globe, Zap,
-  ArrowUpRight, Calendar, Send, Heart, Share2
+  ArrowUpRight, Calendar, Send, Heart, Share2, AlertCircle
 } from "lucide-react";
 import "../pages/Recherche.css";
 
@@ -102,6 +102,103 @@ const AUTOMATIONS = [
   },
 ];
 
+/* ── Persistance locale des connexions vérifiées ── */
+const SOCIAL_STORAGE_KEY = "bb_social_connections";
+
+function loadSavedConnections() {
+  try { return JSON.parse(localStorage.getItem(SOCIAL_STORAGE_KEY) || "{}"); }
+  catch { return {}; }
+}
+
+function saveConnection(id, keys, verifiedLabel) {
+  try {
+    const all = loadSavedConnections();
+    all[id] = { keys, verifiedLabel, connectedAt: new Date().toISOString() };
+    localStorage.setItem(SOCIAL_STORAGE_KEY, JSON.stringify(all));
+  } catch { /* stockage indisponible : la connexion reste en mémoire */ }
+}
+
+function removeConnection(id) {
+  try {
+    const all = loadSavedConnections();
+    delete all[id];
+    localStorage.setItem(SOCIAL_STORAGE_KEY, JSON.stringify(all));
+  } catch { /* ignore */ }
+}
+
+/* ── Vérification RÉELLE des identifiants auprès de l'API de chaque plateforme ── */
+const GRAPH_API = "https://graph.facebook.com/v21.0";
+
+async function fetchJson(url, { headers, timeoutMs = 12000 } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { headers, signal: ctrl.signal });
+    const data = await res.json().catch(() => ({}));
+    return { res, data };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Vérifie les identifiants saisis contre la vraie API de la plateforme.
+ * Retourne { ok: true, label } si le token est valide ET correspond à l'ID saisi,
+ * sinon { ok: false, message } avec le motif réel du refus.
+ */
+async function verifyPlatformCredentials(id, keys) {
+  const get = (k) => (keys[k] || "").trim();
+  try {
+    if (id === "instagram") {
+      const bid = get("businessId");
+      const { res, data } = await fetchJson(
+        `${GRAPH_API}/${encodeURIComponent(bid)}?fields=id,username,name&access_token=${encodeURIComponent(get("accessToken"))}`
+      );
+      if (data && data.error) throw new Error(`Instagram : ${data.error.message} (code ${data.error.code}).`);
+      if (!res.ok || !data || !data.id) throw new Error("Instagram : réponse inattendue de l'API.");
+      if (String(data.id) !== bid) throw new Error("Instagram : ce token ne correspond pas à ce Business Account ID.");
+      return { ok: true, label: data.username ? `@${data.username}` : (data.name || bid) };
+    }
+    if (id === "facebook") {
+      const pid = get("pageId");
+      const { res, data } = await fetchJson(
+        `${GRAPH_API}/${encodeURIComponent(pid)}?fields=id,name&access_token=${encodeURIComponent(get("pageAccessToken"))}`
+      );
+      if (data && data.error) throw new Error(`Facebook : ${data.error.message} (code ${data.error.code}).`);
+      if (!res.ok || !data || !data.id) throw new Error("Facebook : réponse inattendue de l'API.");
+      if (String(data.id) !== pid) throw new Error("Facebook : ce token ne correspond pas à cette Page ID.");
+      return { ok: true, label: data.name || pid };
+    }
+    if (id === "whatsapp") {
+      const pnid = get("phoneNumberId");
+      const { res, data } = await fetchJson(
+        `${GRAPH_API}/${encodeURIComponent(pnid)}?fields=id,display_phone_number,verified_name&access_token=${encodeURIComponent(get("accessToken"))}`
+      );
+      if (data && data.error) throw new Error(`WhatsApp : ${data.error.message} (code ${data.error.code}).`);
+      if (!res.ok || !data || !data.id) throw new Error("WhatsApp : réponse inattendue de l'API.");
+      if (String(data.id) !== pnid) throw new Error("WhatsApp : ce token ne correspond pas à ce Phone Number ID.");
+      return { ok: true, label: data.display_phone_number || data.verified_name || pnid };
+    }
+    if (id === "tiktok") {
+      const oid = get("openId");
+      const { res, data } = await fetchJson(
+        "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name",
+        { headers: { Authorization: `Bearer ${get("accessToken")}` } }
+      );
+      if (data && data.error) throw new Error(`TikTok : ${data.error.message || data.error.code}.`);
+      const user = data && data.data && data.data.user;
+      if (!res.ok || !user || !user.open_id) throw new Error("TikTok : réponse inattendue de l'API.");
+      if (String(user.open_id) !== oid) throw new Error("TikTok : ce token ne correspond pas à cet Open ID.");
+      return { ok: true, label: user.display_name ? `@${user.display_name}` : oid };
+    }
+    throw new Error("Plateforme inconnue.");
+  } catch (e) {
+    if (e.name === "AbortError") return { ok: false, message: "Délai dépassé : la plateforme ne répond pas. Vérifiez votre connexion et réessayez." };
+    if (e instanceof TypeError) return { ok: false, message: "Impossible de joindre l'API de la plateforme depuis le navigateur (réseau ou restriction de l'API). La clé n'a pas pu être vérifiée : connexion refusée." };
+    return { ok: false, message: e.message || "Échec de la vérification." };
+  }
+}
+
 export default function SocialMedia() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("platforms");
@@ -109,9 +206,13 @@ export default function SocialMedia() {
   const [expandedId, setExpandedId] = useState(null);
   const [validating, setValidating] = useState(null);
   const [automations, setAutomations] = useState(AUTOMATIONS);
-  const [platforms, setPlatforms] = useState(
-    PLATFORMS.map(p => ({ ...p, connected: false, keys: {}, showKeys: {} }))
-  );
+  const [platforms, setPlatforms] = useState(() => {
+    const saved = loadSavedConnections();
+    return PLATFORMS.map(p => {
+      const s = saved[p.id];
+      return { ...p, connected: !!s, keys: s?.keys || {}, verifiedLabel: s?.verifiedLabel || null, showKeys: {}, error: null };
+    });
+  });
 
   const areKeysValid = (p) => {
     return p.fields.filter(f => f.required).every(f => p.keys[f.key]?.trim());
@@ -120,18 +221,29 @@ export default function SocialMedia() {
   const toggleConnect = async (id) => {
     const platform = platforms.find(p => p.id === id);
     if (platform.connected) {
-      setPlatforms(prev => prev.map(p => p.id === id ? { ...p, connected: false } : p));
+      removeConnection(id);
+      setPlatforms(prev => prev.map(p => p.id === id ? { ...p, connected: false, verifiedLabel: null, error: null } : p));
       return;
     }
     if (!areKeysValid(platform)) return;
     setValidating(id);
-    await new Promise(r => setTimeout(r, 900));
-    setPlatforms(prev => prev.map(p => p.id === id ? { ...p, connected: true } : p));
+    setPlatforms(prev => prev.map(p => p.id === id ? { ...p, error: null } : p));
+    // Vérification réelle auprès de l'API de la plateforme : une clé invalide
+    // ou qui ne correspond pas à l'ID saisi est refusée avec le motif exact.
+    const result = await verifyPlatformCredentials(id, platform.keys);
     setValidating(null);
+    if (result.ok) {
+      saveConnection(id, platform.keys, result.label);
+      setPlatforms(prev => prev.map(p => p.id === id ? { ...p, connected: true, verifiedLabel: result.label, error: null } : p));
+    } else {
+      setPlatforms(prev => prev.map(p => p.id === id ? { ...p, connected: false, verifiedLabel: null, error: result.message } : p));
+    }
   };
 
   const setKey = (id, key, value) => {
-    setPlatforms(prev => prev.map(p => p.id === id ? { ...p, keys: { ...p.keys, [key]: value }, connected: false } : p));
+    // Toute modification de clé invalide la connexion : il faudra re-vérifier.
+    removeConnection(id);
+    setPlatforms(prev => prev.map(p => p.id === id ? { ...p, keys: { ...p.keys, [key]: value }, connected: false, verifiedLabel: null, error: null } : p));
   };
 
   const toggleShowKey = (id, key) => {
@@ -271,6 +383,9 @@ export default function SocialMedia() {
                         <h3 style={{ fontSize: 17, fontWeight: 900 }}>{p.name}</h3>
                         <p style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>{p.desc}</p>
                         <p style={{ fontSize: 11, color: "#FF6B00", fontWeight: 700, marginTop: 4 }}>📣 {p.audience}</p>
+                        {p.connected && p.verifiedLabel && (
+                          <p style={{ fontSize: 11, color: "#059669", fontWeight: 700, marginTop: 4 }}>✓ Compte vérifié : {p.verifiedLabel}</p>
+                        )}
                       </div>
                     </div>
 
@@ -317,7 +432,7 @@ export default function SocialMedia() {
                         })}
                         <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#ECFDF5", borderRadius: 12, padding: "10px 12px" }}>
                           <Shield size={14} style={{ color: "#10B981", flexShrink: 0 }} />
-                          <p style={{ fontSize: 11, color: "#065F46" }}>Clés chiffrées et stockées de manière sécurisée.</p>
+                          <p style={{ fontSize: 11, color: "#065F46" }}>Clés stockées localement sur cet appareil uniquement.</p>
                         </div>
                       </div>
                     )}
@@ -344,6 +459,14 @@ export default function SocialMedia() {
                         <ChevronRight size={20} style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
                       </button>
                     </div>
+
+                    {/* Erreur de vérification réelle */}
+                    {p.error && (
+                      <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 12, padding: "10px 12px", marginTop: 10 }}>
+                        <AlertCircle size={15} style={{ color: "#DC2626", flexShrink: 0, marginTop: 1 }} />
+                        <p style={{ fontSize: 12, color: "#991B1B", lineHeight: 1.5 }}>{p.error}</p>
+                      </div>
+                    )}
                   </div>
                 </article>
               );
@@ -459,7 +582,7 @@ export default function SocialMedia() {
                     </div>
                     <div style={{ flex: 1 }}>
                       <p style={{ fontSize: 14, fontWeight: 800 }}>{p.name}</p>
-                      <p style={{ fontSize: 11, color: "#10B981", fontWeight: 700 }}>● En ligne</p>
+                      <p style={{ fontSize: 11, color: "#10B981", fontWeight: 700 }}>● En ligne{p.verifiedLabel ? ` · ${p.verifiedLabel}` : ""}</p>
                     </div>
                     <ChevronRight size={18} style={{ color: "#9CA3AF" }} />
                   </div>
