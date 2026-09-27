@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -8,6 +8,10 @@ import {
   ArrowUpRight, Calendar, Send, Heart, Share2, AlertCircle
 } from "lucide-react";
 import "../pages/Recherche.css";
+import {
+  startSocialOAuth, fetchSocialConnections, disconnectSocial,
+  parseOAuthResult, isExpiringSoon, OAUTH_PLATFORMS,
+} from "@/lib/socialOAuth";
 
 const PLATFORMS = [
   {
@@ -213,6 +217,21 @@ export default function SocialMedia() {
       return { ...p, connected: !!s, keys: s?.keys || {}, verifiedLabel: s?.verifiedLabel || null, showKeys: {}, error: null };
     });
   });
+  // ── Connexions OAuth réelles (via Supabase) ──
+  const [oauthConnections, setOauthConnections] = useState({});
+  const [oauthStarting, setOauthStarting] = useState(null);
+  const [oauthBanner, setOauthBanner] = useState(null);
+
+  useEffect(() => {
+    const result = parseOAuthResult();
+    if (result) {
+      const pname = PLATFORMS.find(p => p.id === result.platform)?.name || result.platform;
+      setOauthBanner(result.status === "success"
+        ? { ok: true, text: `${pname} connecté avec succès.` }
+        : { ok: false, text: result.message ? decodeURIComponent(result.message) : `Échec de la connexion ${pname}.` });
+    }
+    fetchSocialConnections().then(setOauthConnections).catch(() => {});
+  }, []);
 
   const areKeysValid = (p) => {
     return p.fields.filter(f => f.required).every(f => p.keys[f.key]?.trim());
@@ -246,6 +265,28 @@ export default function SocialMedia() {
     setPlatforms(prev => prev.map(p => p.id === id ? { ...p, keys: { ...p.keys, [key]: value }, connected: false, verifiedLabel: null, error: null } : p));
   };
 
+  // ── OAuth réel : redirection vers la plateforme ──
+  const handleOAuthConnect = async (id) => {
+    setOauthStarting(id);
+    setOauthBanner(null);
+    try {
+      await startSocialOAuth(id);
+      // Redirection vers la plateforme : la suite se passe au retour.
+    } catch (e) {
+      setOauthBanner({ ok: false, text: e.message || "Connexion impossible." });
+      setOauthStarting(null);
+    }
+  };
+
+  const handleOAuthDisconnect = async (id) => {
+    try {
+      await disconnectSocial(id);
+      setOauthConnections(prev => { const n = { ...prev }; delete n[id]; return n; });
+    } catch (e) {
+      setOauthBanner({ ok: false, text: e.message || "Déconnexion impossible." });
+    }
+  };
+
   const toggleShowKey = (id, key) => {
     setPlatforms(prev => prev.map(p => p.id === id ? { ...p, showKeys: { ...p.showKeys, [key]: !p.showKeys[key] } } : p));
   };
@@ -254,7 +295,7 @@ export default function SocialMedia() {
     setAutomations(prev => prev.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a));
   };
 
-  const connectedCount = platforms.filter(p => p.connected).length;
+  const connectedCount = platforms.filter(p => p.connected).length + Object.keys(oauthConnections).length;
   const activeAutomations = automations.filter(a => a.enabled).length;
 
   const filteredPlatforms = useMemo(() => {
@@ -345,6 +386,20 @@ export default function SocialMedia() {
         {/* ── PLATEFORMES ── */}
         {activeTab === "platforms" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Bannière retour OAuth */}
+            {oauthBanner && (
+              <div style={{
+                display: "flex", gap: 8, alignItems: "flex-start",
+                background: oauthBanner.ok ? "#ECFDF5" : "#FEF2F2",
+                border: `1px solid ${oauthBanner.ok ? "#A7F3D0" : "#FECACA"}`,
+                borderRadius: 14, padding: "12px 14px",
+              }}>
+                {oauthBanner.ok
+                  ? <CheckCircle2 size={18} style={{ color: "#059669", flexShrink: 0, marginTop: 1 }} />
+                  : <AlertCircle size={18} style={{ color: "#DC2626", flexShrink: 0, marginTop: 1 }} />}
+                <p style={{ fontSize: 13, color: oauthBanner.ok ? "#065F46" : "#991B1B", lineHeight: 1.5, fontWeight: 600 }}>{oauthBanner.text}</p>
+              </div>
+            )}
             {/* Statut global */}
             <div className="discovery-stat-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -361,6 +416,7 @@ export default function SocialMedia() {
             {filteredPlatforms.map(p => {
               const isExpanded = expandedId === p.id;
               const keysValid = areKeysValid(p);
+              const oauth = oauthConnections[p.id];
               return (
                 <article key={p.id} className="discovery-card" style={{ overflow: "hidden" }}>
                   {/* Bandeau */}
@@ -437,28 +493,67 @@ export default function SocialMedia() {
                       </div>
                     )}
 
-                    {/* Actions */}
-                    <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                      <button
-                        onClick={() => toggleConnect(p.id)}
-                        disabled={validating === p.id || (!p.connected && !keysValid)}
-                        className="discovery-cta"
-                        style={{
-                          flex: 1, opacity: (validating === p.id || (!p.connected && !keysValid)) ? 0.45 : 1,
-                          background: p.connected ? "#FEE2E2" : undefined, color: p.connected ? "#B91C1C" : undefined,
-                        }}
-                      >
-                        {validating === p.id ? "Validation..." : p.connected ? "Déconnecter" : "Connecter avec Maria IA"}
-                      </button>
-                      <button
-                        onClick={() => setExpandedId(isExpanded ? null : p.id)}
-                        className="discovery-icon-button"
-                        style={{ width: 48, height: 48, border: "1.5px solid #E5E7EB", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", cursor: "pointer" }}
-                        aria-label="Configurer"
-                      >
-                        <ChevronRight size={20} style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
-                      </button>
-                    </div>
+                    {/* ── Connexion OAuth réelle ── */}
+                    {oauth ? (
+                      <div style={{ marginTop: 14, background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 16, padding: 14 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <CheckCircle2 size={20} style={{ color: "#059669", flexShrink: 0 }} />
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontSize: 13, fontWeight: 800, color: "#065F46" }}>Connecté via {p.name}</p>
+                            <p style={{ fontSize: 12, color: "#047857", marginTop: 2 }}>
+                              {oauth.username || oauth.display_name || "Compte vérifié"}
+                              {oauth.expires_at && (
+                                <> · {isExpiringSoon(oauth) ? "à renouveler bientôt" : `valide jusqu'au ${new Date(oauth.expires_at).toLocaleDateString("fr-FR")}`}</>
+                              )}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleOAuthDisconnect(p.id)}
+                            style={{ background: "#fff", border: "1.5px solid #FECACA", color: "#B91C1C", borderRadius: 12, padding: "8px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}
+                          >
+                            Déconnecter
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Actions */}
+                        <button
+                          onClick={() => handleOAuthConnect(p.id)}
+                          disabled={oauthStarting === p.id}
+                          className="discovery-cta"
+                          style={{ width: "100%", marginTop: 14, opacity: oauthStarting === p.id ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                        >
+                          <SocialIcon path={p.icon} size={18} />
+                          {oauthStarting === p.id ? "Redirection..." : `Se connecter avec ${p.name}`}
+                        </button>
+                        <p style={{ fontSize: 11, color: "#9CA3AF", textAlign: "center", marginTop: 8 }}>
+                          Connexion sécurisée via {p.name} — ou <button onClick={() => setExpandedId(isExpanded ? null : p.id)} style={{ background: "none", border: "none", color: "#FF6B00", fontWeight: 700, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>saisir les clés API manuellement</button>
+                        </p>
+
+                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                          <button
+                            onClick={() => toggleConnect(p.id)}
+                            disabled={validating === p.id || (!p.connected && !keysValid)}
+                            className="discovery-cta"
+                            style={{
+                              flex: 1, opacity: (validating === p.id || (!p.connected && !keysValid)) ? 0.45 : 1,
+                              background: p.connected ? "#FEE2E2" : "#F3F4F6", color: p.connected ? "#B91C1C" : "#374151",
+                            }}
+                          >
+                            {validating === p.id ? "Validation..." : p.connected ? "Déconnecter" : "Connecter avec Maria IA"}
+                          </button>
+                          <button
+                            onClick={() => setExpandedId(isExpanded ? null : p.id)}
+                            className="discovery-icon-button"
+                            style={{ width: 48, height: 48, border: "1.5px solid #E5E7EB", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", cursor: "pointer" }}
+                            aria-label="Configurer"
+                          >
+                            <ChevronRight size={20} style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+                          </button>
+                        </div>
+                      </>
+                    )}
 
                     {/* Erreur de vérification réelle */}
                     {p.error && (
@@ -575,18 +670,21 @@ export default function SocialMedia() {
                 <p style={{ fontSize: 11, fontWeight: 900, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
                   Plateformes actives
                 </p>
-                {platforms.filter(p => p.connected).map(p => (
+                {platforms.filter(p => p.connected || oauthConnections[p.id]).map(p => {
+                  const oauth = oauthConnections[p.id];
+                  return (
                   <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #F3F4F6" }}>
                     <div style={{ width: 38, height: 38, borderRadius: 12, background: p.gradient, display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <SocialIcon path={p.icon} size={18} />
                     </div>
                     <div style={{ flex: 1 }}>
                       <p style={{ fontSize: 14, fontWeight: 800 }}>{p.name}</p>
-                      <p style={{ fontSize: 11, color: "#10B981", fontWeight: 700 }}>● En ligne{p.verifiedLabel ? ` · ${p.verifiedLabel}` : ""}</p>
+                      <p style={{ fontSize: 11, color: "#10B981", fontWeight: 700 }}>● En ligne{oauth?.username ? ` · ${oauth.username}` : (p.verifiedLabel ? ` · ${p.verifiedLabel}` : "")}</p>
                     </div>
                     <ChevronRight size={18} style={{ color: "#9CA3AF" }} />
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
