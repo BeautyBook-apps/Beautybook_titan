@@ -339,7 +339,7 @@ function ChatView({ conversation, currentUser, onBack, onStartCall }) {
           setOtherTyping(true);
           clearTimeout(typingTimeoutRef.current);
           typingTimeoutRef.current = setTimeout(() => setOtherTyping(false), 3000);
-          supabase.from("MessageChat").delete().eq("id", m.id).catch(() => {});
+          supabase.from("MessageChat").delete().eq("id", m.id).then(() => {}, () => {});
           return;
         }
         if (msgIdsRef.current.has(m.id)) return;
@@ -355,7 +355,7 @@ function ChatView({ conversation, currentUser, onBack, onStartCall }) {
         });
         // Mark incoming messages as read immediately
         if (m.receiver_email === currentUser.email) {
-          supabase.from("MessageChat").update({ read: true, is_read: true }).eq("id", m.id).catch(() => {});
+          supabase.from("MessageChat").update({ read: true, is_read: true }).eq("id", m.id).then(() => {}, () => {});
         }
         setOtherTyping(false);
       })

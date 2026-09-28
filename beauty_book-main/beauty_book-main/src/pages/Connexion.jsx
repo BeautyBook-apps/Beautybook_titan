@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, ArrowLeft, CheckCircle, Mail, Lock, ArrowRight } from "lucide-react";
 import { authCallbackUrl, supabase } from "@/api/supabaseClient";
 import { useRateLimit } from "@/hooks/useRateLimit";
+import { savePassword, hasSavedPassword } from "@/lib/passwordVault";
 
 const BRAND = "#E8732A";
 const BRAND_LIGHT = "#FFF4ED";
@@ -36,7 +37,15 @@ function ResetPassword({ onBack }) {
   const handleReset = async () => {
     if (!isValid || loading) return;
     setLoading(true); setError("");
-    try { const { error: e } = await supabase.auth.updateUser({ password: newPassword }); if (e) throw e; setSuccess(true); }
+    try {
+      const { error: e } = await supabase.auth.updateUser({ password: newPassword }); if (e) throw e;
+      // Si un mot de passe est enregistré sur cet appareil, le mettre à jour aussi
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id && hasSavedPassword(user.id)) await savePassword(user.id, newPassword);
+      } catch {}
+      setSuccess(true);
+    }
     catch { setError("Lien expiré ou invalide."); } finally { setLoading(false); }
   };
 
@@ -110,13 +119,20 @@ function ForgotPassword({ onBack }) {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
+  const [cooldown, setCooldown] = useState(0);
   const { checkLimit } = useRateLimit({ maxAttempts: 3, windowMs: 300000 });
 
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
   const handleSend = async () => {
-    if (!email || loading) return;
+    if (!email || loading || cooldown > 0) return;
     if (!checkLimit()) { setError("Trop de tentatives."); return; }
     setLoading(true); setError("");
-    try { const { error: e } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/connexion` }); if (e) throw e; setSent(true); }
+    try { const { error: e } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/connexion` }); if (e) throw e; setSent(true); setCooldown(60); }
     catch { setError("Impossible d'envoyer."); } finally { setLoading(false); }
   };
 
@@ -126,8 +142,12 @@ function ForgotPassword({ onBack }) {
         <div className="w-full max-w-sm text-center">
           <div className="w-16 h-16 mx-auto rounded-2xl bg-green-50 border border-green-100 flex items-center justify-center mb-8"><Mail className="w-8 h-8 text-green-500" /></div>
           <h2 className="text-[24px] font-extrabold text-gray-900 mb-2 tracking-tight">Email envoyé</h2>
-          <p className="text-[13px] text-gray-500 mb-10">Lien envoyé à <span className="font-bold text-gray-700">{email}</span>.</p>
-          <button aria-label="Retour" onClick={onBack} className="w-full h-[52px] rounded-xl font-extrabold text-[13px] uppercase tracking-[0.12em] text-white active:scale-[0.97] transition" style={{ background: BRAND }}>Retour</button>
+          <p className="text-[13px] text-gray-500 mb-2">Lien envoyé à <span className="font-bold text-gray-700">{email}</span>.</p>
+          <p className="text-[12px] text-gray-400 mb-10">Pensez à vérifier vos spams. Le lien expire après 1 heure.</p>
+          <button onClick={handleSend} disabled={cooldown > 0 || loading} className="w-full h-[52px] rounded-xl font-extrabold text-[13px] uppercase tracking-[0.12em] text-white mb-3 active:scale-[0.97] transition-all" style={{ background: cooldown > 0 ? "#e5e7eb" : BRAND }}>
+            {cooldown > 0 ? `Renvoyer dans ${cooldown}s` : "Renvoyer le lien"}
+          </button>
+          <button aria-label="Retour" onClick={onBack} className="w-full text-center text-[11px] font-bold text-gray-500 uppercase tracking-[0.2em]">Retour</button>
         </div>
       </div>
     );
@@ -172,6 +192,7 @@ export default function Connexion() {
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [remember, setRemember] = useState(false);
+  const [savePwdDevice, setSavePwdDevice] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [emailNotConfirmed, setEmailNotConfirmed] = useState(false);
@@ -181,12 +202,55 @@ export default function Connexion() {
 
   useEffect(() => { const r = localStorage.getItem("bb_remember_email"); if (r) { setEmail(r); setRemember(true); } }, []);
 
-  const [isResetMode, setIsResetMode] = useState(() => window.location.hash.includes('type=recovery'));
+  const [isResetMode, setIsResetMode] = useState(() => {
+    if (window.location.hash.includes('type=recovery')) return true;
+    const q = new URLSearchParams(window.location.search);
+    return q.get('type') === 'recovery' && (q.get('token_hash') || q.get('code'));
+  });
+  const [verifyingLink, setVerifyingLink] = useState(false);
+  const [linkError, setLinkError] = useState('');
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(event => { if (event === 'PASSWORD_RECOVERY') setIsResetMode(true); });
+    // Les emails Supabase récents utilisent ?token_hash=...&type=recovery, format que le SDK
+    // ne traite pas automatiquement : on le vérifie explicitement ici.
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const tokenHash = q.get('token_hash');
+      if (q.get('type') === 'recovery' && tokenHash) {
+        setVerifyingLink(true);
+        supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' }).then(({ error }) => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('token_hash'); url.searchParams.delete('type');
+          window.history.replaceState(window.history.state, '', url.toString());
+          if (error) setLinkError("Ce lien est expiré ou a déjà été utilisé. Demandez un nouveau lien ci-dessous.");
+          else setIsResetMode(true);
+        }).catch(() => setLinkError("Ce lien est invalide. Demandez un nouveau lien ci-dessous."))
+          .finally(() => setVerifyingLink(false));
+      }
+    } catch { /* URL illisible : on ignore */ }
     return () => subscription.unsubscribe();
   }, []);
 
+  if (verifyingLink) {
+    return (
+      <div className="min-h-screen w-full max-w-lg mx-auto bg-white flex flex-col items-center justify-center px-6">
+        <div className="w-10 h-10 border-4 border-orange-200 border-t-[#E8732A] rounded-full animate-spin mb-4" />
+        <p className="text-gray-600 text-sm font-medium">Vérification de votre lien…</p>
+      </div>
+    );
+  }
+  if (linkError) {
+    return (
+      <div className="min-h-screen w-full max-w-lg mx-auto bg-white flex flex-col items-center justify-center px-6">
+        <div className="w-full max-w-sm text-center">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-8"><Lock className="w-8 h-8 text-red-400" /></div>
+          <h2 className="text-[24px] font-extrabold text-gray-900 mb-2 tracking-tight">Lien invalide</h2>
+          <p className="text-[13px] text-gray-500 mb-10">{linkError}</p>
+          <button onClick={() => { setLinkError(''); setShowForgot(true); }} className="w-full h-[52px] rounded-xl font-extrabold text-[13px] uppercase tracking-[0.12em] text-white active:scale-[0.97] transition" style={{ background: BRAND }}>Demander un nouveau lien</button>
+        </div>
+      </div>
+    );
+  }
   if (isResetMode) return <ResetPassword onBack={() => { setIsResetMode(false); navigate('/connexion', { replace: true }); }} />;
   if (showForgot) return <ForgotPassword onBack={() => setShowForgot(false)} />;
 
@@ -207,6 +271,10 @@ export default function Connexion() {
       localStorage.setItem("bb_onboarded", "1");
       if (remember) { localStorage.setItem("bb_remember_email", email.trim()); localStorage.setItem("bb_remember", "1"); }
       else { localStorage.removeItem("bb_remember_email"); localStorage.removeItem("bb_remember"); }
+      // Coffre chiffré : enregistre le mot de passe sur cet appareil si l'utilisateur l'a demandé
+      if (savePwdDevice) {
+        try { await savePassword(data.user.id, password); } catch {}
+      }
       navigate("/", { replace: true });
     } catch (error) { setError(error.message || "Erreur de connexion."); }
     finally { setLoading(false); }
@@ -258,6 +326,12 @@ export default function Connexion() {
             </button>
              <button onClick={() => setShowForgot(true)} className="text-[14px] sm:text-[15px] font-bold" style={{ color: BRAND }}>Mot de passe oublié ?</button>
           </div>
+          <button role="checkbox" aria-checked={savePwdDevice} onClick={() => setSavePwdDevice(!savePwdDevice)} className="flex items-center gap-2.5 active:scale-95 transition pt-1">
+            <div className={`w-[27px] h-[27px] rounded-full border-2 flex items-center justify-center transition-all ${savePwdDevice ? "border-[#E8732A] bg-[#E8732A]" : "border-[#e0e4e9] bg-white"}`}>
+              {savePwdDevice && <svg width="8" height="7" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </div>
+            <span className="text-[14px] sm:text-[15px] font-semibold text-[#617089]">Enregistrer le mot de passe sur cet appareil <span className="text-gray-400 font-normal">(chiffré)</span></span>
+          </button>
 
           {error && (
             <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 space-y-1.5">

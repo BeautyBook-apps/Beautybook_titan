@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Key, Eye, EyeOff, CheckCircle, Fingerprint, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Key, Eye, EyeOff, CheckCircle, Fingerprint, ShieldCheck, Copy, Trash2 } from "lucide-react";
 import { useThemeBg } from "@/hooks/useTheme";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/api/supabaseClient";
+import { hasSavedPassword, revealPassword, clearPassword, savePassword } from "@/lib/passwordVault";
 
 export default function Securite() {
   const navigate = useNavigate();
@@ -20,8 +21,16 @@ export default function Securite() {
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricBusy, setBiometricBusy] = useState(false);
   const [biometricError, setBiometricError] = useState("");
+  const [vaultExists, setVaultExists] = useState(false);
+  const [revealedPwd, setRevealedPwd] = useState("");
+  const [revealBusy, setRevealBusy] = useState(false);
+  const [revealError, setRevealError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const revealTimer = useRef(null);
 
   const biometricKey = user?.id ? `bb_biometric_${user.id}` : null;
+
+  useEffect(() => () => { if (revealTimer.current) clearTimeout(revealTimer.current); }, []);
 
   useEffect(() => {
     let active = true;
@@ -37,6 +46,56 @@ export default function Securite() {
     detectBiometric();
     return () => { active = false; };
   }, [biometricKey]);
+
+  useEffect(() => {
+    if (user?.id) setVaultExists(hasSavedPassword(user.id));
+  }, [user?.id]);
+
+  // Déverrouillage natif de l'appareil (Face ID / empreinte / code PIN),
+  // puis révélation du mot de passe chiffré stocké sur cet appareil.
+  const handleRevealPassword = async () => {
+    if (!user?.id || revealBusy) return;
+    setRevealError(""); setCopied(false);
+    if (revealedPwd) { setRevealedPwd(""); return; }
+    if (!vaultExists) { setRevealError("Aucun mot de passe enregistré sur cet appareil."); return; }
+    if (!biometricEnabled || !biometricKey) {
+      setRevealError("Activez Face ID / Touch ID ci-dessus pour révéler votre mot de passe.");
+      return;
+    }
+    setRevealBusy(true);
+    try {
+      const stored = JSON.parse(localStorage.getItem(biometricKey));
+      const credentialId = new Uint8Array(stored);
+      const assertion = await navigator.credentials.get({ publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        allowCredentials: [{ id: credentialId, type: "public-key" }],
+        userVerification: "required",
+        timeout: 60000,
+      }});
+      if (!assertion) throw new Error("Déverrouillage annulé.");
+      const pwd = await revealPassword(user.id);
+      setRevealedPwd(pwd);
+      if (revealTimer.current) clearTimeout(revealTimer.current);
+      revealTimer.current = setTimeout(() => setRevealedPwd(""), 30000);
+    } catch (error) {
+      if (error?.name !== "NotAllowedError") setRevealError("Déverrouillage impossible. Réessayez.");
+    } finally {
+      setRevealBusy(false);
+    }
+  };
+
+  const handleCopyPwd = async () => {
+    if (!revealedPwd) return;
+    try { await navigator.clipboard.writeText(revealedPwd); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    catch { setRevealError("Copie impossible."); }
+  };
+
+  const handleClearVault = () => {
+    if (!user?.id) return;
+    clearPassword(user.id);
+    setVaultExists(false);
+    setRevealedPwd("");
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -98,6 +157,11 @@ export default function Securite() {
       // Mettre à jour la date dans le profil
       try {
         await supabase.from('profiles').update({ password_changed_at: new Date().toISOString() }).eq('id', user.id);
+      } catch {}
+
+      // Si un mot de passe est enregistré sur cet appareil, le mettre à jour aussi
+      try {
+        if (hasSavedPassword(user.id)) { await savePassword(user.id, pwd.next); setVaultExists(true); }
       } catch {}
 
       setPwdSaved(true);
@@ -191,7 +255,7 @@ export default function Securite() {
                 </div>
               )}
             </div>
-            <div className="px-4 py-4 flex items-center gap-3">
+            <div className="px-4 py-4 flex items-center gap-3 border-t border-gray-50">
               <div className="w-10 h-10 bg-purple-50 rounded-2xl flex items-center justify-center shrink-0">
                 <Fingerprint className="w-5 h-5 text-purple-500" />
               </div>
@@ -208,6 +272,44 @@ export default function Securite() {
                 style={{ background: biometricEnabled ? "#E8732A" : "#d1d5db" }}>
                 <span className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-300 ${biometricEnabled ? "translate-x-6" : "translate-x-0"}`} />
               </button>
+            </div>
+            <div className="px-4 py-4 border-t border-gray-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-amber-50 rounded-2xl flex items-center justify-center shrink-0">
+                  <Eye className="w-5 h-5 text-amber-500" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-[15px] font-black text-gray-900">Voir mon mot de passe</p>
+                  <p className="text-[11px] text-gray-400 font-medium">
+                    {vaultExists ? "Enregistré chiffré sur cet appareil" : "Aucun mot de passe enregistré"}
+                  </p>
+                  {revealError && <p className="text-[11px] text-red-500 font-bold mt-1">{revealError}</p>}
+                </div>
+                {vaultExists && (
+                  <button onClick={handleRevealPassword} disabled={revealBusy}
+                    className="text-[13px] font-black active:scale-95 transition-all disabled:opacity-40" style={{ color: "#E8732A" }}>
+                    {revealBusy ? "..." : revealedPwd ? "MASQUER" : "VOIR"}
+                  </button>
+                )}
+              </div>
+              {revealedPwd && (
+                <div className="mt-3 bg-gray-50 rounded-2xl px-4 py-3 flex items-center gap-2">
+                  <Key className="w-4 h-4 text-gray-400 shrink-0" />
+                  <p className="flex-1 text-[14px] font-mono font-bold text-gray-800 break-all select-all">{revealedPwd}</p>
+                  <button onClick={handleCopyPwd} aria-label="Copier le mot de passe" className="w-8 h-8 rounded-xl bg-white border border-gray-100 flex items-center justify-center active:scale-95 transition-all shrink-0">
+                    {copied ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-gray-500" />}
+                  </button>
+                </div>
+              )}
+              {revealedPwd && <p className="text-[10px] text-gray-400 font-medium mt-2">Masqué automatiquement dans 30 secondes.</p>}
+              {vaultExists && !revealedPwd && (
+                <button onClick={handleClearVault} className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-gray-400 active:scale-95 transition-all">
+                  <Trash2 className="w-3.5 h-3.5" /> Retirer de cet appareil
+                </button>
+              )}
+              {!vaultExists && (
+                <p className="text-[11px] text-gray-400 font-medium mt-2">Cochez « Enregistrer le mot de passe sur cet appareil » lors de votre prochaine connexion pour l'activer.</p>
+              )}
             </div>
            </div>
          </div>

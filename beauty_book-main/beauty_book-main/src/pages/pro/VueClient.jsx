@@ -657,7 +657,7 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
         entities.Avis.filter({ cible_email: targetEmail, type: "client_to_pro" }, "-created_at", 100).catch(() => []),
         entities.DemandeProV2.filter({ user_email: targetEmail, statut: "approuvee" }, "-created_at", 1).catch(() => []),
         entities.ServiceBundle.filter({ pro_email: targetEmail, is_active: true }, "-created_at", 20).catch(() => []),
-        supabase.from("CatalogueOption").select("*").eq("pro_email", targetEmail).order("usage_count", { ascending: false }).then(r => r.data || []).catch(() => []),
+        supabase.from("CatalogueOption").select("*").eq("pro_email", targetEmail).order("usage_count", { ascending: false }).then(r => r.data || [], () => []),
       ]);
       setPublications(reels);
       setServices(svcs);

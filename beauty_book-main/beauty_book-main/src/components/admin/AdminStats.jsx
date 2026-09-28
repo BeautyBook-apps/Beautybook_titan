@@ -418,7 +418,11 @@ export default function AdminStats() {
         adminApi.listLives().catch(() => []),
         adminApi.listProfilsPro().catch(() => []),
       ]);
-      const profilesRes = await supabase.from('profiles').select('*').order('created_at', { ascending: false }).then(({ data }) => data || []).catch(() => []);
+      let profilesRes = [];
+      try {
+        const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+        profilesRes = data || [];
+      } catch { profilesRes = []; }
 
       const users = usersRes || [];
       const reels = reelsRes || [];

@@ -247,6 +247,18 @@ export default function LiveDetail() {
     load();
   }, [id, user?.email]);
 
+  // ── Fond noir sur <body> pendant le direct (évite toute bande blanche si le
+  //     viewport est décalé/zoomé sur certains mobiles) ─────────────────────────
+  useEffect(() => {
+    const prev = document.body.style.background;
+    document.body.style.background = "#000";
+    document.documentElement.style.background = "#000";
+    return () => {
+      document.body.style.background = prev;
+      document.documentElement.style.background = "";
+    };
+  }, []);
+
   // ── Realtime session updates ────────────────────────────────────────────────
   useEffect(() => {
     if (!id) return;

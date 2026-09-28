@@ -53,8 +53,12 @@ export function createAuthFlows(client) {
     if (data) {
       if (data.username) return data;
       const username = await findAvailableUsername(client, user.user_metadata?.username || user.user_metadata?.full_name || user.email?.split('@')[0], user.id).catch(() => 'user_' + user.id.slice(0, 8));
-      const updated = await client.from('profiles').update({ username, updated_at: new Date().toISOString() }).eq('id', user.id).select('*').single().catch(() => ({ data }));
-      return updated.data || data;
+      let updated = null;
+      try {
+        const res = await client.from('profiles').update({ username, updated_at: new Date().toISOString() }).eq('id', user.id).select('*').single();
+        updated = res.data;
+      } catch { updated = null; }
+      return updated || data;
     }
     const username = await findAvailableUsername(client, user.user_metadata?.username || user.user_metadata?.full_name || user.email?.split('@')[0], user.id).catch(() => 'user_' + user.id.slice(0, 8));
     const record = { id: user.id, email: user.email, role: 'user', username,
@@ -68,7 +72,11 @@ export function createAuthFlows(client) {
       console.warn('Profile upsert warning:', e);
     }
 
-    const { data: existing } = await client.from('profiles').select('*').eq('id', user.id).maybeSingle().catch(() => ({ data: null }));
+    let existing = null;
+    try {
+      const res = await client.from('profiles').select('*').eq('id', user.id).maybeSingle();
+      existing = res.data;
+    } catch { existing = null; }
     if (existing) return existing;
     return record;
   }
