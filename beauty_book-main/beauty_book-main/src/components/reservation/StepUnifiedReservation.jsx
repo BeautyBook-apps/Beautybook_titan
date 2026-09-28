@@ -1,9 +1,10 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect, useMemo } from "react";
-import { ArrowLeft, Calendar as CalendarIcon, Clock, User, Check, ChevronRight, ChevronLeft, Sun, Cloud, Users, Minus, Plus, Package, Sparkles, Tag, Ban } from "lucide-react";
+import { ArrowLeft, Calendar as CalendarIcon, Clock, User, Check, ChevronRight, ChevronLeft, Sun, Cloud, Moon, Users, Minus, Plus, Package, Sparkles, Tag, Ban } from "lucide-react";
 import { format, addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, isSameDay, isSameMonth, isBefore, startOfDay, eachDayOfInterval } from "date-fns";
 import { fr } from "date-fns/locale";
 import { entities } from "@/api/entities";
+import { applyNightMode } from "@/lib/hours";
 
 const CLEANING_MINUTES = 15;
 
@@ -19,7 +20,8 @@ function parseTime(str) {
 }
 
 function formatMinutes(mins) {
-  const h = Math.floor(mins / 60);
+  // Plages de nuit : les minutes >= 24h s'affichent modulo 24 (ex : 25:00 → "01:00")
+  const h = Math.floor(mins / 60) % 24;
   const m = mins % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
@@ -36,13 +38,18 @@ function getHoraires(proProfile) {
 }
 
 // Get schedule for a specific day (full French name)
+// Applique le Mode Nuit : si travail_nuit est actif, les jours ouverts
+// passent en 09:00 → 07:00 (lendemain) via la surcouche applyNightMode.
 function getDaySchedule(proProfile, dayOfWeek) {
   const dayName = DAY_MAP[dayOfWeek];
-  const horaires = getHoraires(proProfile);
+  const horaires = applyNightMode(getHoraires(proProfile), !!proProfile?.travail_nuit);
   if (!horaires) {
     // No horaires set → default: open Mon-Sat, closed Sunday
+    // (plage de nuit si le Mode Nuit est actif)
     if (dayOfWeek === 0) return null;
-    return { open: true, start: DEFAULT_OPEN, end: DEFAULT_CLOSE, pause_start: "", pause_end: "" };
+    return proProfile?.travail_nuit
+      ? { open: true, start: "09:00", end: "07:00", pause_start: "", pause_end: "" }
+      : { open: true, start: DEFAULT_OPEN, end: DEFAULT_CLOSE, pause_start: "", pause_end: "" };
   }
   const day = horaires[dayName];
   if (!day) {
@@ -91,15 +98,18 @@ function isInPause(slotStartMin, durationMin, pauseStart, pauseEnd) {
 }
 
 // Generate time slots Planity-style: step = service duration + cleaning, with seat count
+// Gère les plages de nuit (fin <= début → se termine le lendemain) : les minutes
+// brutes sont conservées dans `mins` pour le tri et le filtre des créneaux passés.
 function generateTimeSlots(schedule, durationMin, numSeats) {
   const openMin = parseTime(schedule.start);
-  const closeMin = parseTime(schedule.end);
+  let closeMin = parseTime(schedule.end);
   if (openMin == null || closeMin == null) return [];
+  if (closeMin <= openMin) closeMin += 24 * 60; // plage nocturne → lendemain
   const slots = [];
   const step = durationMin; // step includes service + cleaning
   for (let t = openMin; t + durationMin <= closeMin; t += step) {
     if (isInPause(t, durationMin, schedule.pause_start, schedule.pause_end)) continue;
-    slots.push({ time: formatMinutes(t), seats: numSeats });
+    slots.push({ time: formatMinutes(t), seats: numSeats, mins: t });
   }
   return slots;
 }
@@ -167,18 +177,25 @@ export default function StepUnifiedReservation({
     const schedule = getDaySchedule(proProfile, selectedDate.getDay());
     if (!schedule) return [];
     const slots = generateTimeSlots(schedule, totalDurationWithCleaning, numSeats);
-    // Filter past time slots if selected date is today
+    // Filter past time slots if selected date is today.
+    // On compare les minutes brutes (mins) : les créneaux après minuit
+    // (nuit, mins >= 24h) sont toujours à venir.
     const now = new Date();
     const isToday = isSameDay(selectedDate, now);
     if (!isToday) return slots;
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
-    return slots.filter(s => parseTime(s.time) > nowMinutes);
+    return slots.filter(s => (s.mins ?? parseTime(s.time)) > nowMinutes);
   }, [selectedDate, proProfile, totalDurationWithCleaning, numSeats]);
 
-  const morningSlots = availableTimeSlots.filter(s => parseTime(s.time) < 12 * 60);
-  const afternoonSlots = availableTimeSlots.filter(s => parseTime(s.time) >= 12 * 60);
+  const morningSlots = availableTimeSlots.filter(s => (s.mins ?? parseTime(s.time)) < 12 * 60);
+  const afternoonSlots = availableTimeSlots.filter(s => {
+    const m = s.mins ?? parseTime(s.time);
+    return m >= 12 * 60 && m < 21 * 60;
+  });
+  const nightSlots = availableTimeSlots.filter(s => (s.mins ?? parseTime(s.time)) >= 21 * 60);
   const morningAvailable = morningSlots.length;
   const afternoonAvailable = afternoonSlots.length;
+  const nightAvailable = nightSlots.length;
 
   // ── Prices ──
   const bundlePrice = isBundle ? (booking.bundle?.bundle_price || 0) : 0;
@@ -207,7 +224,7 @@ export default function StepUnifiedReservation({
   const selectedSchedule = selectedDate ? getDaySchedule(proProfile, selectedDate.getDay()) : null;
 
   return (
-    <div className="min-h-screen bg-[#FFF5F0] font-display pb-36">
+    <div className="min-h-screen bg-[#FFF5F0] font-display" style={{ paddingBottom: "calc(220px + env(safe-area-inset-bottom, 16px))" }}>
       {/* Header */}
       <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-xl px-5 pt-12 pb-4 flex items-center justify-between border-b border-gray-100 shadow-sm">
         <button onClick={onBack} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 transition-all">
@@ -498,6 +515,42 @@ export default function StepUnifiedReservation({
                   </div>
                 </div>
               )}
+
+              {/* Nuit (Mode Nuit : 21h00 → 07h00 le lendemain) */}
+              {nightSlots.length > 0 && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Moon className="w-4 h-4 text-indigo-400" />
+                      <span className="text-[14px] font-black text-gray-800">Nuit</span>
+                    </div>
+                    <span className="text-[11px] font-black text-[#E8732A] uppercase tracking-wider">{nightAvailable} DISPO</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {nightSlots.map(({ time, seats }) => {
+                      const isSelected = selectedTime === time;
+                      const isEmpty = seats === 0;
+                      return (
+                        <button
+                          key={time}
+                          onClick={() => !isEmpty && setSelectedTime(time)}
+                          disabled={isEmpty}
+                          className={`px-4 py-3 rounded-2xl border-2 flex flex-col items-center min-w-[72px] transition-all active:scale-95 ${
+                            isSelected ? "border-[#E8732A] bg-[#E8732A] shadow-lg" :
+                            isEmpty ? "border-gray-100 bg-gray-50 opacity-30 cursor-not-allowed" :
+                            "border-gray-100 bg-white"
+                          }`}
+                        >
+                          <span className={`text-[15px] font-black ${isSelected ? "text-white" : "text-gray-900"}`}>{time}</span>
+                          <span className={`text-[10px] font-bold ${isSelected ? "text-white/80" : "text-[#E8732A]"}`}>
+                            {isEmpty ? "Complet" : `${seats} sièges`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -564,7 +617,8 @@ export default function StepUnifiedReservation({
       </div>
 
       {/* ── FIXED BOTTOM ── */}
-      <div className="fixed bottom-[70px] left-0 right-0 z-[90]">
+      {/* Barre de validation : toujours entièrement visible au-dessus de la barre d'onglets */}
+      <div className="fixed left-0 right-0 z-[90]" style={{ bottom: "calc(68px + env(safe-area-inset-bottom, 16px))" }}>
         {selectedDate && selectedTime && (
           <div className="mx-4 mb-2 bg-white rounded-2xl px-4 py-3 border border-gray-100 shadow-md flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />

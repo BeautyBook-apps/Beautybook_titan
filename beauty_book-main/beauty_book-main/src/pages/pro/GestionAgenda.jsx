@@ -784,7 +784,18 @@ function PlanningTab({ proEmail, reservations, onSelectRdv }) {
   const dayRdvs = reservations.filter(r => {
     if (r.status !== "confirme" && r.status !== "termine") return false;
     try { return isSameDay(parseISO(r.date), selectedDate); } catch { return false; }
-  }).sort((a, b) => (a.time || a.time_slot || "").localeCompare(b.time || b.time_slot || ""));
+  // Tri « journée pro » : 09:00 → 07:00 (les créneaux de nuit après minuit
+  // se placent après ceux du soir, pas avant ceux du matin).
+  }).sort((a, b) => {
+    const mins = (r) => {
+      const t = r.time || r.time_slot || "";
+      const [h, m] = t.split(":").map(Number);
+      if (isNaN(h)) return 0;
+      const base = h * 60 + (isNaN(m) ? 0 : m);
+      return h < 9 ? base + 24 * 60 : base;
+    };
+    return mins(a) - mins(b);
+  });
 
   // Stats for the selected week — CA = uniquement les réservations terminées
   const weekRdvs = reservations.filter(r => {

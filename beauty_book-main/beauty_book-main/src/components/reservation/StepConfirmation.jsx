@@ -1,4 +1,4 @@
-import { ArrowLeft, MapPin, Clock, CheckCircle2, Loader, Users, Download, CreditCard, Banknote, Share2, Pencil, X, Check, Tag, Lock, Shield, Moon, MessageSquare } from "lucide-react";
+import { ArrowLeft, MapPin, Clock, CheckCircle2, Loader, Users, Download, CreditCard, Banknote, Share2, Pencil, X, Check, Tag, Lock, Shield, Moon, MessageSquare, Wallet, Trash2, Plus, Store } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
@@ -32,6 +32,24 @@ function getCardType(number) {
 function formatLocation(location) {
   return [location?.address, location?.postalCode, location?.city].filter(Boolean).join(", ");
 }
+
+// ── Cartes bancaires sauvegardées (appareil uniquement) ───────────────────────
+// On ne stocke JAMAIS le numéro complet ni le CVV : uniquement l'enseigne,
+// les 4 derniers chiffres, le titulaire et l'expiration.
+const SAVED_CARDS_KEY = "bb_saved_cards";
+function loadSavedCards() {
+  try {
+    const raw = localStorage.getItem(SAVED_CARDS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter(c => c && c.id && c.last4) : [];
+  } catch {
+    return [];
+  }
+}
+function persistSavedCards(cards) {
+  try { localStorage.setItem(SAVED_CARDS_KEY, JSON.stringify(cards)); } catch {}
+}
+const CARD_BRAND_LABELS = { visa: "Visa", mastercard: "Mastercard", amex: "Amex", generic: "Carte" };
 
 function normalizeAddressPrediction(pred) {
   const ban = pred?.properties;
@@ -118,14 +136,22 @@ function CardVisual({ cardNumber, cardHolder, expiry }) {
 }
 
 // ── Formulaire carte bancaire ─────────────────────────────────────────────────
-function PaymentCardForm({ amount, onPay, saving }) {
+// Gère aussi les cartes sauvegardées sur l'appareil (enseigne + 4 derniers
+// chiffres uniquement, jamais le numéro complet ni le CVV) : sélection d'une
+// carte enregistrée (CVV re-demandé) ou saisie d'une nouvelle carte avec
+// option de sauvegarde.
+function PaymentCardForm({ amount, onPay, saving, savedCards = [], selectedCardId, onSelectCard, onDeleteCard, onSaveCard }) {
   const [cardNumber, setCardNumber] = useState("");
   const [cardHolder, setCardHolder] = useState("");
   const [expiry, setExpiry] = useState("");
   const [cvv, setCvv] = useState("");
+  const [saveCard, setSaveCard] = useState(false);
   const [paying, setPaying] = useState(false);
   const [step, setStep] = useState("form"); // form | processing | success
   const cvvRef = useRef(null);
+
+  const selectedCard = savedCards.find(c => c.id === selectedCardId) || null;
+  const usingSavedCard = !!selectedCard;
 
   const handleCardNumber = (e) => {
     const raw = e.target.value.replace(/[^\d\s]/g, "");
@@ -145,10 +171,12 @@ function PaymentCardForm({ amount, onPay, saving }) {
     setCvv(e.target.value.replace(/\D/g, "").slice(0, 4));
   };
 
-  const isFormValid = cardNumber.replace(/\s/g, "").length >= 15
-    && cardHolder.trim().length >= 2
-    && expiry.replace(/\D/g, "").length === 4
-    && cvv.length >= 3;
+  const isFormValid = usingSavedCard
+    ? cvv.length >= 3
+    : cardNumber.replace(/\s/g, "").length >= 15
+      && cardHolder.trim().length >= 2
+      && expiry.replace(/\D/g, "").length === 4
+      && cvv.length >= 3;
 
   const handlePay = async () => {
     if (!isFormValid || paying) return;
@@ -158,6 +186,17 @@ function PaymentCardForm({ amount, onPay, saving }) {
     // Simulate payment processing
     await new Promise(r => setTimeout(r, 2200));
     await new Promise(r => setTimeout(r, 800));
+
+    // Sauvegarde de la nouvelle carte (données non sensibles uniquement)
+    if (!usingSavedCard && saveCard && onSaveCard) {
+      const digits = cardNumber.replace(/\D/g, "");
+      onSaveCard({
+        brand: getCardType(cardNumber),
+        last4: digits.slice(-4),
+        holder: cardHolder.trim().toUpperCase(),
+        expiry: expiry,
+      });
+    }
 
     setStep("success");
     await new Promise(r => setTimeout(r, 1000));
@@ -199,9 +238,92 @@ function PaymentCardForm({ amount, onPay, saving }) {
     <div className="bg-white border border-gray-100 rounded-3xl p-5 space-y-5">
       <div>
         <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">Paiement par carte</p>
-        <p className="text-[11px] text-gray-400 font-medium">Environnement de test — aucune réelle débit</p>
+        <p className="text-[11px] text-gray-400 font-medium">Environnement de test — aucun réel débit</p>
       </div>
 
+      {/* Cartes sauvegardées sur cet appareil */}
+      {savedCards.length > 0 && !usingSavedCard && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Mes cartes enregistrées</p>
+          {savedCards.map(card => (
+            <div
+              key={card.id}
+              className="w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 border-gray-100 bg-gray-50/60"
+            >
+              <button
+                onClick={() => onSelectCard(card.id)}
+                className="flex-1 flex items-center gap-3 text-left active:scale-[0.98] transition-all min-w-0"
+              >
+                <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shrink-0 shadow-sm">
+                  <CreditCard className="w-5 h-5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[14px] font-black text-gray-900">
+                    {CARD_BRAND_LABELS[card.brand] || "Carte"} •••• {card.last4}
+                  </p>
+                  <p className="text-[11px] text-gray-400 font-medium truncate">
+                    {card.holder || "Titulaire"} {card.expiry ? `• Expire ${card.expiry}` : ""}
+                  </p>
+                </div>
+              </button>
+              <button
+                onClick={() => onDeleteCard(card.id)}
+                aria-label="Supprimer cette carte"
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 active:scale-95 transition-all shrink-0"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+          <p className="text-[11px] text-gray-400 font-medium flex items-center gap-1.5 pt-1">
+            <Plus className="w-3.5 h-3.5" /> Ou payez avec une nouvelle carte ci-dessous
+          </p>
+        </div>
+      )}
+
+      {/* Carte enregistrée sélectionnée : seul le CVV est re-demandé */}
+      {usingSavedCard ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-primary bg-orange-50">
+            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shrink-0 shadow-sm">
+              <CreditCard className="w-5 h-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[14px] font-black text-gray-900">
+                {CARD_BRAND_LABELS[selectedCard.brand] || "Carte"} •••• {selectedCard.last4}
+              </p>
+              <p className="text-[11px] text-gray-500 font-medium truncate">
+                {selectedCard.holder || ""} {selectedCard.expiry ? `• Expire ${selectedCard.expiry}` : ""}
+              </p>
+            </div>
+            <button
+              onClick={() => onSelectCard(null)}
+              className="text-[11px] font-black text-primary uppercase tracking-widest shrink-0 active:scale-95 transition-all"
+            >
+              Changer
+            </button>
+          </div>
+          <div>
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Code de sécurité (CVV)</label>
+            <div className="relative">
+              <input
+                ref={cvvRef}
+                type="text"
+                inputMode="numeric"
+                value={cvv}
+                onChange={handleCvv}
+                placeholder="123"
+                maxLength={4}
+                autoFocus
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 pr-10 text-[15px] font-mono text-gray-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-gray-300"
+              />
+              <Shield className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+            </div>
+            <p className="text-[11px] text-gray-400 font-medium mt-1.5">Le CVV n'est jamais conservé.</p>
+          </div>
+        </div>
+      ) : (
+      <>
       {/* Card visual */}
       <CardVisual cardNumber={cardNumber} cardHolder={cardHolder} expiry={expiry} />
 
@@ -269,6 +391,22 @@ function PaymentCardForm({ amount, onPay, saving }) {
         </div>
       </div>
 
+      {/* Sauvegarder la carte (nouvelle carte uniquement) */}
+      <button
+        onClick={() => setSaveCard(v => !v)}
+        className="w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all active:scale-[0.98] text-left"
+        style={{ borderColor: saveCard ? "#E8732A" : "#f3f4f6", background: saveCard ? "#fff7f0" : "#fafafa" }}
+      >
+        <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${saveCard ? "bg-primary border-primary" : "border-gray-300 bg-white"}`}>
+          {saveCard && <Check className="w-4 h-4 text-white" />}
+        </div>
+        <div className="flex-1">
+          <p className="text-[13px] font-black text-gray-900">Sauvegarder cette carte</p>
+          <p className="text-[11px] text-gray-400 font-medium">Uniquement l'enseigne et les 4 derniers chiffres, sur cet appareil.</p>
+        </div>
+        <Wallet className={`w-5 h-5 shrink-0 ${saveCard ? "text-primary" : "text-gray-300"}`} />
+      </button>
+
       {/* Sécurité */}
       <div className="flex items-center gap-2 px-3 py-2 bg-green-50 rounded-xl">
         <Shield className="w-4 h-4 text-green-500 shrink-0" />
@@ -307,6 +445,8 @@ function PaymentCardForm({ amount, onPay, saving }) {
         <Lock className="w-4 h-4" />
         Payer {amount}€ de manière sécurisée
       </button>
+      </>
+      )}
     </div>
   );
 }
@@ -331,7 +471,7 @@ function QRCodeDisplay({ value, size = 200 }) {
 }
 
 // ── Écran de confirmation avec QR Code ───────────────────────────────────────
-function ConfirmationSuccess({ totalPrice, icsData, crgCode, paymentMode, acompteAmount }) {
+function ConfirmationSuccess({ totalPrice, icsData, crgCode, paymentMode, acompteAmount, payMethod }) {
   const [icsDownloaded, setIcsDownloaded] = useState(false);
 
   // Auto-download ICS on mount (iPhone/iOS will prompt "Ajouter à l'agenda")
@@ -425,8 +565,12 @@ function ConfirmationSuccess({ totalPrice, icsData, crgCode, paymentMode, acompt
         <div className="w-full bg-orange-50 border border-orange-100 rounded-2xl px-4 py-4 space-y-2">
           <p className="text-[10px] font-black text-primary uppercase tracking-widest">Récap paiement</p>
           <div className="flex justify-between">
-            <span className="text-[13px] text-gray-600 font-medium">Acompte payé (30%)</span>
-            <span className="text-[13px] font-black text-green-600">✓ {acompteAmount}€</span>
+            <span className="text-[13px] text-gray-600 font-medium">
+              {payMethod === "onsite" ? "Acompte (30%) à régler au salon" : "Acompte payé (30%)"}
+            </span>
+            <span className={`text-[13px] font-black ${payMethod === "onsite" ? "text-gray-900" : "text-green-600"}`}>
+              {payMethod === "onsite" ? "" : "✓ "}{acompteAmount}€
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-[13px] text-gray-600 font-medium">Reste à payer au salon</span>
@@ -435,7 +579,14 @@ function ConfirmationSuccess({ totalPrice, icsData, crgCode, paymentMode, acompt
         </div>
       )}
 
-      {paymentMode === "full" && (
+      {paymentMode === "full" && payMethod === "onsite" && (
+        <div className="w-full bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 flex items-center gap-3">
+          <Store className="w-5 h-5 text-blue-500 shrink-0" />
+          <p className="text-[13px] font-black text-blue-700">Paiement de {totalPrice}€ au salon</p>
+        </div>
+      )}
+
+      {paymentMode === "full" && payMethod !== "onsite" && (
         <div className="w-full bg-green-50 border border-green-100 rounded-2xl px-4 py-3 flex items-center gap-3">
           <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
           <p className="text-[13px] font-black text-green-700">Paiement complet effectué ✓</p>
@@ -512,6 +663,9 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [paymentMode, setPaymentMode] = useState("full"); // "full" | "acompte"
+  const [payMethod, setPayMethod] = useState("card"); // "card" | "onsite"
+  const [savedCards, setSavedCards] = useState(loadSavedCards);
+  const [selectedCardId, setSelectedCardId] = useState(null);
   const [showCardForm, setShowCardForm] = useState(false);
   const [paid, setPaid] = useState(false);
   const [icsData, setIcsData] = useState(null);
@@ -528,6 +682,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
   const addressDebounceRef = useRef(null);
   const transportRequestRef = useRef(0);
   const scrollRef = useRef(null);
+  const summaryRef = useRef(null);
   const [clientNotes, setClientNotes] = useState(booking.notes || "");
 
   useLayoutEffect(() => {
@@ -540,6 +695,42 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
     const frame = requestAnimationFrame(scrollTop);
     return () => cancelAnimationFrame(frame);
   }, []);
+
+  // À l'ouverture de l'étape, amener directement le résumé de la réservation
+  // en haut de l'écran (le contenu asynchrone peut décaler le scroll initial).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const container = scrollRef.current;
+      const el = summaryRef.current;
+      if (container && el) {
+        container.scrollTo({ top: Math.max(0, el.offsetTop - 12), behavior: "smooth" });
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, []);
+
+  // ── Cartes sauvegardées ──
+  const handleSaveCard = (card) => {
+    const entry = { ...card, id: `card_${Date.now()}` };
+    setSavedCards(prev => {
+      // Évite les doublons (même enseigne + 4 derniers chiffres + expiration)
+      if (prev.some(c => c.brand === entry.brand && c.last4 === entry.last4 && c.expiry === entry.expiry)) {
+        return prev;
+      }
+      const next = [...prev, entry].slice(-5); // max 5 cartes
+      persistSavedCards(next);
+      return next;
+    });
+    setSelectedCardId(entry.id);
+  };
+  const handleDeleteCard = (id) => {
+    setSavedCards(prev => {
+      const next = prev.filter(c => c.id !== id);
+      persistSavedCards(next);
+      return next;
+    });
+    setSelectedCardId(prev => (prev === id ? null : prev));
+  };
 
   // Synchroniser le lieu avec le profil pro
   useEffect(() => {
@@ -735,7 +926,8 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
     };
   };
 
-  const handleConfirmAndBook = async () => {
+  const handleConfirmAndBook = async (method = "card") => {
+    const payOnSite = method === "onsite";
     setSaving(true);
     setPaid(true);
     setError(null);
@@ -768,7 +960,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
           persons: payload.persons,
           total_price: payload.total_price,
           payment_type: payload.payment_type === 'acompte' ? 'acompte' : 'full',
-          payment_status: payload.payment_type === 'acompte' ? 'acompte_paye' : 'paye',
+          payment_status: payOnSite ? 'non_paye' : (payload.payment_type === 'acompte' ? 'acompte_paye' : 'paye'),
           status: 'en_attente',
           notes: payload.notes,
           salon_name: payload.salon_name,
@@ -783,11 +975,14 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
       const pad = (n) => String(n).padStart(2, "0");
       const [y, mo, d] = dateStr.split("-").map(Number);
       const [sh, sm] = (booking.time || "00:00").split(":").map(Number);
-      const endT = sh * 60 + sm + totalDuration;
-      const eh = Math.floor(endT / 60) % 24, em = endT % 60;
-      const fmtICS = (yy, mm, dd, hh, min) => `${yy}${pad(mm)}${pad(dd)}T${pad(hh)}${pad(min)}00`;
-      const dtStart = `${fmtICS(y, mo, d, sh, sm)}00`;
-      const dtEnd = `${fmtICS(y, mo, d, eh, em)}00`;
+      // Créneau de nuit après minuit (00:00–07:00) : il appartient au lendemain
+      // calendaire de la date de session (journée pro 09:00 → 07:00).
+      const icsDay = new Date(y, mo - 1, d + (sh < 7 ? 1 : 0));
+      const fmtICS = (dt) => `${dt.getFullYear()}${pad(dt.getMonth() + 1)}${pad(dt.getDate())}T${pad(dt.getHours())}${pad(dt.getMinutes())}00`;
+      const dtStartObj = new Date(icsDay.getFullYear(), icsDay.getMonth(), icsDay.getDate(), sh, sm);
+      const dtEndObj = new Date(dtStartObj.getTime() + totalDuration * 60000);
+      const dtStart = `${fmtICS(dtStartObj)}00`;
+      const dtEnd = `${fmtICS(dtEndObj)}00`;
       const uid = `beautybook-${Date.now()}@beautybook`;
       const serviceName = booking.services.map(s => s.title || s.name).join(" + ");
       const salonName = savedLieu.name || "";
@@ -836,18 +1031,20 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
 
       setConfirmed(true);
 
-      // Notification paiement au client
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        const amount = paymentMode === "acompte" ? Math.round(totalPrice * 0.3) : totalPrice;
-        await notifyPaymentConfirmed({
-          clientEmail: user?.email,
-          serviceName,
-          amount,
-          date: dateStr,
-        });
-      } catch (e) {
-        console.error("Payment notification error:", e);
+      // Notification paiement au client (uniquement si un paiement en ligne a eu lieu)
+      if (!payOnSite) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          const amount = paymentMode === "acompte" ? Math.round(totalPrice * 0.3) : totalPrice;
+          await notifyPaymentConfirmed({
+            clientEmail: user?.email,
+            serviceName,
+            amount,
+            date: dateStr,
+          });
+        } catch (e) {
+          console.error("Payment notification error:", e);
+        }
       }
     } catch (err) {
       const msg = err?.message || "Erreur lors de la réservation. Veuillez réessayer.";
@@ -865,6 +1062,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
         crgCode={crgCode}
         paymentMode={paymentMode}
         acompteAmount={acompteAmount}
+        payMethod={payMethod}
       />
     );
   }
@@ -888,7 +1086,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 pt-5 pb-4 space-y-4">
 
         {/* ── Ticket récapitulatif ── */}
-        <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden">
+        <div ref={summaryRef} className="bg-white border border-gray-100 rounded-3xl overflow-hidden">
           {/* En-tête ticket */}
           <div className="px-5 pt-5 pb-4 border-b border-dashed border-gray-200" style={{ background: "linear-gradient(135deg,#fff7f0 0%,#fff 100%)" }}>
             <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-3">🎟 Résumé de la réservation</p>
@@ -1152,10 +1350,10 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
           </div>
         </div>
 
-        {/* ── Mode de paiement — 2 options uniquement ── */}
+        {/* ── Montant à régler ── */}
         <div className="bg-white border border-gray-100 rounded-3xl p-5">
-          <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">Mode de paiement</p>
-          <p className="text-[11px] text-gray-400 font-medium mb-4">Le paiement se fait exclusivement via l'application — aucun cash accepté.</p>
+          <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">Montant à régler</p>
+          <p className="text-[11px] text-gray-400 font-medium mb-4">Choisissez combien régler maintenant.</p>
           <div className="space-y-3">
             {/* Payer en totalité */}
             <button
@@ -1167,7 +1365,9 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
               </div>
               <div className="flex-1">
                 <p className={`text-[14px] font-black ${paymentMode === "full" ? "text-gray-900" : "text-gray-600"}`}>Payer en totalité</p>
-                <p className="text-[11px] text-gray-400 font-medium">Tout régler maintenant via l'app</p>
+                <p className="text-[11px] text-gray-400 font-medium">
+                  {payMethod === "onsite" ? "Tout régler au salon le jour J" : "Tout régler maintenant via l'app"}
+                </p>
               </div>
               <span className="text-[16px] font-black text-primary">{totalPrice}€</span>
             </button>
@@ -1182,19 +1382,88 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
               </div>
               <div className="flex-1">
                 <p className={`text-[14px] font-black ${paymentMode === "acompte" ? "text-gray-900" : "text-gray-600"}`}>Acompte 30%</p>
-                <p className="text-[11px] text-gray-400 font-medium">Reste {(totalPrice - acompteAmount).toFixed(2)}€ à régler au salon via l'app</p>
+                <p className="text-[11px] text-gray-400 font-medium">
+                  Reste {(totalPrice - acompteAmount).toFixed(2)}€ à régler au salon{payMethod === "onsite" ? "" : " via l'app"}
+                </p>
               </div>
               <span className="text-[16px] font-black text-primary">{acompteAmount}€</span>
             </button>
           </div>
         </div>
 
-        {/* Formulaire carte bancaire */}
-        <PaymentCardForm
-          amount={amountToPay}
-          onPay={handleConfirmAndBook}
-          saving={saving}
-        />
+        {/* ── Moyen de paiement ── */}
+        <div className="bg-white border border-gray-100 rounded-3xl p-5">
+          <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">Moyen de paiement</p>
+          <p className="text-[11px] text-gray-400 font-medium mb-4">Payez en ligne ou directement au salon.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setPayMethod("card")}
+              className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all active:scale-[0.98] ${payMethod === "card" ? "border-primary bg-orange-50" : "border-gray-100 bg-gray-50"}`}
+            >
+              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                <CreditCard className={`w-5 h-5 ${payMethod === "card" ? "text-primary" : "text-gray-400"}`} />
+              </div>
+              <p className={`text-[13px] font-black ${payMethod === "card" ? "text-gray-900" : "text-gray-500"}`}>Carte bancaire</p>
+            </button>
+            <button
+              onClick={() => setPayMethod("onsite")}
+              className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all active:scale-[0.98] ${payMethod === "onsite" ? "border-primary bg-orange-50" : "border-gray-100 bg-gray-50"}`}
+            >
+              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                <Store className={`w-5 h-5 ${payMethod === "onsite" ? "text-primary" : "text-gray-400"}`} />
+              </div>
+              <p className={`text-[13px] font-black ${payMethod === "onsite" ? "text-gray-900" : "text-gray-500"}`}>Au salon</p>
+            </button>
+          </div>
+        </div>
+
+        {/* Formulaire carte bancaire (+ cartes sauvegardées) */}
+        {payMethod === "card" && (
+          <PaymentCardForm
+            amount={amountToPay}
+            onPay={() => handleConfirmAndBook("card")}
+            saving={saving}
+            savedCards={savedCards}
+            selectedCardId={selectedCardId}
+            onSelectCard={setSelectedCardId}
+            onDeleteCard={handleDeleteCard}
+            onSaveCard={handleSaveCard}
+          />
+        )}
+
+        {/* Paiement au salon */}
+        {payMethod === "onsite" && (
+          <div className="bg-white border border-gray-100 rounded-3xl p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-green-50 flex items-center justify-center shrink-0">
+                <Store className="w-5 h-5 text-green-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[14px] font-black text-gray-900">Paiement au salon</p>
+                <p className="text-[12px] text-gray-500 font-medium mt-1 leading-relaxed">
+                  Aucun débit aujourd'hui. Vous réglerez{" "}
+                  <span className="font-black text-gray-900">
+                    {paymentMode === "acompte" ? `${acompteAmount}€ d'acompte` : `${totalPrice}€`}
+                  </span>{" "}
+                  directement au salon, en espèces ou par carte.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-2 bg-green-50 rounded-xl">
+              <Shield className="w-4 h-4 text-green-500 shrink-0" />
+              <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Réservation garantie sans paiement en ligne</p>
+            </div>
+            <button
+              onClick={() => handleConfirmAndBook("onsite")}
+              disabled={saving}
+              className="w-full py-4 rounded-2xl font-black text-[14px] uppercase tracking-widest text-white flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ background: "#E8732A" }}
+            >
+              {saving ? <Loader className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              Confirmer la réservation
+            </button>
+          </div>
+        )}
 
         {/* Info QR Code */}
         <div className={`rounded-2xl px-4 py-3 flex items-center gap-3 transition-all ${paid ? "bg-gray-900" : "bg-gray-200 opacity-50"}`}>
