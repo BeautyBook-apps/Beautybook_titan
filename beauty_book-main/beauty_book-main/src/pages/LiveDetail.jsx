@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   X, Send, Users, Heart, Volume2, VolumeX, Loader2,
   Camera, CameraOff, Mic, MicOff, ShoppingBag, Tag, Package, Scissors,
-  Share2, PhoneOff, Signal
+  Share2, LogOut
 } from "lucide-react";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
@@ -32,14 +32,6 @@ export function isLiveFresh(session) {
   const ts = session.updated_at || session.created_at;
   if (!ts) return true;
   return Date.now() - new Date(ts).getTime() < LIVE_STALE_MS;
-}
-
-function formatDuration(sec) {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
-  return (h > 0 ? h + ":" : "") + mm + ":" + String(s).padStart(2, "0");
 }
 
 // ── Shop Sheet ────────────────────────────────────────────────────────────────
@@ -150,7 +142,7 @@ function FloatingHearts({ hearts }) {
 }
 
 // ── Host Controls ─────────────────────────────────────────────────────────────
-function HostControls({ cameraOn, micOn, onToggleCamera, onToggleMic, onShop, onStop, connOk }) {
+function HostControls({ cameraOn, micOn, onToggleCamera, onToggleMic, onShop, onStop }) {
   const controls = [
     { label: "Caméra", icon: cameraOn ? Camera : CameraOff, danger: !cameraOn, action: onToggleCamera },
     { label: "Micro", icon: micOn ? Mic : MicOff, danger: !micOn, action: onToggleMic },
@@ -159,14 +151,6 @@ function HostControls({ cameraOn, micOn, onToggleCamera, onToggleMic, onShop, on
 
   return (
     <div className="absolute right-2 flex flex-col items-center gap-1.5" style={{ top: 84, zIndex: 25 }}>
-      {/* Indicateur de diffusion */}
-      <div className="flex flex-col items-center gap-0.5 mb-1">
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shadow-lg"
-          style={{ background: connOk ? "rgba(16,185,129,0.9)" : "rgba(239,68,68,0.9)" }}>
-          <Signal className="w-5 h-5 text-white" />
-        </div>
-        <span className="text-white text-[7px] font-black uppercase tracking-wider">{connOk ? "En ligne" : "Connexion"}</span>
-      </div>
       {controls.map(({ label, icon: Icon, danger, action }) => (
         <button key={label} onClick={action} className="flex flex-col items-center gap-0.5 active:scale-95 transition-all">
           <div className="w-11 h-11 rounded-xl flex items-center justify-center shadow-lg"
@@ -179,9 +163,9 @@ function HostControls({ cameraOn, micOn, onToggleCamera, onToggleMic, onShop, on
       <div className="w-6 border-t border-white/10 my-0.5" />
       <button onClick={onStop} className="flex flex-col items-center gap-0.5 active:scale-95 transition-all">
         <div className="w-11 h-11 rounded-xl flex items-center justify-center shadow-lg" style={{ background: "#ef4444" }}>
-          <PhoneOff className="w-5 h-5 text-white" />
+          <LogOut className="w-5 h-5 text-white" />
         </div>
-        <span className="text-white text-[7px] font-black uppercase tracking-wider">Terminer</span>
+        <span className="text-white text-[7px] font-black uppercase tracking-wider">Quitter</span>
       </button>
     </div>
   );
@@ -201,7 +185,6 @@ export default function LiveDetail() {
   const [viewers, setViewers] = useState(() => readPageCache(cacheKey)?.session?.viewers || 0);
   const [muted, setMuted] = useState(false);
   const [connStatus, setConnStatus] = useState("connecting");
-  const [duration, setDuration] = useState(0);
 
   const [isHost, setIsHost] = useState(false);
   const [localStream, setLocalStream] = useState(null);
@@ -263,17 +246,6 @@ export default function LiveDetail() {
     };
     load();
   }, [id, user?.email]);
-
-  // ── Durée du live ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    const start = session?.started_at || session?.created_at;
-    if (!start) return;
-    const t0 = new Date(start).getTime();
-    const tick = () => setDuration(Math.max(0, Math.floor((Date.now() - t0) / 1000)));
-    tick();
-    const timer = setInterval(tick, 1000);
-    return () => clearInterval(timer);
-  }, [session?.started_at, session?.created_at]);
 
   // ── Realtime session updates ────────────────────────────────────────────────
   useEffect(() => {
@@ -785,10 +757,7 @@ export default function LiveDetail() {
               <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#ef4444", borderRadius: 999, padding: "5px 12px", boxShadow: "0 0 16px rgba(239,68,68,0.5)" }}>
                   <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#fff", animation: "pulse 1.5s infinite" }} />
-                  <span style={{ color: "#fff", fontSize: 11, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>En direct</span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.5)", borderRadius: 999, padding: "5px 12px", backdropFilter: "blur(8px)" }}>
-                  <span style={{ color: "#fff", fontSize: 11, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{formatDuration(duration)}</span>
+                  <span style={{ color: "#fff", fontSize: 11, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>LIVE</span>
                 </div>
               </div>
             )}
@@ -831,7 +800,6 @@ export default function LiveDetail() {
               cameraOn={cameraOn} micOn={micOn}
               onToggleCamera={toggleCamera} onToggleMic={toggleMic}
               onShop={() => setShowShop(true)} onStop={stopLive}
-              connOk={connStatus === "connected"}
             />
           )}
 
