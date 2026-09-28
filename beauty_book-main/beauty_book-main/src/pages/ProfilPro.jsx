@@ -50,19 +50,38 @@ export default function ProfilPro() {
   const navigate = useNavigate();
   const location = useLocation();
   const { theme } = useTheme();
+  // Lecture synchrone du cache : la première peinture affiche déjà les vraies
+  // données du salon (nom, avatar, ville, statut) au lieu d'une page
+  // intermédiaire avec placeholders (« P », bannière documents, stats à 0).
+  const readProCache = () => {
+    try { return JSON.parse(localStorage.getItem('pro_profile_cache') || 'null'); }
+    catch { return null; }
+  };
   const [activeTab, setActiveTab] = useState("gestion");
   const [nightMode, setNightMode] = useState(() => localStorage.getItem(NIGHT_STORAGE_KEY) === "true");
-  const [proInfo, setProInfo] = useState(null);
+  const [proInfo, setProInfo] = useState(() => readProCache());
   const [shareOpen, setShareOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [stats, setStats] = useState({ rdvSemaine: 0, nouveauxClients: 0, caMonth: 0, caLastMonth: 0 });
+  const [stats, setStats] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('pro_stats_cache') || 'null');
+      if (cached && (!cached.user_email || cached.user_email === user?.email)) {
+        return { rdvSemaine: cached.rdvSemaine || 0, nouveauxClients: cached.nouveauxClients || 0, caMonth: cached.caMonth || 0, caLastMonth: cached.caLastMonth || 0 };
+      }
+    } catch {}
+    return { rdvSemaine: 0, nouveauxClients: 0, caMonth: 0, caLastMonth: 0 };
+  });
   const [clientProfile, setClientProfile] = useState(null);
-  const [demandeStatus, setDemandeStatus] = useState(null);
+  const [demandeStatus, setDemandeStatus] = useState(() => {
+    const cached = readProCache();
+    return cached?.status === 'actif' ? 'approuvee' : null;
+  });
   const nightModeSyncedRef = useRef(false);
 
   const loadProfil = () => {
     if (!user?.email) return;
-    setProInfo(null);
+    // Ne PAS réinitialiser proInfo à null : on garde les données affichées
+    // pendant le rafraîchissement en arrière-plan (fini le flash de placeholders).
 
     const applyCache = (p) => {
       if (!p) return null;
@@ -102,6 +121,18 @@ export default function ProfilPro() {
         }
         if (p) {
           setProInfo(p);
+          // Cache enrichi (email + statut) : la prochaine ouverture affiche
+          // directement les vraies données, sans page intermédiaire.
+          try {
+            localStorage.setItem('pro_profile_cache', JSON.stringify({
+              user_email: user.email,
+              salon_name: p.salon_name || '', phone: p.phone || '', address: p.address || '',
+              city: p.city || '', bio: p.bio || '', avatar_url: p.avatar_url || '',
+              cover_url: p.cover_url || '', status: p.status || '',
+            }));
+          } catch {}
+          // Précharge l'avatar pour éviter son flash à l'affichage.
+          if (p.avatar_url) { const img = new Image(); img.src = p.avatar_url; }
           if (!nightModeSyncedRef.current) {
             const dbVal = !!p.travail_nuit;
             setNightMode(dbVal);
@@ -156,6 +187,13 @@ export default function ProfilPro() {
       return d >= lastMonthStart && d <= lastMonthEnd && r.status === "termine";
     }).reduce((s, r) => s + (r.total_price || r.service_price || 0), 0);
     setStats({ rdvSemaine, nouveauxClients, caMonth, caLastMonth });
+    // Cache des stats : la prochaine ouverture affiche directement les vrais
+    // chiffres au lieu de 0 pendant le chargement.
+    try {
+      localStorage.setItem('pro_stats_cache', JSON.stringify({
+        user_email: user.email, rdvSemaine, nouveauxClients, caMonth, caLastMonth,
+      }));
+    } catch {}
   };
 
   useEffect(() => {
@@ -185,8 +223,10 @@ export default function ProfilPro() {
     return () => window.removeEventListener("focus", handleFocus);
   }, [user]);
 
-  // Ne jamais afficher les données d'un autre utilisateur (évite le flash)
-  const proInfoCurrent = (proInfo && proInfo.user_email === user?.email) ? proInfo : null;
+  // Ne jamais afficher les données d'un autre utilisateur (évite le flash).
+  // Le cache enrichi porte user_email (contrôle strict) ; l'ancien format
+  // sans email est accepté pour un affichage immédiat dès la première ouverture.
+  const proInfoCurrent = (proInfo && (!proInfo.user_email || proInfo.user_email === user?.email)) ? proInfo : null;
   const nomCommerce = proInfoCurrent?.salon_name || "";
 
   if (activeTab === "client") {
@@ -407,8 +447,11 @@ export default function ProfilPro() {
           <span className="mt-1 bg-gray-100 text-gray-500 text-[11px] font-black px-3 py-1 rounded-lg uppercase tracking-wider">PRO</span>
         </div>
 
-        {/* Pending Alert — masqué si profil actif OU demande approuvée */}
-        {proInfoCurrent?.status !== 'actif' && demandeStatus !== 'approuvee' && (
+        {/* Pending Alert — affiché uniquement si on SAIT que les documents sont
+            en attente (statut connu non-actif ou demande non approuvée).
+            Quand le statut est encore inconnu (chargement), on n'affiche rien
+            pour éviter le flash de la bannière chez les pros validés. */}
+        {((proInfoCurrent?.status && proInfoCurrent.status !== 'actif') || (demandeStatus && demandeStatus !== 'approuvee')) && (
           <div className="flex gap-3 bg-orange-50 p-4 rounded-2xl border border-orange-100">
             <div className="w-8 h-8 shrink-0 bg-orange-100 rounded-xl flex items-center justify-center mt-0.5">
               <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -479,7 +522,13 @@ export default function ProfilPro() {
               <div className="flex items-center gap-1 mt-2">
                 <TrendingUp className="w-3.5 h-3.5 text-green-400" />
                 <span className="text-[12px] font-bold text-green-400">
-                  {stats.caLastMonth > 0 ? `+${Math.round(((stats.caMonth - stats.caLastMonth) / stats.caLastMonth) * 100)}%` : stats.caMonth > 0 ? "+100%" : "+0%"} vs mois dernier
+                  {(() => {
+                    if (stats.caLastMonth > 0) {
+                      const pct = Math.round(((stats.caMonth - stats.caLastMonth) / stats.caLastMonth) * 100);
+                      return `${pct > 0 ? "+" : ""}${pct}%`;
+                    }
+                    return stats.caMonth > 0 ? "+100%" : "+0%";
+                  })()} vs mois dernier
                 </span>
               </div>
             </div>
