@@ -919,7 +919,7 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
           setOrigMuted={setOrigMuted}
           setMusicVol={(v) => setMusic((m) => (m ? { ...m, vol: v } : m))}
           removeMusic={removeMusic}
-          onPick={(tr) => adoptMusicUrl(tr.previewUrl, `${tr.trackName} — ${tr.artistName}`)}
+          onPick={(tr) => adoptMusicUrl(tr.previewUrl, `${tr.title} — ${tr.artist}`)}
           onImport={() => fileMusicRef.current?.click()}
           onClose={() => setShowSoundPage(false)}
         />
@@ -981,26 +981,81 @@ function Slider({ label, min, max, step = 1, value, fmtv, onChange }) {
   );
 }
 
-/* ── Page « Ajouter un son » : recherche + import audio ── */
+/* ── Page « Ajouter un son » : tendances + recherche multi-sources + import audio ── */
 function SoundPage({ music, origMuted, setOrigMuted, setMusicVol, removeMusic, onPick, onImport, onClose }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
+  const [trending, setTrending] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [loadingTop, setLoadingTop] = useState(true);
   const [searched, setSearched] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
   const previewRef = useRef(null);
 
-  useEffect(() => () => { previewRef.current?.pause(); }, []);
+  useEffect(() => { loadTrending(); return () => { previewRef.current?.pause(); }; }, []);
 
+  // Tendances : Top iTunes France + Top Deezer (sans clé)
+  const loadTrending = async () => {
+    setLoadingTop(true);
+    const it = [], dz = [];
+    try {
+      const r = await fetch("https://itunes.apple.com/fr/rss/topsongs/limit=25/json");
+      const j = await r.json();
+      (j.feed?.entry || []).forEach((e, i) => {
+        const links = Array.isArray(e.link) ? e.link : [e.link].filter(Boolean);
+        const enc = links.find((l) => l.attributes?.rel === "enclosure");
+        const imgs = e["im:image"] || [];
+        if (enc?.attributes?.href) it.push({
+          id: "it-top-" + i, title: e["im:name"]?.label || "Sans titre", artist: e["im:artist"]?.label || "",
+          artwork: imgs[imgs.length - 1]?.label, previewUrl: enc.attributes.href,
+        });
+      });
+    } catch {}
+    try {
+      const r = await fetch("https://api.deezer.com/chart/0/tracks?limit=25");
+      const j = await r.json();
+      (j.data || []).forEach((t) => {
+        if (t.preview) dz.push({
+          id: "dz-top-" + t.id, title: t.title, artist: t.artist?.name || "",
+          artwork: t.album?.cover_medium, previewUrl: t.preview,
+        });
+      });
+    } catch {}
+    // Alterne les deux sources pour varier
+    const mixed = [];
+    const n = Math.max(it.length, dz.length);
+    for (let i = 0; i < n; i++) { if (it[i]) mixed.push(it[i]); if (dz[i]) mixed.push(dz[i]); }
+    setTrending(mixed.slice(0, 40));
+    setLoadingTop(false);
+  };
+
+  // Recherche combinée iTunes + Deezer
   const search = async () => {
     const term = q.trim();
     if (!term) return;
     setSearching(true); setSearched(true);
+    const out = [];
     try {
-      const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&country=FR&limit=25`);
+      const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&country=FR&limit=20`);
       const d = await r.json();
-      setResults(d.results || []);
-    } catch { setResults([]); }
+      (d.results || []).forEach((tr, i) => {
+        if (tr.previewUrl) out.push({
+          id: "it-" + (tr.trackId || i), title: tr.trackName, artist: tr.artistName,
+          artwork: tr.artworkUrl100, previewUrl: tr.previewUrl, durationMs: tr.trackTimeMillis,
+        });
+      });
+    } catch {}
+    try {
+      const r = await fetch(`https://api.deezer.com/search?q=${encodeURIComponent(term)}&limit=20`);
+      const d = await r.json();
+      (d.data || []).forEach((t) => {
+        if (t.preview) out.push({
+          id: "dz-" + t.id, title: t.title, artist: t.artist?.name || "",
+          artwork: t.album?.cover_medium, previewUrl: t.preview, durationMs: (t.duration || 30) * 1000,
+        });
+      });
+    } catch {}
+    setResults(out);
     setSearching(false);
   };
 
@@ -1018,6 +1073,31 @@ function SoundPage({ music, origMuted, setOrigMuted, setMusicVol, removeMusic, o
   const close = () => { previewRef.current?.pause(); onClose(); };
   const fmtDur = (ms) => { const s = Math.round((ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 
+  const list = searched ? results : trending;
+  const emptyMsg = searching || loadingTop ? "Chargement…" : searched
+    ? "Aucun résultat. Essayez un autre titre ou importez votre audio."
+    : "Les tendances arrivent…";
+
+  const TrackRow = ({ tr, badge }) => (
+    <div className="flex items-center gap-3 p-2.5 rounded-2xl mb-2" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+      <button onClick={() => togglePreview(tr)} aria-label="Écouter l'extrait" className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0" style={{ background: "#2a2a35" }}>
+        {tr.artwork && <img src={tr.artwork} alt="" className="w-full h-full object-cover" />}
+        <span className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.35)" }}>
+          {previewUrl === tr.previewUrl ? <Pause className="w-5 h-5 text-white" /> : <Play className="w-5 h-5 text-white ml-0.5" />}
+        </span>
+        {badge && <span className="absolute top-0 left-0 text-[7px] font-black px-1 rounded-br-lg text-white" style={{ background: ACCENT }}>{badge}</span>}
+      </button>
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-bold truncate">{tr.title}</p>
+        <p className="text-[11px] truncate" style={{ color: MUTED }}>{tr.artist}</p>
+      </div>
+      {tr.durationMs ? <span className="text-[11px] font-mono shrink-0" style={{ color: MUTED }}>{fmtDur(tr.durationMs)}</span> : null}
+      <button onClick={() => onPick(tr)} className="shrink-0 px-3.5 h-9 rounded-full text-[12px] font-black text-white active:scale-95" style={{ background: ACCENT }}>
+        Utiliser
+      </button>
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: BG, color: TXT }}>
       <div className="flex items-center gap-3 px-3 shrink-0" style={{ paddingTop: "max(12px, env(safe-area-inset-top))", paddingBottom: 10, borderBottom: `1px solid ${BORDER}` }}>
@@ -1032,9 +1112,14 @@ function SoundPage({ music, origMuted, setOrigMuted, setMusicVol, removeMusic, o
           <Music2 className="w-4 h-4 shrink-0" style={{ color: MUTED }} />
           <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") search(); }}
             placeholder="Titre, artiste…" className="flex-1 bg-transparent text-[14px] outline-none" style={{ color: TXT }} />
+          {searched && (
+            <button onClick={() => { setQ(""); setResults([]); setSearched(false); }} aria-label="Effacer" className="shrink-0">
+              <X className="w-4 h-4" style={{ color: MUTED }} />
+            </button>
+          )}
           <button onClick={search} className="text-[13px] font-black shrink-0" style={{ color: ACCENT }}>Rechercher</button>
         </div>
-        <p className="text-[10px] mt-1.5 px-1" style={{ color: MUTED }}>Catalogue d'extraits (30 s) — importez votre propre audio pour la version intégrale.</p>
+        <p className="text-[10px] mt-1.5 px-1" style={{ color: MUTED }}>Tendances du moment + recherche — extraits de 30 s. Importez votre audio pour la version intégrale.</p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -1064,28 +1149,11 @@ function SoundPage({ music, origMuted, setOrigMuted, setMusicVol, removeMusic, o
           {origMuted ? "Son original coupé" : "Son original activé"}
         </button>
 
-        {searching && <p className="text-center py-8 text-[13px]" style={{ color: MUTED }}>Recherche en cours…</p>}
-        {!searching && searched && results.length === 0 && (
-          <p className="text-center py-8 text-[13px]" style={{ color: MUTED }}>Aucun résultat. Essayez un autre titre ou importez votre audio.</p>
+        {!searched && list.length > 0 && (
+          <p className="text-[11px] font-black uppercase tracking-widest mb-2 px-1" style={{ color: MUTED }}>🔥 Tendances</p>
         )}
-        {results.map((tr, i) => (
-          <div key={tr.trackId || i} className="flex items-center gap-3 p-2.5 rounded-2xl mb-2" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
-            <button onClick={() => togglePreview(tr)} aria-label="Écouter l'extrait" className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0" style={{ background: "#2a2a35" }}>
-              {tr.artworkUrl100 && <img src={tr.artworkUrl100} alt="" className="w-full h-full object-cover" />}
-              <span className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.35)" }}>
-                {previewUrl === tr.previewUrl ? <Pause className="w-5 h-5 text-white" /> : <Play className="w-5 h-5 text-white ml-0.5" />}
-              </span>
-            </button>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-bold truncate">{tr.trackName}</p>
-              <p className="text-[11px] truncate" style={{ color: MUTED }}>{tr.artistName}</p>
-            </div>
-            <span className="text-[11px] font-mono shrink-0" style={{ color: MUTED }}>{fmtDur(tr.trackTimeMillis)}</span>
-            <button onClick={() => onPick(tr)} className="shrink-0 px-3.5 h-9 rounded-full text-[12px] font-black text-white active:scale-95" style={{ background: ACCENT }}>
-              Utiliser
-            </button>
-          </div>
-        ))}
+        {list.length === 0 && <p className="text-center py-8 text-[13px]" style={{ color: MUTED }}>{emptyMsg}</p>}
+        {list.map((tr) => <TrackRow key={tr.id} tr={tr} badge={searched ? null : "TOP"} />)}
       </div>
 
       <div className="px-4 shrink-0" style={{ paddingBottom: "max(16px, env(safe-area-inset-bottom))", paddingTop: 8, borderTop: `1px solid ${BORDER}`, background: BG }}>
