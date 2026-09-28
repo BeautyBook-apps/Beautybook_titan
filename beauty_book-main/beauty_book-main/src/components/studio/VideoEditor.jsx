@@ -262,8 +262,15 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
       if (loc.clip.kind === "video") {
         v.style.display = "";
         const im = document.getElementById("ve-img"); if (im) im.style.display = "none";
-        if (clockRef.current.curClipId !== loc.clip.id) clockRef.current.curClipId = null; // recharge si changement de clip
+        const sameClip = clockRef.current.curClipId === loc.clip.id;
+        if (!sameClip) clockRef.current.curClipId = null; // recharge si changement de clip
         switchVideoTo(loc.clip, loc.off);
+        if (sameClip && v.readyState >= 1) {
+          // Clip déjà chargé : canplay ne se redéclenche pas, on applique le seek tout de suite
+          // (sinon l'aperçu restait figé pendant le déplacement de la tête de lecture)
+          clockRef.current.seekPending = false; clockRef.current.pendingSeek = null;
+          try { v.currentTime = clamp(loc.clip.trimS + loc.off * loc.clip.speed, 0, Math.max(0, (v.duration || 1) - 0.05)); } catch {}
+        }
         v.style.filter = filterCSS(loc.clip);
         v.style.transform = loc.clip.flip ? "scaleX(-1)" : "";
         const noSound = loc.clip.muted || origMuted;
@@ -386,6 +393,23 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
     if (!sc || dragRef.current) return;
     const x = t * PPS;
     if (x < sc.scrollLeft + 40 || x > sc.scrollLeft + sc.clientWidth - 120) sc.scrollLeft = Math.max(0, x - sc.clientWidth / 2);
+  };
+  // Démarre un scrub (déplacement de la tête de lecture) : utilisable depuis
+  // la règle ET depuis la poignée de la tête de lecture elle-même.
+  const startScrub = (e) => {
+    e.preventDefault();
+    dragRef.current = true;
+    trackSeek(e);
+    const mv = (ev) => trackSeek(ev);
+    const up = () => {
+      dragRef.current = false;
+      document.removeEventListener("pointermove", mv);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", up);
+    };
+    document.addEventListener("pointermove", mv);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", up);
   };
   const rulerMarks = [];
   {
@@ -690,8 +714,8 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
           <div ref={scrollRef} className="flex-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
             <div className="relative" style={{ width: Math.max(totalDur * PPS + 80, 400) }}>
               {/* Règle */}
-              <div className="relative" style={{ height: 20 }}
-                onPointerDown={(e) => { e.preventDefault(); dragRef.current = true; trackSeek(e); const mv = (ev) => trackSeek(ev); const up = () => { dragRef.current = false; document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up); }; document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up); }}>
+              <div className="relative" style={{ height: 20, touchAction: "none" }}
+                onPointerDown={startScrub}>
                 {rulerMarks.map((t) => (
                   <div key={t} className="absolute top-0" style={{ left: t * PPS }}>
                     <div className="w-px h-1.5" style={{ background: MUTED }} />
@@ -784,10 +808,13 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
                   </div>
                 ))}
               </div>
-              {/* Tête de lecture */}
+              {/* Tête de lecture — poignée attrapable (28px) pour le scrub au doigt */}
               <div className="absolute top-0 bottom-0 z-20 pointer-events-none" style={{ left: playhead * PPS }}>
-                <div className="w-[2px] h-full" style={{ background: "#ff2c55" }} />
-                <div className="absolute -top-0 -left-[5px]" style={{ borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "8px solid #ff2c55" }} />
+                <div className="absolute top-0 bottom-0 pointer-events-auto" style={{ left: -14, width: 28, touchAction: "none", cursor: "ew-resize" }}
+                  onPointerDown={startScrub}>
+                  <div className="w-[2px] h-full mx-auto pointer-events-none" style={{ background: "#ff2c55" }} />
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 pointer-events-none" style={{ borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "8px solid #ff2c55" }} />
+                </div>
               </div>
             </div>
           </div>
