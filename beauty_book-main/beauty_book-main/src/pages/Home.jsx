@@ -20,6 +20,22 @@ function getSectionBg() {
   return "#FFF5F0";
 }
 
+// ── Cache page d'accueil ─────────────────────────────────────────────────────
+// La page s'initialise depuis ce cache : affichage direct des dernières
+// données connues dès la première peinture, sans page vide intermédiaire.
+// Le cache est réécrit en arrière-plan à chaque chargement frais.
+const HOME_CACHE_KEY = "home_cache_v1";
+function readHomeCache() {
+  try { return JSON.parse(localStorage.getItem(HOME_CACHE_KEY) || "null") || {}; }
+  catch { return {}; }
+}
+function writeHomeCache(patch) {
+  try {
+    const prev = readHomeCache();
+    localStorage.setItem(HOME_CACHE_KEY, JSON.stringify({ ...prev, ...patch }));
+  } catch {}
+}
+
 
 
 // Placeholder pour images manquantes
@@ -90,25 +106,26 @@ export default function Home() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [sectionBg, setSectionBg] = useState(getSectionBg);
   const adminRecommandesSet = useRef(false);
-  const [homeConfig, setHomeConfig] = useState({});
+  // Première peinture directement depuis le cache (pas de page vide).
+  const [homeCacheInitial] = useState(readHomeCache);
+  const [homeConfig, setHomeConfig] = useState(homeCacheInitial.homeConfig || {});
   const { formatPrice } = useLocale();
   const { sessions: liveSessions, refetch: refreshLives } = useLiveSessions();
-  const [partenairesDiplomes, setPartenairesDiplomes] = useState([]);
-  const [produitsTendanceLive, setProduitsTendanceLive] = useState([]);
-  const [produitsRecommandes, setProduitsRecommandes] = useState([]);
-  const [offresImmoLive, setOffresImmoLive] = useState(null);
-  const [offresSpeciales, setOffresSpeciales] = useState([]);
-  const [bundles, setBundles] = useState([]);
-  const [bundlesTendance, setBundlesTendance] = useState([]);
+  const [partenairesDiplomes, setPartenairesDiplomes] = useState(homeCacheInitial.partenairesDiplomes || []);
+  const [produitsTendanceLive, setProduitsTendanceLive] = useState(homeCacheInitial.produitsTendanceLive || []);
+  const [produitsRecommandes, setProduitsRecommandes] = useState(homeCacheInitial.produitsRecommandes || []);
+  const [offresImmoLive, setOffresImmoLive] = useState(homeCacheInitial.offresImmoLive || null);
+  const [offresSpeciales, setOffresSpeciales] = useState(homeCacheInitial.offresSpeciales || []);
+  const [bundles, setBundles] = useState(homeCacheInitial.bundles || []);
+  const [bundlesTendance, setBundlesTendance] = useState(homeCacheInitial.bundlesTendance || []);
+  // Devient true dès que de vraies données sont arrivées : autorise alors
+  // la persistance du cache (on ne persiste jamais du vide).
+  const homeLoadedRef = useRef(false);
 
   useEffect(() => {
-    // Reset immédiat pour éviter un flash des données précédentes
-    setHomeConfig({});
-    setOffresSpeciales([]);
-    setOffresImmoLive(null);
+    // Plus de reset ici : on garde les données affichées (cache ou précédent
+    // chargement) pendant le rafraîchissement en arrière-plan.
     void refreshLives();
-    setPartenairesDiplomes([]);
-    setProduitsTendanceLive([]);
 
     // Charger config depuis AppConfig
     entities.AppConfig.filter({ key: "home_config" }, "-created_at", 50)
@@ -116,6 +133,7 @@ export default function Home() {
         if (rows[0]?.value) {
           const cfg = rows[0].value;
           setHomeConfig(cfg);
+          homeLoadedRef.current = true;
           setOffresSpeciales(cfg.offres_speciales || []);
 
           // Sync immo : charger le vrai listing depuis la BDD par son ID
@@ -213,6 +231,22 @@ export default function Home() {
       .then(rows => { if (rows[0]) setOffresImmoLive(prev => prev || rows[0]); })
       .catch(() => {});
   }, [refreshKey]);
+
+  // Persiste les données en cache dès qu'elles sont chargées (jamais de vide) :
+  // la prochaine ouverture affiche directement la page complète.
+  useEffect(() => {
+    if (!homeLoadedRef.current) return;
+    writeHomeCache({
+      homeConfig,
+      offresSpeciales,
+      offresImmoLive,
+      bundles,
+      bundlesTendance,
+      partenairesDiplomes,
+      produitsTendanceLive,
+      produitsRecommandes,
+    });
+  }, [homeConfig, offresSpeciales, offresImmoLive, bundles, bundlesTendance, partenairesDiplomes, produitsTendanceLive, produitsRecommandes]);
 
   useEffect(() => {
     const update = () => setSectionBg(getSectionBg());
