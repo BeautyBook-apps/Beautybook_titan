@@ -193,7 +193,12 @@ export default function MainHeader() {
                   strokeWidth={2}
                 />
                 {tab.label}
-                {isLive && (
+                {isLive && liveSessions.length > 0 && (
+                  <span className="ml-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full flex items-center justify-center text-white text-[10px] font-black">
+                    {liveSessions.length > 9 ? "9+" : liveSessions.length}
+                  </span>
+                )}
+                {isLive && liveSessions.length === 0 && (
                   <span className="relative flex h-2 w-2 ml-0.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>

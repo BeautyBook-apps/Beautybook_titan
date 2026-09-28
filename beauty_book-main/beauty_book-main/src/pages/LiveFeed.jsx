@@ -1,10 +1,12 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Radio, Users, RefreshCw, Volume2, VolumeX } from "lucide-react";
+import { Radio, Users, RefreshCw, Volume2, VolumeX, Clock } from "lucide-react";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
+import { useFollow } from "@/hooks/useFollow";
+import { isLiveFresh } from "./LiveDetail";
 import Hls from "hls.js";
 
 // HLS player inline dans la card — joue avec son dès que possible
@@ -52,10 +54,27 @@ function LiveHlsVideo({ src, muted, onToggleMute }) {
 }
 
 function LiveCard({ live, onNavigate }) {
-  const [followed, setFollowed] = useState(false);
+  const { followed, toggle: toggleFollow } = useFollow(live.host_email);
   const [viewers, setViewers] = useState(live.viewers || 0);
   const [muted, setMuted] = useState(true);
+  const [elapsed, setElapsed] = useState(0);
   const hasHls = !!live.hls_url;
+
+  useEffect(() => {
+    const start = live.started_at || live.created_at;
+    if (!start) return;
+    const t0 = new Date(start).getTime();
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - t0) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [live.started_at, live.created_at]);
+
+  const durationLabel = (() => {
+    const m = Math.floor(elapsed / 60);
+    const s = elapsed % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  })();
 
   useEffect(() => {
     const unsub = entities.LiveSession.subscribe((event) => {
@@ -107,11 +126,17 @@ function LiveCard({ live, onNavigate }) {
 
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/40 pointer-events-none" />
 
-      {/* LIVE badge */}
-      <div className="absolute flex items-center gap-1.5 bg-red-500 rounded-full px-3 py-1.5 z-10"
+      {/* LIVE badge + durée */}
+      <div className="absolute flex items-center gap-1.5 z-10"
         style={{ top: "calc(16px + env(safe-area-inset-top, 0px))", left: 16 }}>
-        <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-        <span className="text-white text-[11px] font-black uppercase tracking-widest">LIVE</span>
+        <div className="flex items-center gap-1.5 bg-red-500 rounded-full px-3 py-1.5 shadow-lg shadow-red-500/40">
+          <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+          <span className="text-white text-[11px] font-black uppercase tracking-widest">LIVE</span>
+        </div>
+        <div className="flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-2.5 py-1.5">
+          <Clock className="w-3 h-3 text-white/70" />
+          <span className="text-white text-[11px] font-bold tabular-nums">{durationLabel}</span>
+        </div>
       </div>
 
       {/* Viewers */}
@@ -148,9 +173,9 @@ function LiveCard({ live, onNavigate }) {
             <p className="text-white/60 text-[12px] font-medium">{live.category || "Beauté"}</p>
           </div>
           <button
-            onClick={(e) => { e.stopPropagation(); setFollowed(f => !f); }}
-            className={`shrink-0 rounded-full px-4 py-2 text-[12px] font-black border transition-all ${
-              followed ? "border-white/40 text-white/60" : "bg-primary border-primary text-white"
+            onClick={(e) => { e.stopPropagation(); toggleFollow(); }}
+            className={`shrink-0 rounded-full px-4 py-2 text-[12px] font-black border transition-all active:scale-95 ${
+              followed ? "border-white/40 text-white/70 bg-white/10" : "bg-primary border-primary text-white"
             }`}
           >
             {followed ? "Abonné ✓" : "+ Suivre"}
@@ -171,17 +196,21 @@ function LiveCard({ live, onNavigate }) {
 export default function LiveFeed() {
   const navigate = useNavigate();
   // Affichage direct depuis le cache : la dernière liste de lives connue s'affiche
-  // immédiatement, le refresh (temps réel) suit en arrière-plan sans vider l'affichage.
-  const [lives, setLives] = useCachedState("livefeed_page", [], c => c?.lives || []);
+  // immédiatement (sans les lives fantômes), le refresh suit en arrière-plan.
+  const [lives, setLives] = useCachedState("livefeed_page", [], c => (c?.lives || []).filter(isLiveFresh));
   const [loading, setLoading] = useState(() => !readPageCache("livefeed_page")?.lives?.length);
+
+  const applyLives = (items) => {
+    // Ne garde que les lives réellement en cours (anti-fantômes : un live
+    // dont l'hôte a fermé la page sans "Terminer" disparaît en ~2 min).
+    const list = (items || []).filter(isLiveFresh);
+    setLives(list);
+    mergePageCache("livefeed_page", { lives: list });
+  };
 
   const loadLives = () => {
     entities.LiveSession.filter({ status: "live" }, "-created_at", 20)
-      .then(items => {
-        const list = items || [];
-        setLives(list);
-        mergePageCache("livefeed_page", { lives: list });
-      })
+      .then(applyLives)
       .catch(() => {})
       .finally(() => setLoading(false));
   };
@@ -190,17 +219,17 @@ export default function LiveFeed() {
     setLoading(true);
     entities.LiveSession.filter({ status: "live" }, "-created_at", 20)
       .then(items => {
-        const list = items || [];
-        setLives(list);
-        mergePageCache("livefeed_page", { lives: list });
+        applyLives(items);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
 
     window.addEventListener("focus", loadLives);
+    // Re-vérification périodique : éjecte les lives fantômes.
+    const staleSweeper = setInterval(loadLives, 30000);
 
     const unsub = entities.LiveSession.subscribe((event) => {
-      if (event.type === "create" && event.data?.status === "live") {
+      if (event.type === "create" && event.data?.status === "live" && isLiveFresh(event.data)) {
         setLives(prev => {
           if (prev.find(l => l.id === event.data.id)) return prev;
           return [event.data, ...prev];
@@ -208,12 +237,12 @@ export default function LiveFeed() {
         setLoading(false);
       }
       if (event.type === "update") {
-        if (event.data?.status === "ended") {
+        if (event.data?.status === "ended" || (event.data && !isLiveFresh({ ...event.data, status: "live" }))) {
           setLives(prev => prev.filter(l => l.id !== event.data.id));
         } else if (event.data?.status === "live") {
           setLives(prev => {
             const exists = prev.find(l => l.id === event.data.id);
-            return exists ? prev.map(l => l.id === event.data.id ? event.data : l) : [event.data, ...prev];
+            return exists ? prev.map(l => l.id === event.data.id ? { ...l, ...event.data } : l) : [event.data, ...prev];
           });
           setLoading(false);
         }
@@ -225,6 +254,7 @@ export default function LiveFeed() {
 
     return () => {
       window.removeEventListener("focus", loadLives);
+      clearInterval(staleSweeper);
       unsub();
     };
   }, []);

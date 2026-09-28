@@ -123,20 +123,27 @@ export default function LancerDirect() {
 
     try {
       const existingLives = await entities.LiveSession.filter({ host_email: user?.email, status: "live" }, "-created_at", 20).catch(() => []);
-      await Promise.all(existingLives.map(l => entities.LiveSession.update(l.id, { status: "ended" }).catch(() => {})));
+      await Promise.all(existingLives.map(l => entities.LiveSession.update(l.id, { status: "ended", ended_at: new Date().toISOString() }).catch(() => {})));
 
-      let stream = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      } catch {
+      // Vérifie l'accès caméra/micro (réutilise le test d'environnement si déjà OK).
+      let hasVideo = cameraAllowed === true;
+      let hasAudio = micAllowed === true;
+      if (!testStreamRef.current) {
         try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          stream.getTracks().forEach(t => t.stop());
+          hasVideo = true; hasAudio = true;
         } catch {
-          throw new Error("Impossible d'accéder à la caméra ou au micro. Autorisez l'accès dans votre navigateur.");
+          try {
+            const audioOnly = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+            audioOnly.getTracks().forEach(t => t.stop());
+            hasAudio = true;
+          } catch {
+            throw new Error("Impossible d'accéder à la caméra ou au micro. Autorisez l'accès dans votre navigateur.");
+          }
         }
       }
-      if (testStream && testStream !== stream) testStream.getTracks().forEach(t => t.stop());
-      if (stream) stream.getTracks().forEach(t => t.stop());
+      if (!hasAudio) throw new Error("Micro requis pour lancer un direct.");
 
       const session = await entities.LiveSession.create({
         host_email: user?.email || "",
@@ -146,6 +153,7 @@ export default function LancerDirect() {
         category,
         status: "live",
         viewers: 0,
+        started_at: new Date().toISOString(),
       });
 
       await entities.LiveMessage.create({
@@ -336,7 +344,7 @@ export default function LancerDirect() {
         {/* Start button */}
         <button
           onClick={startLive}
-          disabled={!title.trim() || starting || cameraAllowed === false || micAllowed === false}
+          disabled={!title.trim() || starting || micAllowed === false}
           className="w-full rounded-3xl py-5 font-black text-[15px] uppercase tracking-[0.15em] flex items-center justify-center gap-3 transition-all active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none"
           style={{
             background: PRIMARY,
