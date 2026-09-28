@@ -168,7 +168,7 @@ export default function StepQuestionnaire({
   const allAnswered = questions.every(q => answers[q.id]);
 
   return (
-    <div className="min-h-screen bg-[#FFF5F0] font-display pb-36">
+    <div className="min-h-screen bg-[#FFF5F0] font-display" style={{ paddingBottom: "calc(220px + env(safe-area-inset-bottom, 16px))" }}>
       <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-xl px-5 pt-12 pb-4 flex items-center justify-between border-b border-gray-100 shadow-sm">
         <button onClick={onBack} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 transition-all">
           <ArrowLeft className="w-5 h-5 text-gray-900" />
@@ -271,7 +271,7 @@ export default function StepQuestionnaire({
 
       </div>
 
-      <div className="fixed bottom-[70px] left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-gray-100 px-4 py-3 z-[90] shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+      <div className="fixed left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-gray-100 px-4 py-3 z-[90] shadow-[0_-4px_20px_rgba(0,0,0,0.08)]" style={{ bottom: "calc(68px + env(safe-area-inset-bottom, 16px))" }}>
         <button
           onClick={handleValidateStep}
           className="w-full py-4 rounded-2xl font-black text-[15px] uppercase tracking-widest text-white transition-all active:scale-[0.98] flex items-center justify-center gap-2"
