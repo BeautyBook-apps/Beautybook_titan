@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { ArrowLeft, Save, Scissors, Gem, Paintbrush, Flower2, Sparkles, Droplets, Zap, MessageSquare, ChevronRight, Check, Lightbulb } from "lucide-react";
 import { getQuestionnaireForService } from "@/lib/questionnaires";
+import { getEffectiveQuestions, normalizeQuestion } from "@/lib/serviceQuestions";
 
 // Icônes par catégorie (le module canonique expose un nom d'icône texte).
 // Source unique : src/lib/questionnaires.js — aussi publiée dans
@@ -20,9 +21,15 @@ export default function StepQuestionnaire({
   const primaryService = booking.services?.[0] || {};
 
   // Questionnaire synchronisé — même source que l'agent vocal IA et Maria
-  // (src/lib/questionnaires.js → public/questionnaires.json)
-  const { key: catKey, label: catLabel, icon: catIcon, tip: catTip, questions } =
+  // (src/lib/questionnaires.js → public/questionnaires.json), sauf si le pro
+  // a personnalisé les questions de ce service (étape 4 de la création).
+  const { key: catKey, label: catLabel, icon: catIcon, tip: catTip } =
     getQuestionnaireForService(primaryService);
+  const customQs = getEffectiveQuestions(primaryService);
+  const questions = (customQs.length > 0
+    ? customQs
+    : getQuestionnaireForService(primaryService).questions || []
+  ).map((q, i) => normalizeQuestion(q, i)).filter(q => String(q.question || "").trim());
   const CatIcon = ICON_COMPONENTS[catIcon] || Scissors;
 
   const [answers, setAnswers] = useState(() => {
@@ -149,6 +156,15 @@ export default function StepQuestionnaire({
                     </span>
                     {qItem.question}
                   </p>
+                  {qItem.type === "ouverte" || qItem.options.length === 0 ? (
+                    <input
+                      type="text"
+                      value={currentAns}
+                      onChange={e => handleAnswerSelect(qItem.id, e.target.value)}
+                      placeholder="Votre réponse…"
+                      className="w-full bg-gray-50 rounded-xl px-4 py-2.5 text-[13px] font-medium text-gray-800 outline-none border border-gray-200 focus:border-[#E8732A] placeholder:text-gray-300"
+                    />
+                  ) : (
                   <div className="flex flex-wrap gap-2">
                     {qItem.options.map((opt) => {
                       const isSelected = currentAns === opt;
@@ -169,6 +185,7 @@ export default function StepQuestionnaire({
                       );
                     })}
                   </div>
+                  )}
                 </div>
               );
             })}

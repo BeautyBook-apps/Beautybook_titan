@@ -118,6 +118,7 @@ export default function Home() {
   const [offresSpeciales, setOffresSpeciales] = useState(homeCacheInitial.offresSpeciales || []);
   const [bundles, setBundles] = useState(homeCacheInitial.bundles || []);
   const [bundlesTendance, setBundlesTendance] = useState(homeCacheInitial.bundlesTendance || []);
+  const [servicesSponsorises, setServicesSponsorises] = useState(homeCacheInitial.servicesSponsorises || []);
   // Devient true dès que de vraies données sont arrivées : autorise alors
   // la persistance du cache (on ne persiste jamais du vide).
   const homeLoadedRef = useRef(false);
@@ -166,6 +167,36 @@ export default function Home() {
       .then(items => {
         setBundles(items.slice(0, 6));
         setBundlesTendance(items.filter(b => b.discount_percent >= 20).slice(0, 6));
+      })
+      .catch(() => {});
+
+    // Services sponsorisés — pubs actives liées à un service ou un bundle
+    entities.Annonce.filter({ status: "actif" }, "-created_at", 50)
+      .then(async (annonces) => {
+        const today = new Date().toISOString().slice(0, 10);
+        const linked = (annonces || []).filter(a => {
+          const url = a.target_url || "";
+          if (!url.startsWith("/service/") && !url.startsWith("/bundle/")) return false;
+          if (a.start_date && a.start_date > today) return false;
+          if (a.end_date && a.end_date < today) return false;
+          return true;
+        }).slice(0, 10);
+        const items = [];
+        for (const a of linked) {
+          try {
+            if (a.target_url.startsWith("/service/")) {
+              const s = await entities.Service.get(a.target_url.replace("/service/", ""));
+              if (s && s.status === "actif") items.push({ kind: "service", item: s });
+            } else {
+              const b = await entities.ServiceBundle.get(a.target_url.replace("/bundle/", ""));
+              if (b && b.is_active !== false) items.push({ kind: "bundle", item: b });
+            }
+          } catch {}
+        }
+        if (items.length > 0) {
+          setServicesSponsorises(items);
+          homeLoadedRef.current = true;
+        }
       })
       .catch(() => {});
 
@@ -242,11 +273,12 @@ export default function Home() {
       offresImmoLive,
       bundles,
       bundlesTendance,
+      servicesSponsorises,
       partenairesDiplomes,
       produitsTendanceLive,
       produitsRecommandes,
     });
-  }, [homeConfig, offresSpeciales, offresImmoLive, bundles, bundlesTendance, partenairesDiplomes, produitsTendanceLive, produitsRecommandes]);
+  }, [homeConfig, offresSpeciales, offresImmoLive, bundles, bundlesTendance, servicesSponsorises, partenairesDiplomes, produitsTendanceLive, produitsRecommandes]);
 
   useEffect(() => {
     const update = () => setSectionBg(getSectionBg());
@@ -400,6 +432,38 @@ export default function Home() {
                 </div>
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Services sponsorisés ── */}
+      {servicesSponsorises.length > 0 && (
+        <div className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
+          <SectionTitle title="Services sponsorisés" />
+          <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-1 px-1">
+            {servicesSponsorises.map(({ kind, item }) => {
+              const isBundle = kind === "bundle";
+              const img = item.image_url || item.banner_url || (Array.isArray(item.images) ? item.images[0] : "") || "";
+              const price = isBundle
+                ? (item.discount_percent > 0 ? Math.round(item.bundle_price * (1 - item.discount_percent / 100)) : item.bundle_price)
+                : item.price;
+              return (
+                <button
+                  key={`${kind}-${item.id}`}
+                  onClick={() => navigate(isBundle ? `/bundle/${item.id}` : `/service/${item.id}`)}
+                  className="shrink-0 w-[160px] bg-white rounded-2xl overflow-hidden shadow-sm active:scale-95 transition-all text-left border border-orange-50"
+                >
+                  <div className="h-[100px] relative overflow-hidden">
+                    <BeautyImage src={img} alt="" className="w-full h-full object-cover" />
+                    <span className="absolute top-2 left-2 bg-[#ff6b35] text-white text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">Sponsorisé</span>
+                  </div>
+                  <div className="p-3">
+                    <p className="text-[12px] font-black text-gray-900 line-clamp-1">{item.title || item.name}</p>
+                    <span className="text-[14px] font-black text-[#E8732A]">{formatPrice(price)}</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

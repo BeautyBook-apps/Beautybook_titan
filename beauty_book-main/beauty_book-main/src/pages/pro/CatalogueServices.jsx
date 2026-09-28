@@ -60,7 +60,7 @@ export default function CatalogueServices() {
   const cacheKey = user?.email ? `catalogue_${user.email}` : null;
   // Affichage direct depuis le cache : pas d'écran « chargement » intermédiaire,
   // le rafraîchissement réseau se fait en arrière-plan sans vider l'affichage.
-  const [activeFilter, setActiveFilter] = useState("BUNDLES");
+  const [activeFilter, setActiveFilter] = useState("Tous");
   const [services, setServices] = useCachedState(cacheKey, [], (c) => c?.services || []);
   const [bundles, setBundles] = useCachedState(cacheKey, [], (c) => c?.bundles || []);
   const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
@@ -315,6 +315,12 @@ export default function CatalogueServices() {
 
                       {/* Action Buttons */}
                       <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => navigate(`/pro/promo-service/${b.id}`, { state: { service: b, isBundle: true } })}
+                          className="bg-[#ff6b35]/10 text-[#ff6b35] border border-[#ff6b35]/20 font-bold text-[11px] px-3.5 py-1.5 rounded-xl active:scale-95 transition-all flex items-center gap-1"
+                        >
+                          <Tag className="w-3.5 h-3.5" /> Pub
+                        </button>
                         <button
                           onClick={() => setBundleModal({ open: true, editBundle: b })}
                           className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-[11px] px-3.5 py-1.5 rounded-xl active:scale-95 transition-all flex items-center gap-1"

@@ -1,7 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, X, Sparkles, Search, Zap, Save, Plus, Trash2, ChevronDown, Camera, GripVertical, ShoppingBag, Check } from "lucide-react";
+import { ArrowLeft, X, Sparkles, Search, Zap, Save, Plus, Trash2, ChevronDown, Camera, GripVertical, ShoppingBag, Check, MessageCircleQuestion, ListChecks, Type, RotateCcw } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { useAuth } from "@/lib/AuthContext";
 import { entities, uploadFile } from '@/api/entities';
@@ -9,8 +9,9 @@ import { supabase } from '@/api/supabaseClient';
 import PageHeader from "@/components/layout/PageHeader";
 import SmartNameInput from "@/components/service/SmartNameInput";
 import AIDescriptionButton from "@/components/service/AIDescriptionButton";
+import { defaultQuestionsFor, saveQuestionsFallback } from "@/lib/serviceQuestions";
 
-const TOTAL_STEPS = 3;
+const TOTAL_STEPS = 4;
 const CATEGORIES = ["Coiffure", "Maquillage", "Ongles", "Soin", "Massage", "Barbe", "Épilation"];
 const audience = ["Femme", "Homme", "Mixte"];
 
@@ -649,6 +650,208 @@ function Step3({ data, setData }) {
   );
 }
 
+// ── Step 4: Questions du parcours de réservation ────────────────────────────
+// Par défaut : les questions de la catégorie du service (même source que le
+// parcours de réservation). Le pro peut modifier, supprimer, ajouter des
+// questions QCM ou ouvertes.
+function Step4Questions({ data, setData }) {
+  // Initialisation depuis la catégorie (une seule fois, si aucune question)
+  useEffect(() => {
+    if (!data.questions || data.questions.length === 0) {
+      setData(d => ({
+        ...d,
+        questions: defaultQuestionsFor({ category: d.category, name: d.name, title: d.name }),
+        _qcat: d.category || "",
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const questions = data.questions || [];
+  const catChanged = (data._qcat || "") !== (data.category || "");
+
+  const updateQ = (idx, patch) => {
+    setData(d => ({
+      ...d,
+      questions: (d.questions || []).map((q, i) => (i === idx ? { ...q, ...patch } : q)),
+    }));
+  };
+  const removeQ = (idx) => {
+    setData(d => ({ ...d, questions: (d.questions || []).filter((_, i) => i !== idx) }));
+  };
+  const addQuestion = () => {
+    setData(d => ({
+      ...d,
+      questions: [...(d.questions || []), { id: `q_${Date.now()}`, question: "", type: "qcm", options: ["", ""] }],
+    }));
+  };
+  const updateOption = (qIdx, oIdx, val) => {
+    const q = questions[qIdx];
+    const options = [...(q.options || [])];
+    options[oIdx] = val;
+    updateQ(qIdx, { options });
+  };
+  const addOption = (qIdx) => {
+    const q = questions[qIdx];
+    updateQ(qIdx, { options: [...(q.options || []), ""] });
+  };
+  const removeOption = (qIdx, oIdx) => {
+    const q = questions[qIdx];
+    updateQ(qIdx, { options: (q.options || []).filter((_, i) => i !== oIdx) });
+  };
+  const setType = (qIdx, type) => {
+    const q = questions[qIdx];
+    updateQ(qIdx, {
+      type,
+      options: type === "qcm" && (!q.options || q.options.length === 0) ? ["", ""] : (q.options || []),
+    });
+  };
+  const regenerate = () => {
+    if (questions.length > 0 && !window.confirm("Remplacer les questions actuelles par celles par défaut de la catégorie « " + (data.category || "—") + " » ?")) return;
+    setData(d => ({
+      ...d,
+      questions: defaultQuestionsFor({ category: d.category, name: d.name, title: d.name }),
+      _qcat: d.category || "",
+    }));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Questions de réservation</p>
+        <p className="text-[13px] text-gray-500 font-medium leading-snug">
+          Ces questions seront posées au client à l'étape 2 de sa réservation.
+          Par défaut, celles de la catégorie <span className="font-black text-gray-700">{data.category || "—"}</span> sont
+          proposées : modifiez-les, supprimez-en ou ajoutez les vôtres.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 bg-orange-50 border border-orange-100 rounded-2xl px-4 py-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <MessageCircleQuestion className="w-5 h-5 text-primary shrink-0" />
+          <p className="text-[13px] font-black text-gray-800">{questions.length} question{questions.length > 1 ? "s" : ""}</p>
+        </div>
+        <button onClick={regenerate}
+          className="flex items-center gap-1.5 bg-white border border-orange-200 text-primary text-[11px] font-black uppercase tracking-widest px-3 py-2 rounded-xl active:scale-95 transition-all shrink-0">
+          <RotateCcw className="w-3.5 h-3.5" /> Défaut catégorie
+        </button>
+      </div>
+
+      {catChanged && questions.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
+          <p className="text-[12px] text-amber-800 font-medium leading-snug">
+            La catégorie a changé depuis la génération des questions. Touchez « Défaut catégorie » pour les régénérer.
+          </p>
+        </div>
+      )}
+
+      {questions.map((q, qIdx) => (
+        <div key={q.id || qIdx} className="bg-white border border-gray-200 rounded-3xl p-4 space-y-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="w-7 h-7 rounded-full bg-orange-100 text-primary text-[12px] font-black flex items-center justify-center shrink-0">
+              {qIdx + 1}
+            </span>
+            <div className="flex bg-gray-100 rounded-xl p-0.5 shrink-0">
+              <button onClick={() => setType(qIdx, "qcm")}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black transition-all ${q.type !== "ouverte" ? "bg-white shadow text-gray-900" : "text-gray-400"}`}>
+                <ListChecks className="w-3.5 h-3.5" /> QCM
+              </button>
+              <button onClick={() => setType(qIdx, "ouverte")}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black transition-all ${q.type === "ouverte" ? "bg-white shadow text-gray-900" : "text-gray-400"}`}>
+                <Type className="w-3.5 h-3.5" /> Ouverte
+              </button>
+            </div>
+            <button onClick={() => removeQ(qIdx)}
+              className="ml-auto w-8 h-8 flex items-center justify-center text-gray-300 hover:text-red-400 active:scale-95 transition-all shrink-0">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+
+          <input
+            value={q.question || ""}
+            onChange={e => updateQ(qIdx, { question: e.target.value })}
+            placeholder="Votre question…"
+            className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-[14px] font-bold text-gray-900 outline-none focus:border-primary placeholder:text-gray-300 placeholder:font-medium"
+          />
+
+          {q.type !== "ouverte" ? (
+            <div className="space-y-2 pl-1">
+              {(q.options || []).map((opt, oIdx) => (
+                <div key={oIdx} className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-primary/60 shrink-0 ml-1" />
+                  <input
+                    value={opt}
+                    onChange={e => updateOption(qIdx, oIdx, e.target.value)}
+                    placeholder={`Option ${oIdx + 1}…`}
+                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-[13px] font-medium text-gray-800 outline-none focus:border-primary placeholder:text-gray-300"
+                  />
+                  <button onClick={() => removeOption(qIdx, oIdx)}
+                    className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-red-400 active:scale-95 transition-all shrink-0">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+              <button onClick={() => addOption(qIdx)}
+                className="flex items-center gap-1.5 text-primary text-[12px] font-black uppercase tracking-widest px-2 py-2 active:scale-95 transition-all">
+                <Plus className="w-4 h-4" /> Ajouter une option
+              </button>
+            </div>
+          ) : (
+            <div className="bg-gray-50 border border-dashed border-gray-200 rounded-2xl px-4 py-3">
+              <p className="text-[12px] text-gray-400 font-medium italic">Le client répondra librement à cette question.</p>
+            </div>
+          )}
+        </div>
+      ))}
+
+      <button onClick={addQuestion}
+        className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-3xl py-4 text-gray-500 font-black text-[13px] uppercase tracking-widest active:scale-[0.98] transition-all">
+        <Plus className="w-5 h-5" /> Ajouter une question
+      </button>
+
+      <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4">
+        <p className="text-[12px] text-gray-500 font-medium leading-snug">
+          Les questions sont facultatives pour le client : il peut passer l'étape sans répondre.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Sauvegarde robuste du service ───────────────────────────────────────────
+// Si la colonne `questions` n'existe pas encore (migration non appliquée),
+// on réessaie sans la colonne et on stocke les questions en local.
+const isQuestionsColumnError = (e) => {
+  const msg = String(e?.message || "");
+  return /questions/i.test(msg) && /column|does not exist|schema cache/i.test(msg);
+};
+
+async function saveServiceRow(editId, payload) {
+  const qs = Array.isArray(payload.questions) ? payload.questions : [];
+  const stripQuestions = (p) => {
+    const { questions, ...rest } = p;
+    return rest;
+  };
+  const doSave = async (p, id) => {
+    if (id) {
+      const { data, error } = await supabase.from("Service").update(p).eq("id", id).select().single();
+      if (error) throw error;
+      return data;
+    }
+    return await entities.Service.create(p);
+  };
+  try {
+    return await doSave(qs.length > 0 ? payload : stripQuestions(payload), editId);
+  } catch (e) {
+    if (qs.length > 0 && isQuestionsColumnError(e)) {
+      const row = await doSave(stripQuestions(payload), editId);
+      saveQuestionsFallback(editId || row?.id, qs);
+      return row;
+    }
+    throw e;
+  }
+}
+
 export default function AjouterService() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -671,6 +874,7 @@ export default function AjouterService() {
         duration_min: editService.duration_min ?? "",
         images: mediaList,
         addons: editService.addons || [],
+        questions: Array.isArray(editService.questions) ? editService.questions : [],
         status: editService.status || "brouillon",
         _editId: editService.id,
       };
@@ -705,21 +909,23 @@ export default function AjouterService() {
         duration_min: dur,
         images: (data.images || []),
         addons: (data.addons || []).map(a => ({ name: a.name, price: parseFloat(a.price) || 0 })),
+        questions: (data.questions || []).map(q => ({
+          id: q.id,
+          question: q.question || "",
+          type: q.type === "ouverte" ? "ouverte" : "qcm",
+          options: (q.options || []).filter(o => String(o || "").trim()),
+        })),
         status: data._editId ? (data.status || "brouillon") : "brouillon",
       };
       try {
-        if (data._editId) {
-          const { error } = await supabase.from("Service").update(payload).eq("id", data._editId);
-          if (error) console.error("Auto-save update error:", error);
+        const row = await saveServiceRow(data._editId, payload);
+        const newId = data._editId || row?.id;
+        if (newId && !data._editId) {
+          setData(d => ({ ...d, _editId: newId }));
+          localStorage.setItem("bb_service_draft", JSON.stringify({ ...data, _editId: newId, _ts: Date.now() }));
         } else {
-          const res = await entities.Service.create(payload);
-          const newId = res?.data?.service?.id || res?.result?.id || res?.id;
-          if (newId) {
-            setData(d => ({ ...d, _editId: newId }));
-            localStorage.setItem("bb_service_draft", JSON.stringify({ ...data, _editId: newId, _ts: Date.now() }));
-          }
+          localStorage.setItem("bb_service_draft", JSON.stringify({ ...data, _ts: Date.now() }));
         }
-        localStorage.setItem("bb_service_draft", JSON.stringify({ ...data, _ts: Date.now() }));
       } catch (e) { console.error("Auto-save error:", e); }
     }, 3000);
     return () => clearTimeout(timer);
@@ -751,14 +957,15 @@ export default function AjouterService() {
         duration_min: dur,
         images: (data.images || []),
         addons: (data.addons || []).map(a => ({ name: a.name, price: parseFloat(a.price) || 0 })),
+        questions: (data.questions || []).map(q => ({
+          id: q.id,
+          question: q.question || "",
+          type: q.type === "ouverte" ? "ouverte" : "qcm",
+          options: (q.options || []).filter(o => String(o || "").trim()),
+        })),
         status: asDraft ? "brouillon" : "actif",
       };
-      if (data._editId) {
-        const { error } = await supabase.from("Service").update(payload).eq("id", data._editId);
-        if (error) throw error;
-      } else {
-        await entities.Service.create(payload);
-      }
+      await saveServiceRow(data._editId, payload);
       localStorage.removeItem("bb_service_draft");
       navigate("/pro/catalogue-services");
     } catch (err) {
@@ -782,6 +989,7 @@ export default function AjouterService() {
         {step === 1 && <Step1 data={data} setData={setData} />}
         {step === 2 && <Step2 data={data} setData={setData} />}
         {step === 3 && <Step3 data={data} setData={setData} />}
+        {step === 4 && <Step4Questions data={data} setData={setData} />}
       </div>
 
       {/* Bottom CTAs */}
