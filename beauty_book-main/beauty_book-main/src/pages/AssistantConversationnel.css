@@ -6,17 +6,18 @@
 
 .ac-page {
   min-height: 100vh;
-  background: #fafafa;
+  background: #fff7f2;
   padding-bottom: 110px;
-  color: #111827;
+  color: #1c1917;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-/* ── Hero ── */
+/* ── Hero : blanc & orange ── */
 .ac-hero {
-  background: linear-gradient(135deg, #1a1a2e 0%, #3b1d5e 60%, #7c3aed 100%);
-  color: #fff;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 55%, #fed7aa 100%);
+  color: #1c1917;
   padding: 20px 18px 0;
+  border-bottom: 1px solid #fed7aa;
 }
 .ac-topline {
   display: flex;
@@ -31,13 +32,13 @@
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.14em;
-  color: #ffb066;
+  color: #ea580c;
 }
 .ac-pulse {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ffb066;
+  background: #ea580c;
   animation: ac-pulse 1.6s infinite;
 }
 @keyframes ac-pulse {
@@ -48,9 +49,9 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255,255,255,0.12);
-  border: none;
-  color: #fff;
+  background: #ffffff;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
   font-weight: 800;
   font-size: 13px;
   padding: 8px 14px;
@@ -62,17 +63,18 @@
   line-height: 1.12;
   font-weight: 900;
   letter-spacing: -0.02em;
+  color: #1c1917;
 }
 .ac-hero h1 em {
   font-style: italic;
   font-family: Georgia, "Times New Roman", serif;
-  color: #ffb066;
+  color: #ea580c;
 }
 .ac-subtitle {
   margin-top: 8px;
   font-size: 13.5px;
   line-height: 1.55;
-  color: rgba(255,255,255,0.82);
+  color: #78716c;
   max-width: 560px;
 }
 .ac-hero-stats {
@@ -87,8 +89,9 @@
   gap: 6px;
   font-size: 12px;
   font-weight: 700;
-  color: rgba(255,255,255,0.9);
-  background: rgba(255,255,255,0.1);
+  color: #9a3412;
+  background: rgba(255,255,255,0.75);
+  border: 1px solid #fed7aa;
   padding: 6px 12px;
   border-radius: 999px;
 }
@@ -105,9 +108,9 @@
   align-items: center;
   gap: 7px;
   white-space: nowrap;
-  border: 1.5px solid rgba(255,255,255,0.25);
-  background: rgba(255,255,255,0.08);
-  color: #fff;
+  border: 1.5px solid #fed7aa;
+  background: #ffffff;
+  color: #9a3412;
   font-size: 13px;
   font-weight: 800;
   padding: 9px 16px;
@@ -117,6 +120,7 @@
 .ac-tab.active {
   background: #ff6b00;
   border-color: #ff6b00;
+  color: #fff;
 }
 
 .ac-main {
@@ -745,96 +749,29 @@
   .ac-platforms .ac-banner, .ac-platforms .ac-statusbar { grid-column: 1 / -1; }
 }
 
-/* ── Thème sombre ──
-   Overrides html.dark pour toutes les couleurs claires codées en dur.
-   NON touchés : hero (.ac-hero), stat cards (.ac-stat-card) et tout
-   l'aperçu téléphone (.ac-phone, .ac-phone-*, .ac-bubble, .ac-chat-btn,
-   .ac-chat-linkbtn, .ac-form, .ac-form-*, .ac-phone-inputbar, .ac-typing,
-   .ac-sys, .ac-interactive, .ac-phone-hint, .ac-phone-error) —
-   volontairement dark façon Manychat. */
-
-/* Page */
-html.dark .ac-page { background: #1a1a2e; color: #f9fafb; }
-
-/* Cartes */
-html.dark .ac-card { background: #1f2937; border-color: #374151; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
-html.dark .ac-step { background: #1f2937; border-color: #374151; }
-html.dark .ac-auto-item { background: #1f2937; border-color: #374151; }
-html.dark .ac-plat-card { background: #1f2937; border-color: #374151; }
-html.dark .ac-statusbar { background: #1f2937; border-color: #374151; color: #d1d5db; }
-html.dark .ac-new-auto { background: #1f2937; border-color: #4b5563; color: #d1d5db; }
-html.dark .ac-empty { background: #1f2937; border-color: #374151; color: #9ca3af; }
-html.dark .ac-faq-item { border-color: #374151; }
-html.dark .ac-service-list li { background: #232838; }
-html.dark .ac-keys { background: #232838; }
-html.dark .ac-faq-form { background: #232838; }
-html.dark .ac-note { background: #232838; color: #9ca3af; }
-html.dark .ac-keys-input { background: #232838; border-color: #4b5563; }
-html.dark .ac-step-body { border-top-color: #374151; }
-
-/* Titres et textes */
-html.dark .ac-card h3 { color: #f9fafb; }
-html.dark .ac-section-title { color: #f9fafb; }
-html.dark .ac-auto-item-name { color: #f9fafb; }
-html.dark .ac-step-title { color: #f9fafb; }
-html.dark .ac-faq-q { color: #f9fafb; }
-html.dark .ac-muted { color: #9ca3af; }
-html.dark .ac-subhead { color: #9ca3af; }
-html.dark .ac-field > span { color: #9ca3af; }
-html.dark .ac-step-hint { color: #9ca3af; }
-html.dark .ac-faq-a { color: #d1d5db; }
-html.dark .ac-service-meta { color: #9ca3af; }
-html.dark .ac-kv-row > span { color: #9ca3af; }
-html.dark .ac-keys-head p { color: #9ca3af; }
-html.dark .ac-or { color: #9ca3af; }
-html.dark .ac-kv-row { border-bottom-color: #374151; }
-
-/* Champs */
-html.dark .ac-field input, html.dark .ac-field select, html.dark .ac-field textarea {
-  background: #232838; color: #f9fafb; border-color: #4b5563;
+/* ── Onglet « Site web » ── */
+.ac-code {
+  background: #1c1917;
+  color: #fdba74;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  line-height: 1.6;
 }
-html.dark .ac-field input:focus, html.dark .ac-field select:focus, html.dark .ac-field textarea:focus {
-  border-color: #7c3aed; background: #232838;
+.ac-code code { color: #fdba74; }
+.ac-code-block { white-space: pre-wrap; }
+.ac-site-preview {
+  border: 1.5px solid #fed7aa;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #fff7f2;
 }
-html.dark .ac-field input::placeholder, html.dark .ac-field textarea::placeholder { color: #6b7280; }
-html.dark .ac-field select { color-scheme: dark; }
-html.dark .ac-field option { background: #232838; color: #f9fafb; }
-html.dark .ac-faq-edit input, html.dark .ac-faq-edit textarea {
-  background: #232838; color: #f9fafb; border-color: #4b5563;
+.ac-site-preview iframe {
+  width: 100%;
+  height: 560px;
+  border: none;
+  display: block;
+  background: #fff7f2;
 }
-html.dark .ac-faq-edit input::placeholder, html.dark .ac-faq-edit textarea::placeholder { color: #6b7280; }
-html.dark .ac-keys-input input { color: #f9fafb; }
-html.dark .ac-keys-input input::placeholder { color: #6b7280; }
-
-/* Boutons */
-html.dark .ac-btn.secondary { background: #374151; color: #f9fafb; }
-html.dark .ac-btn.ghost { color: #d1d5db; border-color: #4b5563; }
-html.dark .ac-btn.danger-ghost { background: #2d0a0a; color: #fca5a5; border-color: #7f1d1d; }
-html.dark .ac-icon-btn { background: #1f2937; border-color: #374151; color: #d1d5db; }
-html.dark .ac-icon-btn.danger { color: #fca5a5; border-color: #7f1d1d; background: #2d0a0a; }
-
-/* Chips */
-html.dark .ac-chip { background: #374151; color: #d1d5db; }
-html.dark .ac-chip.platform { background: #2a1f4d; color: #c4b5fd; }
-html.dark .ac-chip.keyword { background: #3a2c00; color: #fcd34d; }
-
-/* Badges, bannières, statuts */
-html.dark .ac-badge.real { background: #052e16; color: #6ee7b7; }
-html.dark .ac-badge.manual { background: #0a1929; color: #93c5fd; }
-html.dark .ac-banner.ok { background: #052e16; border-color: #065f46; color: #6ee7b7; }
-html.dark .ac-banner.err { background: #2d0a0a; border-color: #7f1d1d; color: #fca5a5; }
-html.dark .ac-oauth-ok { background: #052e16; border-color: #065f46; }
-html.dark .ac-oauth-ok > svg { color: #34d399; }
-html.dark .ac-oauth-ok > div { color: #6ee7b7; }
-html.dark .ac-verified { color: #34d399; }
-html.dark .ac-keys-input.ok { border-color: #065f46; }
-html.dark .ac-keys-check { color: #34d399; }
-html.dark .ac-dot { background: #4b5563; }
-html.dark .ac-dot.on { background: #10b981; box-shadow: 0 0 0 4px rgba(16,185,129,0.25); }
-
-/* Toggle */
-html.dark .ac-toggle { background: #4b5563; }
-
-/* Tableau */
-html.dark .ac-table th { color: #9ca3af; border-bottom-color: #374151; }
-html.dark .ac-table td { border-bottom-color: #374151; }

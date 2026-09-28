@@ -40,6 +40,7 @@ const SOURCE_CONFIG = {
   ai_social_media:    { label: "AI Social Media",  color: "bg-violet-100 text-violet-600" },
   maria_ai:           { label: "Maria AI",         color: "bg-orange-100 text-orange-600" },
   maria_assistant:    { label: "Assistant Maria",  color: "bg-violet-100 text-violet-600" },
+  maria_widget:      { label: "Site web",         color: "bg-teal-100 text-teal-600" },
 };
 
 function SourceBadge({ source, className = "" }) {

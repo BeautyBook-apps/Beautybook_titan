@@ -195,7 +195,7 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
   );
 }
 
-function WidgetBookingForm({ services, onConfirm, onCancel }) {
+export function WidgetBookingForm({ services, onConfirm, onCancel }) {
   const [serviceId, setServiceId] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");

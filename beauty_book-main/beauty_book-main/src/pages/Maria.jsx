@@ -27,9 +27,31 @@ import AuthModal from "@/components/ui/AuthModal";
 const SCAN_IMG = "https://images.unsplash.com/photo-1620331311520-246422fd82f9?q=80&w=400";
 const STYLE_IMG = "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?q=80&w=400";
 
+// ─── Skeleton affiché pendant la détection du type de profil ─────────────────
+// Évite tout flash : ni la version cliente ni la version pro ne s'affichent
+// avant que le profil soit connu.
+function MariaProfileSkeleton({ isDark }) {
+  const box = isDark ? "bg-gray-800" : "bg-gray-100";
+  return (
+    <div className="px-4 pt-4 animate-pulse" aria-hidden="true">
+      <div className="grid grid-cols-3 gap-2.5 mb-5">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className={`h-44 rounded-3xl ${box}`} />
+        ))}
+      </div>
+      <div className={`h-7 w-3/4 rounded-xl mx-auto mb-3 ${box}`} />
+      <div className={`h-4 w-1/2 rounded-lg mx-auto mb-6 ${box}`} />
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className={`h-14 rounded-2xl ${box}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Side Drawer ──────────────────────────────────────────────────────────────
-function SideDrawer({ open, onClose, onNewChat, recentChats, savedSimulations, onOpenSimulator, onScanCapillaire, onStylisteIA, isPro }) {
-  const navigate = useNavigate();
+function SideDrawer({ open, onClose, onNewChat, recentChats, savedSimulations, onOpenSimulator, onScanCapillaire, onStylisteIA, isPro }) {  const navigate = useNavigate();
   return (
     <>
       {open && <div className="absolute inset-0 bg-black/30 z-40 backdrop-blur-sm" onClick={onClose} />}
@@ -378,7 +400,15 @@ export default function Maria() {
   const homeBodyBg = isDark ? "bg-gray-950" : "bg-white";
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [view, setView] = useState("home");
-  const [isPro, setIsPro] = useState(false);
+  // null = profil pas encore déterminé (ni client ni pro affichés entre-temps :
+  // évite le flash « version cliente » à l'ouverture d'un compte pro).
+  // La valeur est mémorisée en local pour un affichage instantané au retour.
+  const [isPro, setIsPro] = useState(() => {
+    try {
+      const v = localStorage.getItem("bb_is_pro");
+      return v === null ? null : v === "1";
+    } catch { return null; }
+  });
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -435,12 +465,16 @@ export default function Maria() {
   // ── Détecter si compte pro ──
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => data?.user).then(async (user) => {
-      if (!user) return;
-      if (user.role === "vendeur" || user.role === "pro" || user.role === "admin") { setIsPro(true); return; }
-      // Vérifier si profil pro actif
-      const profiles = await entities.ProfilPro.filter({ user_email: user.email }, "-created_at", 1).catch(() => []);
-      if (profiles.length > 0) setIsPro(true);
-    }).catch(() => {});
+      if (!user) { setIsPro(false); return; }
+      let pro = user.role === "vendeur" || user.role === "pro" || user.role === "admin";
+      if (!pro) {
+        // Vérifier si profil pro actif
+        const profiles = await entities.ProfilPro.filter({ user_email: user.email }, "-created_at", 1).catch(() => []);
+        pro = profiles.length > 0;
+      }
+      try { localStorage.setItem("bb_is_pro", pro ? "1" : "0"); } catch { /* stockage indisponible */ }
+      setIsPro(pro);
+    }).catch(() => setIsPro(false));
   }, []);
 
   // ── Charger historique + résumé ──
@@ -1214,6 +1248,9 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
 
 
       <div className="flex-1 overflow-y-auto hide-scrollbar">
+        {isPro === null ? (
+          <MariaProfileSkeleton isDark={isDark} />
+        ) : (
         <div className="px-4 pt-2" style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))" }}>
           <div className="grid grid-cols-3 gap-2.5 mb-5">
             {isPro ? (
@@ -1403,6 +1440,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
             </button>
           )}
         </div>
+        )}
       </div>
 
       <button

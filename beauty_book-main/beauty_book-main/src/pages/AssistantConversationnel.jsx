@@ -25,7 +25,6 @@ import {
   formatDateFr, loadFaq, addFaqEntry, updateFaqEntry, deleteFaqEntry,
 } from "@/lib/mariaAssistant";
 import "./AssistantConversationnel.css";
-import { useTheme } from "@/hooks/useTheme";
 
 /* ════════════════════════ Plateformes (code repris de l'ancienne page) ════════════════════════ */
 
@@ -581,6 +580,7 @@ function PhonePreview({ automation, knowledge, proEmail, salonName, services, on
     </div>
   );
 }
+
 
 function EmailCaptureForm({ onSubmit }) {
   const [email, setEmail] = useState("");
@@ -1313,12 +1313,114 @@ function StatsTab({ leads, events, realBookings, onExportCsv }) {
   );
 }
 
+/* ════════════════════════ Onglet « Site web » : chatbot embarquable ════════════════════════ */
+
+function encodeWidgetCode(email) {
+  try {
+    return btoa(unescape(encodeURIComponent(String(email || "").trim().toLowerCase())))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch { return ""; }
+}
+
+function SiteWebTab({ proEmail, salonName }) {
+  const [copied, setCopied] = useState(null);
+  const code = encodeWidgetCode(proEmail);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const widgetUrl = code ? `${origin}/maria-site/${code}` : "";
+  const iframeCode = code
+    ? `<iframe\n  src="${widgetUrl}"\n  title="Chatbot ${salonName || "Maria"}"\n  style="width:100%;height:640px;max-height:85vh;border:1px solid #fed7aa;border-radius:18px;"\n  allow="clipboard-write">\n</iframe>`
+    : "";
+
+  const copy = async (text, key) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+    setCopied(key);
+    setTimeout(() => setCopied(null), 1800);
+  };
+
+  return (
+    <div>
+      <div className="ac-card">
+        <p className="ac-card-eyebrow">Chatbot IA sur votre site</p>
+        <h3>Maria sur le site web du salon</h3>
+        <p className="ac-muted small" style={{ marginTop: 6 }}>
+          Intégrez Maria à votre site internet : vos visiteurs discutent avec elle,
+          posent leurs questions (prestations, tarifs, horaires — vos vraies données)
+          et <strong>réservent directement</strong>. Chaque réservation arrive dans
+          « Gestion agenda » avec le badge <strong>Site web</strong>.
+        </p>
+      </div>
+
+      {!code ? (
+        <p className="ac-empty">Connectez-vous avec votre compte pro pour générer le chatbot de votre salon.</p>
+      ) : (
+        <>
+          <div className="ac-card">
+            <div className="ac-card-head">
+              <div>
+                <p className="ac-card-eyebrow">Étape 1</p>
+                <h3>Lien direct du chatbot</h3>
+              </div>
+              <button type="button" className="ac-btn secondary" onClick={() => copy(widgetUrl, "url")}>
+                {copied === "url" ? "Copié ✓" : "Copier le lien"}
+              </button>
+            </div>
+            <p className="ac-code">{widgetUrl}</p>
+            <p className="ac-muted small" style={{ marginTop: 8 }}>
+              Partagez ce lien ou ouvrez-le pour tester le chatbot tel que vos visiteurs le verront.
+            </p>
+          </div>
+
+          <div className="ac-card">
+            <div className="ac-card-head">
+              <div>
+                <p className="ac-card-eyebrow">Étape 2</p>
+                <h3>Code à intégrer sur votre site</h3>
+              </div>
+              <button type="button" className="ac-btn secondary" onClick={() => copy(iframeCode, "iframe")}>
+                {copied === "iframe" ? "Copié ✓" : "Copier le code"}
+              </button>
+            </div>
+            <pre className="ac-code ac-code-block">{iframeCode}</pre>
+            <p className="ac-muted small" style={{ marginTop: 8 }}>
+              Collez ce code dans une page de votre site (WordPress, Wix, site sur mesure…)
+              là où vous voulez afficher le chatbot.
+            </p>
+          </div>
+
+          <div className="ac-card">
+            <p className="ac-card-eyebrow">Aperçu en direct</p>
+            <h3 style={{ marginBottom: 10 }}>Ce que verront vos visiteurs</h3>
+            <div className="ac-site-preview">
+              <iframe src={widgetUrl} title="Aperçu du chatbot Maria" loading="lazy" />
+            </div>
+            <p className="ac-muted small" style={{ marginTop: 8 }}>
+              Si l'aperçu affiche « indisponible », déployez d'abord la fonction{" "}
+              <code>maria-widget</code> sur Supabase (voir le guide dans{" "}
+              <code>supabase/functions/maria-widget/index.ts</code>).
+            </p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ════════════════════════ Composant principal ════════════════════════ */
 
 const TABS = [
   { id: "automatisations", label: "Automatisations", icon: Zap },
   { id: "connaissances", label: "Connaissances", icon: BookOpen },
   { id: "plateformes", label: "Plateformes", icon: Globe },
+  { id: "siteweb", label: "Site web", icon: ExternalLink },
   { id: "stats", label: "Statistiques", icon: BarChart3 },
 ];
 
@@ -1328,7 +1430,36 @@ function newId() {
 const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ""));
 
 export default function AssistantConversationnel() {
-  useTheme();
+  // Design blanc & orange imposé sur cette page : on force le thème clair
+  // pendant la visite SANS écraser le thème global mémorisé (bb_theme),
+  // puis on le restaure à la sortie.
+  useEffect(() => {
+    const root = document.documentElement;
+    const styleEl = document.getElementById("bb-theme-style");
+    const prev = {
+      dark: root.classList.contains("dark"),
+      css: styleEl ? styleEl.textContent : "",
+      bodyBg: document.body.style.backgroundColor,
+      bodyColor: document.body.style.color,
+      htmlBg: root.style.backgroundColor,
+    };
+    const rootEl = document.getElementById("root");
+    const prevRootBg = rootEl ? rootEl.style.backgroundColor : "";
+    root.classList.remove("dark");
+    if (styleEl) styleEl.textContent = "";
+    document.body.style.backgroundColor = "#fff7f2";
+    document.body.style.color = "";
+    root.style.backgroundColor = "#fff7f2";
+    if (rootEl) rootEl.style.backgroundColor = "#fff7f2";
+    return () => {
+      if (prev.dark) root.classList.add("dark"); else root.classList.remove("dark");
+      if (styleEl) styleEl.textContent = prev.css;
+      document.body.style.backgroundColor = prev.bodyBg;
+      document.body.style.color = prev.bodyColor;
+      root.style.backgroundColor = prev.htmlBg;
+      if (rootEl) rootEl.style.backgroundColor = prevRootBg;
+    };
+  }, []);
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("automatisations");
   const [proEmail, setProEmail] = useState("");
@@ -1744,6 +1875,8 @@ export default function AssistantConversationnel() {
             )}
 
             {activeTab === "plateformes" && <PlatformsTab />}
+
+            {activeTab === "siteweb" && <SiteWebTab proEmail={proEmail} salonName={salonName} />}
 
             {activeTab === "stats" && (
               <StatsTab leads={leads} events={events} realBookings={realBookings} onExportCsv={exportCsv} />

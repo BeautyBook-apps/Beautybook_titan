@@ -86,6 +86,7 @@ const Franchise = safeLazy(() => import('@/pages/pro/Franchise'));
 const LancerDirect = safeLazy(() => import('@/pages/pro/LancerDirect'));
 const ModifierProfilPro = safeLazy(() => import('@/pages/pro/ModifierProfilPro'));
 const AssistantConversationnel = safeLazy(() => import('@/pages/AssistantConversationnel'));
+const MariaSite = safeLazy(() => import('@/pages/MariaSite'));
 const VueClient = safeLazy(() => import('@/pages/pro/VueClient'));
 const Abonnements = safeLazy(() => import('@/pages/pro/Abonnements'));
 const AbonnementsClient = safeLazy(() => import('@/pages/AbonnementsClient'));
@@ -279,6 +280,7 @@ const AuthenticatedApp = () => {
       <Suspense fallback={<LoadingScreen message="Chargement des modules..." />}><Routes>
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/connexion" element={<Connexion />} />
+        <Route path="/maria-site/:code" element={<MariaSite />} />
         <Route element={<AppShell />}>
         <Route path="/" element={<Home />} />
         <Route path="/services" element={<Services />} />

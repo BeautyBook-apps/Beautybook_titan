@@ -87,3 +87,29 @@ supabase secrets set \
 - Connaissances → ajouter une FAQ → l'aperçu et le widget y répondent.
 - Widget public : ouvrir la page publique d'un salon (en navigation privée),
   discuter, réserver → vérifier la ligne dans Gestion agenda.
+
+## Chatbot sur le site web du salon
+
+Maria peut aussi vivre sur le site internet du salon (hors BeautyBook) :
+les visiteurs discutent avec elle (vraies données : prestations, tarifs,
+horaires, FAQ) et réservent — chaque réservation arrive dans
+« Gestion agenda » avec le badge **Site web** (`source = 'maria_widget'`).
+
+### Fonctionnement
+- **Edge Function `maria-widget`** (`supabase/functions/maria-widget/`) :
+  `GET /knowledge`, `POST /chat`, `POST /book`. CORS ouvert (faite pour
+  être appelée depuis n'importe quel site). Utilise la `service_role` key :
+  aucune modification RLS nécessaire. Anti-abus basique : 10 réservations /
+  10 min / IP sur `/book`.
+- **Page publique `/maria-site/:code`** : chatbot plein écran, sans connexion,
+  pensé pour l'iframe. Le `:code` est l'email pro encodé en base64url —
+  généré automatiquement dans l'onglet **Site web** de la page Assistant
+  (lien direct + code `<iframe>` à copier + aperçu en direct).
+
+### Déploiement
+1. `supabase functions deploy maria-widget`
+2. `supabase secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...`
+   (optionnel : `VOICE_SERVER_URL`, `VOICE_SERVER_ADMIN_TOKEN` pour
+   Google Agenda — mêmes secrets que `social-webhook`).
+3. Dans l'Assistant → onglet **Site web** : copier le code iframe et le
+   coller sur le site du salon.
