@@ -1,6 +1,6 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ExternalLink, X, Play } from "lucide-react";
+import { ExternalLink, X, Play, Volume2, VolumeX } from "lucide-react";
 
 export default function SponsoredCard({ annonce, onClose, variant = "reels" }) {
   if (!annonce || (!annonce.image_url && !annonce.video_url)) return null;
@@ -16,7 +16,7 @@ export default function SponsoredCard({ annonce, onClose, variant = "reels" }) {
   );
 }
 
-function VideoPlayer({ src, poster, className, style }) {
+function VideoPlayer({ src, poster, className, style, soundOn = false }) {
   const ref = useRef(null);
   const [failed, setFailed] = useState(false);
 
@@ -29,11 +29,19 @@ function VideoPlayer({ src, poster, className, style }) {
     if (!src || failed) return;
     const el = ref.current;
     if (!el) return;
+    el.muted = !soundOn;
     el.load();
     const onCanPlay = () => tryPlay();
     el.addEventListener("canplay", onCanPlay);
     return () => el.removeEventListener("canplay", onCanPlay);
-  }, [src, failed, tryPlay]);
+  }, [src, failed, tryPlay, soundOn]);
+
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.muted = !soundOn;
+      if (soundOn) ref.current.play().catch(() => {});
+    }
+  }, [soundOn]);
 
   if (failed) {
     return (
@@ -78,6 +86,7 @@ function AdCountdown({ total = 5, onSkip }) {
 function ReelsAd({ annonce, onClose }) {
   const [showSkip, setShowSkip] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
+  const [soundOn, setSoundOn] = useState(false);
   const isVideo = !!annonce.video_url;
 
   const descSentences = (() => {
@@ -93,7 +102,7 @@ function ReelsAd({ annonce, onClose }) {
     <div className="relative w-full h-full flex flex-col bg-black overflow-hidden">
       <div className="flex-1 relative min-h-0">
         {isVideo ? (
-          <VideoPlayer src={annonce.video_url} poster={annonce.image_url} className="absolute inset-0 w-full h-full object-cover" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} className="absolute inset-0 w-full h-full object-cover" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
           <BeautyImage src={annonce.image_url} alt={annonce.title} className="absolute inset-0 w-full h-full object-cover" />
         )}
@@ -118,6 +127,13 @@ function ReelsAd({ annonce, onClose }) {
 
           {isVideo ? (
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setSoundOn(v => !v)}
+                aria-label={soundOn ? "Couper le son" : "Activer le son"}
+                className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white active:scale-95 transition-all"
+              >
+                {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              </button>
               {!showSkip ? (
                 <AdCountdown total={5} onSkip={() => setShowSkip(true)} />
               ) : (
@@ -133,8 +149,8 @@ function ReelsAd({ annonce, onClose }) {
           )}
         </div>
 
-        {/* Bottom */}
-        <div className="absolute bottom-0 inset-x-0 px-4" style={{ paddingBottom: "calc(112px + env(safe-area-inset-bottom, 16px))" }}>
+        {/* Bottom — collé tout en bas de la carte */}
+        <div className="absolute bottom-0 inset-x-0 px-4" style={{ paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
           <h3 className="text-white text-[18px] font-black mb-1 drop-shadow-lg">{annonce.title}</h3>
           {annonce.description && (
             <div className="text-white/70 text-[13px] leading-snug mb-3 drop-shadow">
@@ -166,6 +182,7 @@ function ReelsAd({ annonce, onClose }) {
 function StylesAd({ annonce, onClose }) {
   const [showSkip, setShowSkip] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
+  const [soundOn, setSoundOn] = useState(false);
   const isVideo = !!annonce.video_url;
 
   const descSentences = (() => {
@@ -181,7 +198,7 @@ function StylesAd({ annonce, onClose }) {
     <div className="relative w-full h-full overflow-hidden bg-black">
       {/* Média plein cadre */}
       {isVideo ? (
-        <VideoPlayer src={annonce.video_url} poster={annonce.image_url} className="absolute inset-0 w-full h-full object-cover" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} className="absolute inset-0 w-full h-full object-cover" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
       ) : (
         <BeautyImage src={annonce.image_url} alt={annonce.title} className="absolute inset-0 w-full h-full object-cover" />
       )}
@@ -203,13 +220,22 @@ function StylesAd({ annonce, onClose }) {
           </div>
         </div>
         {isVideo ? (
-          !showSkip ? (
-            <AdCountdown total={5} onSkip={() => setShowSkip(true)} />
-          ) : (
-            <button onClick={onClose} className="bg-white/90 backdrop-blur-sm rounded-full px-4 py-2 text-[12px] font-black text-gray-900 active:scale-95 transition-all shadow-lg shrink-0">
-              Ignorer
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setSoundOn(v => !v)}
+              aria-label={soundOn ? "Couper le son" : "Activer le son"}
+              className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white active:scale-95 transition-all"
+            >
+              {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>
-          )
+            {!showSkip ? (
+              <AdCountdown total={5} onSkip={() => setShowSkip(true)} />
+            ) : (
+              <button onClick={onClose} className="bg-white/90 backdrop-blur-sm rounded-full px-4 py-2 text-[12px] font-black text-gray-900 active:scale-95 transition-all shadow-lg shrink-0">
+                Ignorer
+              </button>
+            )}
+          </div>
         ) : (
           <button onClick={onClose} aria-label="Fermer la publicité" className="w-9 h-9 flex items-center justify-center rounded-full bg-black/40 text-white/80 shrink-0 active:scale-95 transition-all">
             <X className="w-5 h-5" />
