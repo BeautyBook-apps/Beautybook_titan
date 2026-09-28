@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     return res.status(204).end();
   }
-  if (!['GET', 'POST'].includes(req.method)) return res.status(405).json({ error: 'Méthode non autorisée.' });
+  if (!['POST'].includes(req.method)) return res.status(405).json({ error: 'Méthode non autorisée.' });
 
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) {

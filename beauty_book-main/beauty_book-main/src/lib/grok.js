@@ -51,7 +51,7 @@ export async function grokChat(messages, opts = {}) {
 
 /** Récupère un token éphémère pour la session voix temps réel. */
 export async function mintVoiceToken() {
-  const res = await fetch('/api/xai-token', { signal: AbortSignal.timeout(20000) });
+  const res = await fetch('/api/xai-token', { method: 'POST', signal: AbortSignal.timeout(20000) });
   let data = null;
   try { data = await res.json(); } catch { /* pas de JSON */ }
   if (!res.ok || !data?.token) {
