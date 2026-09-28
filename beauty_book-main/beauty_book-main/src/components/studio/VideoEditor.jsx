@@ -1,619 +1,948 @@
-import BeautyImage from '@/components/ui/BeautyImage';
-﻿import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  X, Play, Pause, Volume2, VolumeX, ZoomIn, ZoomOut,
-  SkipBack, SkipForward, Scissors, Zap, AudioLines, Plus,
-  Search, Download, Wand2, Settings, Palette, Type,
-  Image as ImageIcon, Trash2, ChevronDown, Check, Layers,
-  FlipHorizontal, RotateCcw, RotateCcw as Undo
+  X, Play, Pause, Volume2, VolumeX, ZoomIn, ZoomOut, Plus,
+  AudioLines, Palette, Type, Trash2,
+  ChevronLeft, ChevronRight, FlipHorizontal2, Music2, Loader2,
+  Slice, Timer, Gauge, Wand2, SlidersHorizontal, Share,
 } from "lucide-react";
-import { useTheme } from "@/hooks/useTheme";
+import { uploadFile } from "@/api/entities";
 
-const PRIMARY = "#f97316";
-const PRIMARY_ALPHA = "rgba(249,115,22,";
-const CLIP_COLORS = ["#2563eb","#7c3aed","#059669","#d97706","#dc2626","#0891b2","#c026d3"];
+/* ═══════════════════════ Montage vidéo — style TikTok/CapCut ═══════════════════════
+   Moteur de lecture réel : horloge maître (rAF), clips lus en séquence dans un
+   seul <video>, calques texte, musique de fond synchronisée.
+   Export réel : rendu canvas 720x1280 + mixage audio WebAudio → MediaRecorder → upload. */
+
+const ACCENT = "#E8732A";
+const BG = "#0b0b10";
+const CARD = "#17171f";
+const BORDER = "rgba(255,255,255,0.08)";
+const TXT = "#f5f5f7";
+const MUTED = "#8e8e99";
 
 const FILTERS = [
-  { id: null, label: "Normal", css: "" },
-  { id: "grayscale", label: "N&B", css: "grayscale(100%)" },
-  { id: "sepia", label: "Sepia", css: "sepia(80%)" },
-  { id: "warm", label: "Chaud", css: "saturate(150%) hue-rotate(-20deg)" },
-  { id: "cool", label: "Froid", css: "saturate(120%) hue-rotate(30deg)" },
-  { id: "vivid", label: "Vivid", css: "saturate(200%) contrast(110%)" },
-  { id: "fade", label: "Fade", css: "brightness(110%) saturate(70%) contrast(90%)" },
+  { id: "none", label: "Normal", css: "" },
+  { id: "nb", label: "N&B", css: "grayscale(1)" },
+  { id: "sepia", label: "Sépia", css: "sepia(0.9)" },
+  { id: "vif", label: "Vif", css: "saturate(1.8) contrast(1.15)" },
+  { id: "chaud", label: "Chaud", css: "saturate(1.4) hue-rotate(-15deg)" },
+  { id: "froid", label: "Froid", css: "saturate(1.2) hue-rotate(25deg)" },
+  { id: "fane", label: "Fané", css: "brightness(1.1) saturate(0.6) contrast(0.9)" },
+  { id: "drama", label: "Drama", css: "contrast(1.4) brightness(0.9) saturate(0.7)" },
 ];
+const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4];
+const FONTS = ["Arial", "Georgia", "Impact", "Courier New", "Verdana", "Trebuchet MS"];
+const COLORS = ["#ffffff", "#000000", "#E8732A", "#ff2c55", "#ffd60a", "#30d158", "#0a84ff", "#bf5af2"];
 
-const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const uid = (p) => `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const fmt = (s) => {
+  if (!isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60), d = Math.floor((s % 1) * 10);
+  return `${m}:${String(sec).padStart(2, "0")}.${d}`;
+};
+const tlDur = (c) => Math.max(0.1, (c.trimE - c.trimS) / c.speed);
+const filterCSS = (c) => {
+  const p = FILTERS.find((f) => f.id === c.filter)?.css || "";
+  return `brightness(${c.b / 100}) contrast(${c.c / 100}) saturate(${c.s / 100})${p ? " " + p : ""}`;
+};
+const loadMeta = (url) => new Promise((resolve) => {
+  const v = document.createElement("video");
+  v.muted = true; v.preload = "metadata";
+  v.onloadedmetadata = () => resolve({ dur: v.duration || 0, w: v.videoWidth, h: v.videoHeight });
+  v.onerror = () => resolve({ dur: 0, w: 0, h: 0 });
+  v.src = url;
+});
 
-const FONTS = ["Arial", "Georgia", "Courier New", "Impact", "Comic Sans MS", "Verdana"];
-
-const TRANSITIONS = [
-  { id: "none", label: "Aucune" },
-  { id: "fade", label: "Fondu" },
-  { id: "dissolve", label: "Dissolution" },
-  { id: "wipe", label: "Balayage" },
-];
-
-// ── WaveformBars ──────────────────────────────────────────────────────────────
-function WaveformBars({ color, totalW, duration, currentTime }) {
-  const barCount = Math.min(Math.floor(totalW / 3), 200);
-  const barsRef = useRef(null);
-  if (!barsRef.current || barsRef.current.length !== barCount) {
-    barsRef.current = Array.from({ length: barCount }, () => 15 + Math.random() * 70);
-  }
-  return (
-    <div className="flex items-end gap-px h-full px-1">
-      {barsRef.current.map((h, i) => {
-        const pct = duration > 0 ? (i / barCount) * 100 : 0;
-        const isPast = duration > 0 && pct <= (currentTime / duration) * 100;
-        return <div key={i} className="flex-1 rounded-full transition-all duration-75" style={{ height: `${h}%`, minWidth: 2, background: isPast ? color : `${color}44` }} />;
-      })}
-    </div>
-  );
-}
-
-// ── ClipBlock ─────────────────────────────────────────────────────────────────
-function ClipBlock({ label, startX, width, color, isActive, onClick, onDelete, onTrimLeft, onTrimRight, onDragMove }) {
-  const dragRef = useRef({ dragging: false, startX: 0 });
-  const handlePointerDown = useCallback((e) => {
-    if (e.target.closest(".trim-handle") || e.target.closest("button")) return;
-    e.stopPropagation();
-    dragRef.current = { dragging: true, startX: e.clientX };
-    const onMove = (ev) => { if (dragRef.current.dragging) onDragMove?.(ev.clientX - dragRef.current.startX); };
-    const onUp = () => { dragRef.current.dragging = false; document.removeEventListener("pointermove", onMove); document.removeEventListener("pointerup", onUp); };
-    document.addEventListener("pointermove", onMove); document.addEventListener("pointerup", onUp);
-  }, [onDragMove]);
-
-  return (
-    <div className="absolute top-0.5 bottom-0.5 rounded-lg overflow-visible cursor-grab active:cursor-grabbing transition-all group/clip"
-      style={{ left: startX, width: Math.max(width, 30), background: isActive ? `linear-gradient(135deg, ${color}, ${color}dd)` : `linear-gradient(135deg, ${color}, ${color}aa)`, border: isActive ? "2px solid rgba(255,255,255,0.6)" : "none", zIndex: isActive ? 10 : 1, minHeight: 44 }}
-      onClick={onClick} onPointerDown={handlePointerDown}>
-      <div className="absolute inset-0 flex items-center px-3 overflow-hidden">
-        <span className="text-[10px] font-bold text-white truncate">{label || "Clip"}</span>
-      </div>
-      {onTrimLeft && <div className="trim-handle absolute -left-1 top-0 bottom-0 w-1.5 cursor-ew-resize opacity-0 group-hover/clip:opacity-100 bg-white/50 rounded-l" onPointerDown={(e) => { e.stopPropagation(); onTrimLeft(e); }} />}
-      {onTrimRight && <div className="trim-handle absolute -right-1 top-0 bottom-0 w-1.5 cursor-ew-resize opacity-0 group-hover/clip:opacity-100 bg-white/50 rounded-r" onPointerDown={(e) => { e.stopPropagation(); onTrimRight(e); }} />}
-      {onDelete && <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 rounded-full text-white text-[10px] flex items-center justify-center opacity-0 group-hover/clip:opacity-100 shadow">✕</button>}
-    </div>
-  );
-}
-
-// ── ToolPanel ─────────────────────────────────────────────────────────────────
-function ToolPanel({ tool, isDark, cardBg, panelBorder, textPrimary, textMuted, PRIMARY, onClose, brightness, setBrightness, contrast, setContrast, saturation, setSaturation, filter, setFilter, speed, setSpeed, textOverlay, setTextOverlay, flipH, setFlipH }) {
-  const panelBg = isDark ? "rgba(10,10,10,0.95)" : "rgba(255,255,255,0.95)";
-
-  if (tool === "RETOUCHE") return (
-    <div className="px-4 py-3 space-y-3" style={{ background: panelBg, borderTop: `1px solid ${panelBorder}` }}>
-      <p className="text-[11px] font-black uppercase tracking-widest" style={{ color: textMuted }}>Retouche</p>
-      {[{ label: "Luminosité", value: brightness, set: setBrightness, min: 50, max: 150 }, { label: "Contraste", value: contrast, set: setContrast, min: 50, max: 150 }, { label: "Saturation", value: saturation, set: setSaturation, min: 0, max: 200 }].map(s => (
-        <div key={s.label} className="flex items-center gap-3">
-          <span className="text-[11px] w-20" style={{ color: textMuted }}>{s.label}</span>
-          <input type="range" min={s.min} max={s.max} value={s.value} onChange={e => s.set(Number(e.target.value))} className="flex-1 h-1 rounded-full appearance-none" style={{ background: PRIMARY }} />
-          <span className="text-[10px] font-mono w-8 text-right" style={{ color: textMuted }}>{s.value}%</span>
-        </div>
-      ))}
-    </div>
-  );
-
-  if (tool === "FILTRES") return (
-    <div className="px-4 py-3" style={{ background: panelBg, borderTop: `1px solid ${panelBorder}` }}>
-      <p className="text-[11px] font-black uppercase tracking-widest mb-2" style={{ color: textMuted }}>Filtres</p>
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {FILTERS.map(f => (
-          <button key={f.id || "none"} onClick={() => setFilter(f.id)} className="shrink-0 px-3 py-2 rounded-xl text-[10px] font-bold transition-all" style={{ background: filter === f.id ? PRIMARY : cardBg, color: filter === f.id ? "#fff" : textMuted, border: `1px solid ${filter === f.id ? PRIMARY : panelBorder}` }}>
-            {f.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  if (tool === "COUPER") return (
-    <div className="px-4 py-3" style={{ background: panelBg, borderTop: `1px solid ${panelBorder}` }}>
-      <p className="text-[11px] font-black uppercase tracking-widest mb-2" style={{ color: textMuted }}>Vitesse</p>
-      <div className="flex gap-2 flex-wrap">
-        {SPEEDS.map(s => (
-          <button key={s} onClick={() => setSpeed(s)} className="px-4 py-2 rounded-xl text-[11px] font-bold transition-all" style={{ background: speed === s ? PRIMARY : cardBg, color: speed === s ? "#fff" : textMuted, border: `1px solid ${speed === s ? PRIMARY : panelBorder}` }}>
-            {s}x
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  if (tool === "VITESSE") return (
-    <div className="px-4 py-3" style={{ background: panelBg, borderTop: `1px solid ${panelBorder}` }}>
-      <p className="text-[11px] font-black uppercase tracking-widest mb-2" style={{ color: textMuted }}>Vitesse</p>
-      <div className="flex gap-2 flex-wrap">
-        {SPEEDS.map(s => (
-          <button key={s} onClick={() => setSpeed(s)} className="px-4 py-2 rounded-xl text-[11px] font-bold transition-all" style={{ background: speed === s ? PRIMARY : cardBg, color: speed === s ? "#fff" : textMuted, border: `1px solid ${speed === s ? PRIMARY : panelBorder}` }}>
-            {s}x
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  if (tool === "TEXTE") return (
-    <div className="px-4 py-3 space-y-3" style={{ background: panelBg, borderTop: `1px solid ${panelBorder}` }}>
-      <p className="text-[11px] font-black uppercase tracking-widest" style={{ color: textMuted }}>Texte</p>
-      <input value={textOverlay.text} onChange={e => setTextOverlay(p => ({ ...p, text: e.target.value }))} placeholder="Votre texte..."
-        className="w-full px-4 py-3 rounded-xl text-[13px] outline-none" style={{ background: cardBg, border: `1px solid ${panelBorder}`, color: textPrimary }} />
-      <div className="flex gap-2 flex-wrap">
-        {FONTS.map(f => (
-          <button key={f} onClick={() => setTextOverlay(p => ({ ...p, fontFamily: f }))} className="px-3 py-1.5 rounded-lg text-[10px] font-bold" style={{ background: textOverlay.fontFamily === f ? PRIMARY : cardBg, color: textOverlay.fontFamily === f ? "#fff" : textMuted, fontFamily: f }}>
-            {f}
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center gap-3">
-        <span className="text-[11px]" style={{ color: textMuted }}>Taille</span>
-        <input type="range" min={8} max={72} value={textOverlay.fontSize} onChange={e => setTextOverlay(p => ({ ...p, fontSize: Number(e.target.value) }))} className="flex-1 h-1 rounded-full" style={{ background: PRIMARY }} />
-        <span className="text-[10px] font-mono" style={{ color: textMuted }}>{textOverlay.fontSize}px</span>
-      </div>
-      <div className="flex gap-2">
-        {["#ffffff","#000000","#ff0000","#00ff00","#0000ff","#ffff00","#ff00ff","#00ffff"].map(c => (
-          <button key={c} onClick={() => setTextOverlay(p => ({ ...p, color: c }))} className="w-7 h-7 rounded-full border-2" style={{ background: c, borderColor: textOverlay.color === c ? PRIMARY : "transparent" }} />
-        ))}
-      </div>
-      <div className="flex gap-2">
-        <button onClick={() => setTextOverlay(p => ({ ...p, bold: !p.bold }))} className="px-3 py-1.5 rounded-lg text-[11px] font-black" style={{ background: textOverlay.bold ? PRIMARY : cardBg, color: textOverlay.bold ? "#fff" : textMuted }}>G</button>
-        <button onClick={() => setTextOverlay(p => ({ ...p, italic: !p.italic }))} className="px-3 py-1.5 rounded-lg text-[11px] italic" style={{ background: textOverlay.italic ? PRIMARY : cardBg, color: textOverlay.italic ? "#fff" : textMuted }}>I</button>
-      </div>
-      <button onClick={() => setTextOverlay(p => ({ ...p, show: !p.show }))} className="w-full py-2 rounded-xl text-[11px] font-bold" style={{ background: textOverlay.show ? PRIMARY : cardBg, color: textOverlay.show ? "#fff" : textMuted }}>
-        {textOverlay.show ? "Masquer le texte" : "Afficher le texte"}
-      </button>
-    </div>
-  );
-
-  return null;
-}
-
-// ── Main VideoEditor ──────────────────────────────────────────────────────────
 export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone, onAddSound, onRemoveSound }) {
   const videoRef = useRef(null);
-  const audioRefs = useRef({});
-  const fileInput2Ref = useRef(null);
-  const fileInputAudioRef = useRef(null);
-  const fileInputImageRef = useRef(null);
+  const musicRef = useRef(null);
   const scrollRef = useRef(null);
-  const autoScrollRef = useRef(null);
-  const previewAudioRef = useRef(null);
+  const stageRef = useRef(null);
+  const fileClipRef = useRef(null);
+  const fileMusicRef = useRef(null);
+  const clockRef = useRef({ playing: false, t: 0, last: 0, raf: 0, curClipId: null, seekPending: false });
+  const cancelRef = useRef(false);
+  const toastTimer = useRef(null);
 
-  const { theme } = useTheme();
-  const isDark = theme === "dark" || theme === "night";
-
-  // ── State ──
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [originalMuted, setOriginalMuted] = useState(false);
-  const [originalSoundRemoved, setOriginalSoundRemoved] = useState(false);
-  const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(0);
+  const [clips, setClips] = useState([]);
+  const [texts, setTexts] = useState([]);
+  const [music, setMusic] = useState(null);
+  const [sel, setSel] = useState(null); // {type:'clip'|'text'|'music', id}
+  const [playhead, setPlayhead] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [tool, setTool] = useState(null);
   const [zoom, setZoom] = useState(1);
-  const [videoClips, setVideoClips] = useState([]);
-  const [audioTracks, setAudioTracks] = useState([]);
-  const [activeClipIdx, setActiveClipIdx] = useState(0);
-  const [brightness, setBrightness] = useState(100);
-  const [contrast, setContrast] = useState(100);
-  const [saturation, setSaturation] = useState(100);
-  const [filter, setFilter] = useState(null);
-  const [speed, setSpeed] = useState(1);
-  const [flipH, setFlipH] = useState(false);
-  const [textOverlay, setTextOverlay] = useState({ text: "", x: 50, y: 50, fontSize: 24, color: "#ffffff", fontFamily: "Arial", show: false, bold: true, italic: false });
-  const [imageOverlays, setImageOverlays] = useState([]);
-  const [activeTool, setActiveTool] = useState(null);
-  const [transition, setTransition] = useState("none");
-  const [showSoundPanel, setShowSoundPanel] = useState(false);
-  const [soundSearch, setSoundSearch] = useState("");
-  const [soundResults, setSoundResults] = useState([]);
-  const [soundSearching, setSoundSearching] = useState(false);
-  const [previewingSound, setPreviewingSound] = useState(null);
+  const [origMuted, setOrigMuted] = useState(false);
+  const [toast, setToast] = useState("");
+  const [exporting, setExporting] = useState(null); // {phase:'render'|'upload', progress}
+  const [ready, setReady] = useState(false);
 
-  // ── Derived ──
-  const TRACK_H = 48;
-  const LABEL_W = 56;
-  const PPS = 100 * zoom;
-  const totalW = Math.max(duration * PPS, 600);
-  const panelBg = isDark ? "rgba(10,10,10,0.95)" : "rgba(255,255,255,0.95)";
-  const panelBorder = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
-  const cardBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
-  const textPrimary = isDark ? "#f9fafb" : "#111827";
-  const textMuted = isDark ? "#6b7280" : "#9ca3af";
-  const activeAAudio = audioTracks.filter(t => t.type !== "original");
+  const PPS = 90 * zoom; // pixels per second
+  const starts = [];
+  { let acc = 0; for (const c of clips) { starts.push(acc); acc += tlDur(c); } }
+  const totalDur = starts.length ? starts[starts.length - 1] + tlDur(clips[clips.length - 1]) : 0;
 
-  const timeToX = useCallback((t) => (t / (duration || 1)) * totalW, [duration, totalW]);
-  const xToTime = useCallback((x) => Math.max(0, Math.min(duration, (x / totalW) * duration)), [duration, totalW]);
+  const say = (m) => { setToast(m); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(""), 2200); };
+  const selClip = sel?.type === "clip" ? clips.find((c) => c.id === sel.id) : null;
+  const selText = sel?.type === "text" ? texts.find((t) => t.id === sel.id) : null;
 
-  const rulerMarks = [];
-  if (duration > 0) {
-    const step = zoom >= 8 ? 1 : zoom >= 4 ? 2 : zoom >= 2 ? 5 : 10;
-    for (let t = 0; t <= duration + step; t += step) rulerMarks.push(Math.min(t, duration));
-  }
+  const locate = useCallback((t) => {
+    for (let i = clips.length - 1; i >= 0; i--) {
+      if (t >= starts[i] - 1e-6) return { i, clip: clips[i], start: starts[i], off: t - starts[i] };
+    }
+    return clips.length ? { i: 0, clip: clips[0], start: 0, off: 0 } : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clips, totalDur]);
 
-  const fmtTC = (s) => {
-    if (!s || isNaN(s)) return "00:00:00:00";
-    return `00:${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}:${String(Math.floor((s % 1) * 30)).padStart(2, "0")}`;
+  /* ── Clip initial ── */
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      const init = [];
+      if (videoUrl) {
+        const isImg = /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(videoUrl) || videoUrl.startsWith("data:image");
+        if (isImg) {
+          init.push({ id: uid("c"), url: videoUrl, name: "Image", kind: "image", srcDur: 3, trimS: 0, trimE: 3, speed: 1, filter: "none", b: 100, c: 100, s: 100, flip: false, vol: 100, muted: false });
+        } else {
+          const m = await loadMeta(videoUrl);
+          if (m.dur > 0) init.push({ id: uid("c"), url: videoUrl, name: "Clip principal", kind: "video", srcDur: m.dur, trimS: 0, trimE: m.dur, speed: 1, filter: "none", b: 100, c: 100, s: 100, flip: false, vol: 100, muted: false });
+        }
+      }
+      if (!dead) { setClips(init); if (init.length) setSel({ type: "clip", id: init[0].id }); setReady(true); }
+    })();
+    if (soundUrl) {
+      const a = document.createElement("audio"); a.preload = "metadata";
+      a.onloadedmetadata = () => setMusic({ url: soundUrl, name: sound || "Musique", dur: a.duration || 0, vol: 80 });
+      a.src = soundUrl;
+    }
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ── Moteur de lecture : horloge maître ── */
+  const switchVideoTo = (clip, offSec) => {
+    const v = videoRef.current; if (!v || !clip || clip.kind !== "video") return;
+    const ck = clockRef.current;
+    if (ck.curClipId !== clip.id) {
+      ck.curClipId = clip.id;
+      ck.seekPending = true;
+      v.src = clip.url;
+      v.playbackRate = clip.speed;
+      v.load();
+    }
+    ck.pendingSeek = clip.trimS + offSec * clip.speed;
   };
 
-  const formatTime = (s) => {
-    if (!s || isNaN(s)) return "0:00";
-    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  useEffect(() => {
+    const v = videoRef.current; if (!v) return;
+    const onCanPlay = () => {
+      const ck = clockRef.current;
+      if (ck.seekPending && ck.pendingSeek != null) {
+        try { v.currentTime = clamp(ck.pendingSeek, 0, (v.duration || 1) - 0.05); } catch {}
+        ck.seekPending = false; ck.pendingSeek = null;
+      }
+      if (ck.playing && v.paused) v.play().catch(() => {});
+    };
+    v.addEventListener("canplay", onCanPlay);
+    return () => v.removeEventListener("canplay", onCanPlay);
+  }, [ready]);
+
+  useEffect(() => {
+    const ck = clockRef.current;
+    const loop = (now) => {
+      if (!ck.playing) return;
+      const dt = Math.min(0.1, (now - ck.last) / 1000); ck.last = now;
+      let t = ck.t + dt;
+      if (t >= totalDur) { t = totalDur; pauseAll(); setPlayhead(t); return; }
+      ck.t = t;
+      const loc = locate(t);
+      const v = videoRef.current;
+      if (loc && v) {
+        const { clip, off } = loc;
+        if (clip.kind === "video") {
+          v.style.display = "";
+          const im = document.getElementById("ve-img"); if (im) im.style.display = "none";
+          switchVideoTo(clip, off);
+          if (!ck.seekPending && v.readyState >= 2) {
+            const want = clip.trimS + off * clip.speed;
+            if (Math.abs(v.currentTime - want) > 0.4) { try { v.currentTime = want; } catch {} }
+            v.volume = (clip.muted || origMuted) ? 0 : clip.vol / 100;
+            if (v.paused) v.play().catch(() => {});
+          }
+          v.style.filter = filterCSS(clip);
+          v.style.transform = clip.flip ? "scaleX(-1)" : "";
+        } else {
+          v.pause();
+          const im = document.getElementById("ve-img");
+          if (im) { im.style.display = ""; im.src = clip.url; im.style.filter = filterCSS(clip); im.style.transform = clip.flip ? "scaleX(-1)" : ""; }
+        }
+      }
+      const m = musicRef.current;
+      if (m && music) {
+        const mt = Math.min(t, music.dur || t);
+        if (Math.abs(m.currentTime - mt) > 0.6) { try { m.currentTime = mt; } catch {} }
+        m.volume = music.vol / 100;
+        if (m.paused) m.play().catch(() => {});
+      }
+      setPlayhead(t);
+      // auto-scroll timeline
+      const sc = scrollRef.current;
+      if (sc) {
+        const x = t * PPS;
+        if (x < sc.scrollLeft + 40 || x > sc.scrollLeft + sc.clientWidth - 120) sc.scrollLeft = Math.max(0, x - sc.clientWidth / 2);
+      }
+      ck.raf = requestAnimationFrame(loop);
+    };
+    if (playing) { ck.playing = true; ck.last = performance.now(); ck.raf = requestAnimationFrame(loop); }
+    else { ck.playing = false; cancelAnimationFrame(ck.raf); }
+    return () => cancelAnimationFrame(ck.raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, clips, totalDur, music, origMuted, PPS]);
+
+  const pauseAll = () => {
+    clockRef.current.playing = false;
+    videoRef.current?.pause();
+    musicRef.current?.pause();
+    setPlaying(false);
   };
 
-  const getFilterCSS = () => {
-    let css = `brightness(${brightness / 100}) contrast(${contrast / 100}) saturate(${saturation / 100})`;
-    const f = FILTERS.find(fi => fi.id === filter);
-    if (f?.css) css += ` ${f.css}`;
-    if (flipH) css += " scaleX(-1)";
-    return css;
-  };
-
-  // ── Handlers ──
-  const handlePlayheadDrag = useCallback((e) => {
-    e.preventDefault(); e.stopPropagation();
-    const rect = scrollRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const sl = scrollRef.current?.scrollLeft || 0;
-    const seek = (cx) => { const v = videoRef.current; if (!v) return; const t = xToTime(cx - rect.left + sl); v.currentTime = t; setCurrentTime(t); };
-    seek(e.clientX ?? e.touches?.[0]?.clientX ?? 0);
-    const onMove = (ev) => seek(ev.touches ? ev.touches[0].clientX : ev.clientX);
-    const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
-    document.addEventListener("mousemove", onMove, { passive: false }); document.addEventListener("mouseup", onUp);
-  }, [xToTime]);
-
-  const handleTimeUpdate = () => {
+  const seek = (t) => {
+    t = clamp(t, 0, totalDur);
+    clockRef.current.t = t;
+    setPlayhead(t);
+    const loc = locate(t);
     const v = videoRef.current;
-    if (!v) return;
-    setCurrentTime(v.currentTime);
-    if (v.currentTime >= trimEnd && trimEnd > 0) { v.pause(); setIsPlaying(false); v.currentTime = trimStart; }
-  };
-
-  const handleLoadedMetadata = () => {
-    const v = videoRef.current;
-    if (!v) return;
-    setDuration(v.duration); setTrimEnd(v.duration);
-    if (audioTracks.length === 0) setAudioTracks([{ id: 0, name: "Son original", url: videoUrl, type: "original", volume: 100, muted: false }]);
+    if (loc && v) {
+      if (loc.clip.kind === "video") {
+        v.style.display = "";
+        const im = document.getElementById("ve-img"); if (im) im.style.display = "none";
+        if (clockRef.current.curClipId !== loc.clip.id) clockRef.current.curClipId = null; // recharge si changement de clip
+        switchVideoTo(loc.clip, loc.off);
+        v.style.filter = filterCSS(loc.clip);
+        v.style.transform = loc.clip.flip ? "scaleX(-1)" : "";
+        v.volume = (loc.clip.muted || origMuted) ? 0 : loc.clip.vol / 100;
+        if (clockRef.current.playing) { /* canplay reprendra */ } else { v.pause(); }
+      } else {
+        v.pause();
+        const im = document.getElementById("ve-img");
+        if (im) { im.style.display = ""; im.src = loc.clip.url; im.style.filter = filterCSS(loc.clip); }
+      }
+    }
+    const m = musicRef.current;
+    if (m && music) { try { m.currentTime = Math.min(t, music.dur || 0); } catch {} }
   };
 
   const togglePlay = () => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (isPlaying) { v.pause(); } else { if (v.currentTime >= trimEnd - 0.1) v.currentTime = trimStart; v.play().catch(() => {}); }
-    setIsPlaying(!isPlaying);
+    if (!clips.length) { say("Ajoutez d'abord un clip"); return; }
+    if (playing) { pauseAll(); return; }
+    if (playhead >= totalDur - 0.05) seek(0);
+    setPlaying(true);
   };
 
-  const handleClip2 = (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    const newClips = files.map((file, i) => ({ id: `clip_${Date.now()}_${i}`, url: URL.createObjectURL(file), type: file.type.startsWith("image/") ? "image" : "video", name: file.name.replace(/\.[^.]+$/, ""), color: CLIP_COLORS[videoClips.length % CLIP_COLORS.length] }));
-    setVideoClips(prev => [...prev, ...newClips]); setActiveClipIdx(videoClips.length); e.target.value = "";
-  };
-
-  const handleImportAudio = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setAudioTracks(prev => [...prev, { id: Date.now(), name: file.name.replace(/\.[^.]+$/, ""), url: URL.createObjectURL(file), type: "imported", volume: 80, muted: false }]);
-    e.target.value = "";
-  };
-
-  const handleAddImage = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImageOverlays(prev => [...prev, { url: URL.createObjectURL(file), x: 60, y: 120, scale: 1 }]);
-    e.target.value = "";
-  };
-
-  const cutAtPlayhead = () => {
-    const v = videoRef.current;
-    if (!v || v.currentTime <= trimStart || v.currentTime >= trimEnd) return;
-    const clip = { id: `clip_${Date.now()}`, url: videoUrl, type: "video", name: "Clip coupé", color: CLIP_COLORS[videoClips.length % CLIP_COLORS.length], startTime: v.currentTime - trimStart };
-    setVideoClips(prev => [...prev, clip]);
-  };
-
-  const toggleOriginalSound = () => setOriginalSoundRemoved(prev => !prev);
-
-  // ── Zoom ──
-  const handleZoomAtCursor = useCallback((e, delta) => {
-    const container = scrollRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const timeAtCursor = xToTime(mouseX + container.scrollLeft);
-    setZoom(z => {
-      const newZoom = Math.max(0.5, Math.min(10, z + delta));
-      const newTotalW = Math.max(duration * 100 * newZoom, 600);
-      const newTimeToX = (t) => (t / (duration || 1)) * newTotalW;
-      requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = newTimeToX(timeAtCursor) - mouseX; });
-      return newZoom;
-    });
-  }, [duration, xToTime]);
-
-  const handleZoomSlider = useCallback((e) => {
-    e.preventDefault();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const update = (ev) => { const cx = ev.clientX ?? ev.touches?.[0]?.clientX ?? 0; setZoom(0.5 + Math.max(0, Math.min(1, (cx - rect.left) / rect.width)) * 9.5); };
-    update(e);
-    const onMove = (ev) => update(ev);
-    const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
-    document.addEventListener("mousemove", onMove); document.addEventListener("mouseup", onUp);
-  }, []);
-
-  const handleWheel = useCallback((e) => {
-    if (e.shiftKey || e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      if (e.ctrlKey || e.metaKey) handleZoomAtCursor(e, e.deltaY > 0 ? -0.3 : 0.3);
-      else if (scrollRef.current) scrollRef.current.scrollLeft += e.deltaY || e.deltaX;
+  /* ── Clips : ajout / suppression / split / trim / ordre ── */
+  const addClips = async (files) => {
+    const list = Array.from(files || []).filter((f) => f.type.startsWith("video/") || f.type.startsWith("image/"));
+    if (!list.length) return;
+    const made = [];
+    for (const f of list) {
+      const url = URL.createObjectURL(f);
+      if (f.type.startsWith("image/")) {
+        made.push({ id: uid("c"), url, name: f.name.replace(/\.[^.]+$/, ""), kind: "image", srcDur: 3, trimS: 0, trimE: 3, speed: 1, filter: "none", b: 100, c: 100, s: 100, flip: false, vol: 100, muted: false });
+      } else {
+        const m = await loadMeta(url);
+        if (m.dur <= 0) { say(`« ${f.name} » illisible`); continue; }
+        made.push({ id: uid("c"), url, name: f.name.replace(/\.[^.]+$/, ""), kind: "video", srcDur: m.dur, trimS: 0, trimE: m.dur, speed: 1, filter: "none", b: 100, c: 100, s: 100, flip: false, vol: 100, muted: false });
+      }
     }
-  }, [handleZoomAtCursor]);
+    if (!made.length) return;
+    setClips((p) => { const n = [...p, ...made]; setSel({ type: "clip", id: made[0].id }); return n; });
+    say(`${made.length} clip${made.length > 1 ? "s" : ""} ajouté${made.length > 1 ? "s" : ""}`);
+  };
 
-  // ── Auto-scroll ──
-  useEffect(() => {
-    if (!isPlaying || !scrollRef.current) { if (autoScrollRef.current) cancelAnimationFrame(autoScrollRef.current); return; }
-    const container = scrollRef.current;
-    const animate = () => { if (!isPlaying || !scrollRef.current) return; container.scrollLeft += (timeToX(currentTime) - container.clientWidth / 2 - container.scrollLeft) * 0.15; autoScrollRef.current = requestAnimationFrame(animate); };
-    autoScrollRef.current = requestAnimationFrame(animate);
-    return () => { if (autoScrollRef.current) cancelAnimationFrame(autoScrollRef.current); };
-  }, [isPlaying, currentTime, timeToX]);
+  const patchClip = (id, patch) => setClips((p) => p.map((c) => (c.id === id ? { ...c, ...patch } : c)));
 
-  // ── Keyboard shortcuts ──
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-      if (e.key === " ") { e.preventDefault(); togglePlay(); }
-      if (e.key === "ArrowLeft") { const v = videoRef.current; if (v) { v.currentTime = Math.max(trimStart, v.currentTime - 1/30); setCurrentTime(v.currentTime); } }
-      if (e.key === "ArrowRight") { const v = videoRef.current; if (v) { v.currentTime = Math.min(trimEnd, v.currentTime + 1/30); setCurrentTime(v.currentTime); } }
-      if (e.key === "m") setOriginalMuted(m => !m);
-      if (e.key === "l") setFlipH(f => !f);
-      if (e.key === "c") cutAtPlayhead();
-      if (e.key === "Escape") setActiveTool(null);
+  const deleteClip = (id) => {
+    pauseAll();
+    setClips((p) => {
+      const n = p.filter((c) => c.id !== id);
+      if (sel?.id === id) setSel(n.length ? { type: "clip", id: n[0].id } : null);
+      return n;
+    });
+    clockRef.current.t = 0; setPlayhead(0); clockRef.current.curClipId = null;
+  };
+
+  const splitAtPlayhead = () => {
+    const loc = locate(playhead);
+    if (!loc) { say("Ajoutez d'abord un clip"); return; }
+    if (loc.clip.kind === "image") { say("On ne peut pas diviser une image"); return; }
+    const srcMid = loc.clip.trimS + loc.off * loc.clip.speed;
+    if (srcMid - loc.clip.trimS < 0.2 || loc.clip.trimE - srcMid < 0.2) { say("Placez la tête de lecture au milieu du clip"); return; }
+    const a = { ...loc.clip, id: uid("c"), trimE: srcMid, name: loc.clip.name };
+    const b = { ...loc.clip, id: uid("c"), trimS: srcMid, name: loc.clip.name + " (2)" };
+    setClips((p) => { const n = [...p]; n.splice(loc.i, 1, a, b); return n; });
+    setSel({ type: "clip", id: b.id });
+    say("Clip divisé");
+  };
+
+  /* ── Textes ── */
+  const addText = () => {
+    const t = { id: uid("t"), text: "Votre texte", x: 50, y: 30, size: 26, color: "#ffffff", font: "Arial", bold: true, start: playhead, end: Math.min(playhead + 3, totalDur || playhead + 3) };
+    setTexts((p) => [...p, t]);
+    setSel({ type: "text", id: t.id });
+    setTool("TEXTE");
+  };
+  const patchText = (id, patch) => setTexts((p) => p.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  const deleteText = (id) => { setTexts((p) => p.filter((t) => t.id !== id)); if (sel?.id === id) setSel(null); };
+
+  /* ── Musique ── */
+  const addMusicFile = (f) => {
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    const a = document.createElement("audio"); a.preload = "metadata";
+    a.onloadedmetadata = () => {
+      setMusic({ url, name: f.name.replace(/\.[^.]+$/, ""), dur: a.duration || 0, vol: 80 });
+      onAddSound?.({ name: f.name, url, file: f });
+      say("Musique ajoutée");
     };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [trimStart, trimEnd]);
+    a.onerror = () => say("Fichier audio illisible");
+    a.src = url;
+  };
+  const removeMusic = () => { setMusic(null); onRemoveSound?.(); if (sel?.type === "music") setSel(null); };
 
-  // ── Sound search ──
-  const searchSounds = async () => {
-    if (!soundSearch.trim()) return;
-    setSoundSearching(true);
-    try { const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(soundSearch)}&media=music&limit=20`); const data = await res.json(); setSoundResults(data.results || []); } catch { setSoundResults([]); }
-    setSoundSearching(false);
+  /* ── Timeline : interactions ── */
+  const trackSeek = (e) => {
+    const el = scrollRef.current; if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cx = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    seek(clamp((cx - rect.left + el.scrollLeft) / PPS, 0, totalDur));
+  };
+  const rulerMarks = [];
+  {
+    const steps = [0.5, 1, 2, 5, 10, 15, 30, 60];
+    const step = steps.find((s) => s * PPS >= 70) || 60;
+    for (let t = 0; t <= totalDur + 0.01; t += step) rulerMarks.push(t);
+  }
+
+  /* ── Export réel ── */
+  const pickMime = () => {
+    const cands = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
+    return cands.find((c) => window.MediaRecorder?.isTypeSupported(c)) || "";
   };
 
-  const selectSound = (track) => {
-    setAudioTracks(prev => [...prev, { id: Date.now(), name: `${track.trackName} - ${track.artistName}`, url: track.previewUrl, type: "imported", volume: 80, muted: false }]);
-    setShowSoundPanel(false); onAddSound?.({ name: track.trackName, url: track.previewUrl });
+  // Cache d'images pour l'export (clips photo)
+  const imgCache = useRef({});
+  const drawCover = (ctx, src, W, H) => {
+    const vw = src.videoWidth || src.naturalWidth || W, vh = src.videoHeight || src.naturalHeight || H;
+    const s = Math.max(W / vw, H / vh);
+    const w = vw * s, h = vh * s;
+    ctx.drawImage(src, (W - w) / 2, (H - h) / 2, w, h);
+  };
+  const drawImageClip = (ctx, clip, W, H) => {
+    let im = imgCache.current[clip.id];
+    if (!im) { im = new Image(); im.crossOrigin = "anonymous"; im.src = clip.url; imgCache.current[clip.id] = im; }
+    if (im.complete && im.naturalWidth) drawCover(ctx, im, W, H);
   };
 
-  const previewSound = (track) => {
-    if (previewingSound === track.previewUrl) { previewAudioRef.current?.pause(); setPreviewingSound(null); }
-    else { previewAudioRef.current?.pause(); const audio = new Audio(track.previewUrl); audio.volume = 0.5; audio.play().catch(() => {}); previewAudioRef.current = audio; setPreviewingSound(track.previewUrl); audio.onended = () => setPreviewingSound(null); }
+  const doExport = async () => {
+    if (!clips.length) { say("Ajoutez d'abord un clip"); return; }
+    if (!window.MediaRecorder) { say("Export non supporté par ce navigateur"); return; }
+    pauseAll();
+    cancelRef.current = false;
+    setExporting({ phase: "render", progress: 0 });
+    const W = 720, H = 1280;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      const AC = new (window.AudioContext || window.webkitAudioContext)();
+      await AC.resume().catch(() => {});
+      const dest = AC.createMediaStreamDestination();
+
+      const ev = document.createElement("video");
+      ev.muted = false; ev.playsInline = true; ev.crossOrigin = "anonymous";
+      const evSrc = AC.createMediaElementSource(ev);
+      const evGain = AC.createGain();
+      evSrc.connect(evGain); evGain.connect(dest);
+
+      let mEl = null, mGain = null;
+      if (music) {
+        mEl = document.createElement("audio"); mEl.crossOrigin = "anonymous"; mEl.src = music.url;
+        const ms = AC.createMediaElementSource(mEl);
+        mGain = AC.createGain(); mGain.gain.value = music.vol / 100;
+        ms.connect(mGain); mGain.connect(dest);
+      }
+
+      const stream = canvas.captureStream(30);
+      const mime = pickMime();
+      const rec = new MediaRecorder(new MediaStream([...stream.getVideoTracks(), ...dest.stream.getAudioTracks()]), mime ? { mimeType: mime, videoBitsPerSecond: 8_000_000 } : undefined);
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
+      const stopped = new Promise((r) => { rec.onstop = r; });
+      rec.start(250);
+
+      const stageW = stageRef.current?.clientWidth || 360;
+      const k = W / stageW;
+
+      const renderFrame = (clip, absT) => {
+        ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+        ctx.save();
+        const css = filterCSS(clip);
+        ctx.filter = css === "" ? "none" : css;
+        if (clip.flip) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+        if (clip.kind === "video" && ev.videoWidth) drawCover(ctx, ev, W, H);
+        else if (clip.kind === "image") drawImageClip(ctx, clip, W, H);
+        ctx.restore();
+        ctx.filter = "none";
+        for (const tx of texts) {
+          if (absT < tx.start || absT > tx.end || !tx.text) continue;
+          ctx.font = `${tx.bold ? "bold " : ""}${tx.size * k}px ${tx.font}`;
+          ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.6)";
+          const px = (tx.x / 100) * W, py = (tx.y / 100) * H;
+          ctx.strokeText(tx.text, px, py); ctx.fillStyle = tx.color; ctx.fillText(tx.text, px, py);
+        }
+      };
+
+      let t = 0;
+      for (const clip of clips) {
+        if (cancelRef.current) break;
+        const dur = tlDur(clip);
+        if (clip.kind === "video") {
+          await new Promise((res, rej) => {
+            ev.onloadeddata = () => { try { ev.currentTime = Math.min(clip.trimS, (ev.duration || 1) - 0.05); } catch {} };
+            ev.onseeked = () => res();
+            ev.onerror = () => rej(new Error("clip illisible"));
+            ev.playbackRate = clip.speed;
+            ev.src = clip.url; ev.load();
+          });
+          evGain.gain.value = (clip.muted || origMuted) ? 0 : clip.vol / 100;
+          if (music && t === 0 && mEl) { try { mEl.currentTime = 0; await mEl.play(); } catch {} }
+          // Piloté par le temps vidéo réel → reste synchro même si le décodage ralentit
+          await new Promise((resolve) => {
+            const frame = () => {
+              if (cancelRef.current) return resolve();
+              const vt = ev.currentTime;
+              if (vt < clip.trimS - 0.01) { requestAnimationFrame(frame); return; }
+              const el = clamp((vt - clip.trimS) / clip.speed, 0, dur);
+              renderFrame(clip, t + el);
+              setExporting({ phase: "render", progress: clamp((t + el) / totalDur, 0, 1) });
+              if (vt >= clip.trimE - 0.08 || el >= dur) resolve();
+              else requestAnimationFrame(frame);
+            };
+            ev.play().catch(() => resolve());
+            requestAnimationFrame(frame);
+          });
+          ev.pause();
+        } else {
+          // Clip image : durée fixe, piloté par l'horloge
+          if (music && t === 0 && mEl) { try { mEl.currentTime = 0; await mEl.play(); } catch {} }
+          await new Promise((resolve) => {
+            let last = performance.now(), el = 0;
+            const frame = (now) => {
+              if (cancelRef.current) return resolve();
+              el += Math.min(0.1, (now - last) / 1000); last = now;
+              renderFrame(clip, t + Math.min(el, dur));
+              setExporting({ phase: "render", progress: clamp((t + el) / totalDur, 0, 1) });
+              if (el >= dur) resolve(); else requestAnimationFrame(frame);
+            };
+            requestAnimationFrame(frame);
+          });
+        }
+        t += dur;
+      }
+      if (mEl) mEl.pause();
+      rec.stop(); await stopped;
+      AC.close().catch(() => {});
+      if (cancelRef.current) { setExporting(null); return; }
+      const blob = new Blob(chunks, { type: mime || "video/webm" });
+      if (!blob.size) throw new Error("Rendu vide");
+      setExporting({ phase: "upload", progress: 0 });
+      const file = new File([blob], `montage_${Date.now()}.webm`, { type: "video/webm" });
+      const { file_url } = await uploadFile(file);
+      setExporting(null);
+      onDone?.({ video_url: file_url, duration: totalDur, originalSoundRemoved: origMuted, soundUrl: music?.url || null });
+    } catch (err) {
+      console.error("[export]", err);
+      setExporting(null);
+      say(err?.message === "Choisissez un fichier." ? "Export impossible" : "Échec de l'export. Réessayez.");
+    }
   };
 
-  // ── Render ──
+  // Cache d'images pour l'export
+  // (déplacé plus haut, voir drawImageClip)
+
+  /* ── Fermeture ── */
+  const close = () => {
+    if (clips.length && !window.confirm("Abandonner le montage ?")) return;
+    pauseAll();
+    onClose?.();
+  };
+
+  const activeTexts = texts.filter((t) => playhead >= t.start && playhead <= t.end && t.text);
+
+  const TOOLS = [
+    { id: "COUPER", label: "Couper", icon: Slice },
+    { id: "ROGNER", label: "Rogner", icon: Timer },
+    { id: "VITESSE", label: "Vitesse", icon: Gauge },
+    { id: "FILTRES", label: "Filtres", icon: Palette },
+    { id: "RETOUCHE", label: "Retouche", icon: SlidersHorizontal },
+    { id: "MIROIR", label: "Miroir", icon: FlipHorizontal2 },
+    { id: "VOLUME", label: "Volume", icon: Volume2 },
+    { id: "TEXTE", label: "Texte", icon: Type },
+    { id: "SON", label: "Son", icon: Music2 },
+    { id: "SUPPR", label: "Suppr.", icon: Trash2 },
+  ];
+
+  const needClip = () => {
+    if (!selClip) { say("Sélectionnez d'abord un clip"); setTool(null); return false; }
+    return true;
+  };
+
   return (
-    <div className="fixed inset-0 z-[90] font-display flex flex-col" style={{ background: isDark ? "linear-gradient(180deg, #0a0a0a, #141414, #0a0a0a)" : "linear-gradient(180deg, #f8f9fa, #e9ecef, #f8f9fa)" }}>
-      {audioTracks.filter(t => t.type !== "original" || originalSoundRemoved).map(track => (
-        <audio key={track.id} ref={el => { if (el) audioRefs.current[track.id] = el; }} src={track.url} loop={track.type === "original"} />
-      ))}
-      <input ref={fileInput2Ref} type="file" accept="video/*,image/*" multiple className="hidden" onChange={handleClip2} />
-      <input ref={fileInputAudioRef} type="file" accept="audio/*" className="hidden" onChange={handleImportAudio} />
-      <input ref={fileInputImageRef} type="file" accept="image/*" className="hidden" onChange={handleAddImage} />
+    <div className="fixed inset-0 z-[90] flex flex-col select-none" style={{ background: BG, color: TXT }}>
+      <input ref={fileClipRef} type="file" accept="video/*,image/*" multiple className="hidden" onChange={(e) => { addClips(e.target.files); e.target.value = ""; }} />
+      <input ref={fileMusicRef} type="file" accept="audio/*" className="hidden" onChange={(e) => { addMusicFile(e.target.files?.[0]); e.target.value = ""; }} />
+      <audio ref={musicRef} src={music?.url} preload="auto" />
 
-      {/* ── Top bar ── */}
-      <div className="sticky top-0 z-30 flex items-center justify-between px-4" style={{ paddingTop: "calc(12px + env(safe-area-inset-top, 0px))", paddingBottom: 12, background: panelBg, backdropFilter: "blur(20px)", borderBottom: `1px solid ${panelBorder}` }}>
-        <button onClick={onClose} className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "#f3f4f6", border: `1px solid ${panelBorder}` }}>
-          <X className="w-5 h-5" style={{ color: textPrimary }} />
+      {/* Barre du haut */}
+      <div className="flex items-center justify-between px-3 shrink-0" style={{ paddingTop: "max(12px, env(safe-area-inset-top))", paddingBottom: 10, borderBottom: `1px solid ${BORDER}` }}>
+        <button onClick={close} aria-label="Fermer" className="w-10 h-10 rounded-full flex items-center justify-center active:scale-90" style={{ background: CARD }}>
+          <X className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-2 rounded-full px-5 py-2.5" style={{ background: isDark ? "rgba(255,255,255,0.06)" : "#ffffff", border: `1px solid ${panelBorder}` }}>
-          <Wand2 className="w-4 h-4" style={{ color: PRIMARY }} />
-          <span className="text-[14px] font-bold" style={{ color: textPrimary }}>Montage</span>
+        <div className="flex items-center gap-2 px-4 py-2 rounded-full" style={{ background: CARD }}>
+          <Wand2 className="w-4 h-4" style={{ color: ACCENT }} />
+          <span className="text-[14px] font-extrabold tracking-wide">Montage</span>
+          {totalDur > 0 && <span className="text-[11px] font-mono" style={{ color: MUTED }}>{fmt(totalDur)}</span>}
         </div>
-        <button onClick={() => onDone({ trimStart, trimEnd, originalSoundRemoved, audioTracks, videoClips, brightness, contrast, saturation, filter, speed, flipH, textOverlay, imageOverlays, transition })}
-          className="text-white text-[13px] font-black px-6 py-2.5 rounded-xl active:scale-95 transition-all" style={{ background: PRIMARY, boxShadow: `0 4px 16px ${PRIMARY_ALPHA}0.35)` }}>
-          Terminer
+        <button onClick={doExport} disabled={!clips.length || !!exporting} className="px-5 h-10 rounded-full text-[13px] font-black text-white active:scale-95 disabled:opacity-40" style={{ background: ACCENT }}>
+          Exporter
         </button>
       </div>
 
-      {/* ── Video preview ── */}
-      <div className="relative mx-4 mt-3 rounded-2xl overflow-hidden bg-black shadow-lg" style={{ maxHeight: "40vh" }}>
-        <video ref={videoRef} src={videoUrl} autoPlay loop playsInline muted={originalMuted} style={{ width: "100%", maxHeight: "40vh", objectFit: "contain", filter: getFilterCSS(), playbackRate: speed }}
-          onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} />
-        <button onClick={togglePlay} className="absolute inset-0 flex items-center justify-center z-10">
-          {!isPlaying && <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center shadow-lg"><Play className="w-8 h-8 text-white ml-1" /></div>}
-        </button>
-        {/* Son original badge */}
-        <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-white/90 backdrop-blur-sm rounded-full px-3 py-1.5 z-20 shadow-sm">
-          <Volume2 className="w-3.5 h-3.5" style={{ color: PRIMARY }} />
-          <span className="text-gray-800 text-[11px] font-bold">Son original</span>
-          <button onClick={() => setOriginalMuted(m => !m)} className="text-gray-400 hover:text-gray-600">
-            {originalMuted ? <VolumeX className="w-3 h-3" /> : <X className="w-3 h-3" />}
-          </button>
-        </div>
-        {/* Text overlay */}
-        {textOverlay.show && textOverlay.text && (
-          <div className="absolute z-20 pointer-events-none px-2" style={{ left: `${textOverlay.x}%`, top: `${textOverlay.y}%`, transform: "translate(-50%, -50%)", color: textOverlay.color, fontSize: `${textOverlay.fontSize}px`, fontFamily: textOverlay.fontFamily, fontWeight: textOverlay.bold ? "bold" : "normal", fontStyle: textOverlay.italic ? "italic" : "normal", textShadow: "2px 2px 4px rgba(0,0,0,0.5)" }}>
-            {textOverlay.text}
-          </div>
-        )}
-        {/* Image overlays */}
-        {imageOverlays.map((img, i) => (
-          <BeautyImage key={i} src={img.url} className="absolute z-20 pointer-events-none rounded-lg shadow-lg" style={{ left: img.x, top: img.y, width: 80 * img.scale, height: 80 * img.scale, objectFit: "cover" }} />
-        ))}
-      </div>
-
-      {/* ── Time display ── */}
-      <div className="flex items-center justify-between px-5 py-2">
-        <span className="text-[12px] font-mono" style={{ color: textMuted }}>{formatTime(trimStart)}</span>
-        <span className="text-[12px] font-mono font-bold" style={{ color: textPrimary }}>{formatTime(currentTime)} / {formatTime(duration)}</span>
-        <span className="text-[12px] font-mono" style={{ color: textMuted }}>{formatTime(trimEnd)}</span>
-      </div>
-
-      {/* ── Zoom controls ── */}
-      <div className="flex items-center justify-between px-4 py-1.5">
-        <div className="flex items-center gap-2.5">
-          <button onClick={() => setZoom(z => Math.max(0.5, z - 0.5))} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: cardBg, border: `1px solid ${panelBorder}` }}>
-            <ZoomOut className="w-3.5 h-3.5" style={{ color: textMuted }} />
-          </button>
-          <div className="relative h-1.5 w-24 rounded-full cursor-pointer" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "#e5e7eb" }} onPointerDown={handleZoomSlider}>
-            <div className="absolute rounded-full shadow-md" style={{ left: `${((zoom - 0.5) / 9.5) * 100}%`, width: 10, height: 10, top: -3, background: PRIMARY, transform: "translateX(-50%)" }} />
-          </div>
-          <button onClick={() => setZoom(z => Math.min(10, z + 0.5))} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: cardBg, border: `1px solid ${panelBorder}` }}>
-            <ZoomIn className="w-3.5 h-3.5" style={{ color: textMuted }} />
-          </button>
-          <span className="text-[11px] font-mono font-bold" style={{ color: textMuted }}>{zoom.toFixed(1)}x</span>
-        </div>
-        <button onClick={toggleOriginalSound} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold"
-          style={originalSoundRemoved ? { background: "rgba(59,130,246,0.15)", color: "#3b82f6", border: "1px solid rgba(59,130,246,0.2)" } : { background: cardBg, color: textMuted, border: `1px solid ${panelBorder}` }}>
-          <Volume2 className="w-3 h-3" /> SON ORIG.
-        </button>
-      </div>
-
-      {/* ── Timeline ── */}
-      <div className="flex mx-2 rounded-xl overflow-hidden flex-1 min-h-0" style={{ background: isDark ? "#12122a" : "#ffffff", border: `1px solid ${panelBorder}` }}>
-        <div className="shrink-0" style={{ width: LABEL_W }}>
-          <div className="flex items-center justify-center" style={{ height: 22, background: isDark ? "#1e1e38" : "#f3f4f6", borderBottom: `1px solid ${panelBorder}` }}>
-            <span className="text-[7px] font-bold uppercase tracking-wider" style={{ color: textMuted }}>TIME</span>
-          </div>
-          {["V1", "V2"].map(tid => (
-            <div key={tid} className="flex items-center gap-1 px-1.5" style={{ height: TRACK_H, background: isDark ? "#1a1a35" : "#f9fafb", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
-              <span className="text-[8px] font-black" style={{ color: "#3b82f6" }}>{tid}</span>
-            </div>
-          ))}
-          <div className="flex items-center gap-1 px-1.5" style={{ height: TRACK_H, background: isDark ? "#1a1a35" : "#f9fafb", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
-            <span className="text-[8px] font-black" style={{ color: "#10b981" }}>A1</span>
-          </div>
-        </div>
-        <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden relative" style={{ scrollbarWidth: "thin" }} onWheel={handleWheel}>
-          <div className="relative" style={{ width: totalW }}>
-            {/* Ruler */}
-            <div className="relative" style={{ height: 22, background: isDark ? "#1e1e38" : "#f3f4f6" }} onPointerDown={handlePlayheadDrag}>
-              {rulerMarks.map((t, i) => (<div key={i} className="absolute top-0" style={{ left: timeToX(t) }}><div className="w-px h-3" style={{ background: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)" }} /><span className="text-[6px] font-mono block text-center mt-0.5" style={{ color: textMuted }}>{fmtTC(t)}</span></div>))}
-              <div className="absolute top-0 bottom-0 w-0.5 z-30 pointer-events-none" style={{ left: timeToX(currentTime), background: "#ff3333" }}>
-                <div className="absolute -top-0 left-1/2 -translate-x-1/2 w-0 h-0" style={{ borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "7px solid #ff3333" }} />
+      {/* Scène */}
+      <div className="flex justify-center px-4 pt-3 shrink-0">
+        <div ref={stageRef} className="relative rounded-2xl overflow-hidden bg-black" style={{ width: "min(62vw, 300px)", aspectRatio: "9/16", maxHeight: "38vh" }}>
+          {clips.length === 0 ? (
+            <button onClick={() => fileClipRef.current?.click()} className="absolute inset-0 flex flex-col items-center justify-center gap-3 active:scale-[0.98]">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: ACCENT }}>
+                <Plus className="w-8 h-8 text-white" />
               </div>
-            </div>
-            {/* V1 */}
-            <div className="relative" style={{ height: TRACK_H, borderBottom: "1px solid rgba(0,0,0,0.04)" }} onPointerDown={(e) => { if (e.target === e.currentTarget) handlePlayheadDrag(e); }}>
-              <ClipBlock label="Clip principal" startX={timeToX(trimStart)} width={timeToX(trimEnd) - timeToX(trimStart)} color="#f97316" isActive={activeClipIdx === 0} onClick={() => setActiveClipIdx(0)}
-                onTrimLeft={(e) => { const sx = e.clientX, os = trimStart; const mv = (ev) => setTrimStart(Math.max(0, Math.min(os + (ev.clientX - sx) / PPS, trimEnd - 0.3))); const up = () => { document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up); }; document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up); }}
-                onTrimRight={(e) => { const sx = e.clientX, oe = trimEnd; const mv = (ev) => setTrimEnd(Math.max(trimStart + 0.3, Math.min(oe + (ev.clientX - sx) / PPS, duration))); const up = () => { document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up); }; document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up); }} />
-              {videoClips.map((clip, idx) => (<ClipBlock key={clip.id} label={clip.name || `Clip ${idx + 2}`} startX={timeToX(trimEnd + idx * 3)} width={3 * PPS} color={clip.color || CLIP_COLORS[idx % CLIP_COLORS.length]} isActive={activeClipIdx === idx + 1} onClick={() => setActiveClipIdx(idx + 1)} onDelete={() => setVideoClips(prev => prev.filter((_, i) => i !== idx))} onDragMove={(dx) => setVideoClips(prev => prev.map((c, i) => i === idx ? { ...c, _offset: (c._offset || 0) + dx / PPS } : c))} />))}
-              <div className="absolute top-0 bottom-0 w-px pointer-events-none z-10" style={{ left: timeToX(currentTime), background: "rgba(255,51,51,0.4)" }} />
-            </div>
-            {/* V2 */}
-            <div className="relative" style={{ height: TRACK_H, borderBottom: "1px solid rgba(0,0,0,0.04)" }} onPointerDown={(e) => { if (e.target === e.currentTarget) handlePlayheadDrag(e); }}>
-              <div className="absolute top-0 bottom-0 w-px pointer-events-none z-10" style={{ left: timeToX(currentTime), background: "rgba(255,51,51,0.4)" }} />
-            </div>
-            {/* A1 */}
-            <div className="relative" style={{ height: TRACK_H, borderBottom: "1px solid rgba(0,0,0,0.04)" }} onPointerDown={(e) => { if (e.target === e.currentTarget) handlePlayheadDrag(e); }}>
-              <div className="absolute top-1 bottom-1 rounded-lg overflow-hidden" style={{ left: 0, width: timeToX(Math.min(trimEnd, duration)), background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.25)" }}>
-                <WaveformBars color="#3b82f6" totalW={totalW} duration={duration} currentTime={currentTime} />
-              </div>
-              <div className="absolute top-0 bottom-0 w-px pointer-events-none z-10" style={{ left: timeToX(currentTime), background: "rgba(255,51,51,0.4)" }} />
-            </div>
-            {activeAAudio.map((track) => (
-              <div key={track.id} className="relative" style={{ height: TRACK_H, borderBottom: "1px solid rgba(0,0,0,0.04)" }} onPointerDown={(e) => { if (e.target === e.currentTarget) handlePlayheadDrag(e); }}>
-                <div className="absolute top-1 bottom-1 rounded-lg overflow-hidden" style={{ left: 0, width: timeToX(duration), background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.2)", opacity: track.muted ? 0.4 : 1 }}>
-                  <WaveformBars color="#10b981" totalW={totalW} duration={duration} currentTime={currentTime} />
+              <span className="text-[13px] font-bold" style={{ color: MUTED }}>Ajouter un clip pour commencer</span>
+            </button>
+          ) : (
+            <>
+              <video ref={videoRef} playsInline preload="auto" className="absolute inset-0 w-full h-full" style={{ objectFit: "contain", background: "#000" }} />
+              <img id="ve-img" alt="" className="absolute inset-0 w-full h-full" style={{ objectFit: "contain", display: "none" }} />
+              {activeTexts.map((t) => (
+                <div key={t.id}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    setSel({ type: "text", id: t.id }); setTool("TEXTE");
+                    const el = e.currentTarget, sx = e.clientX, sy = e.clientY, ox = t.x, oy = t.y;
+                    const st = stageRef.current?.getBoundingClientRect();
+                    const mv = (ev) => {
+                      if (!st) return;
+                      patchText(t.id, { x: clamp(ox + ((ev.clientX - sx) / st.width) * 100, 5, 95), y: clamp(oy + ((ev.clientY - sy) / st.height) * 100, 5, 95) });
+                    };
+                    const up = () => { document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up); };
+                    document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up);
+                    void el;
+                  }}
+                  className="absolute z-10 px-2 py-1 cursor-move whitespace-pre-wrap text-center"
+                  style={{ left: `${t.x}%`, top: `${t.y}%`, transform: "translate(-50%,-50%)", color: t.color, fontSize: t.size, fontFamily: t.font, fontWeight: t.bold ? 800 : 400, textShadow: "0 2px 8px rgba(0,0,0,0.7)", maxWidth: "90%" }}>
+                  {t.text}
                 </div>
-                <div className="absolute top-0 bottom-0 w-px pointer-events-none z-10" style={{ left: timeToX(currentTime), background: "rgba(255,51,51,0.4)" }} />
+              ))}
+              {!playing && (
+                <button onClick={togglePlay} aria-label="Lecture" className="absolute inset-0 z-10 flex items-center justify-center">
+                  <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}>
+                    <Play className="w-8 h-8 text-white ml-1" />
+                  </div>
+                </button>
+              )}
+            </>
+          )}
+          {toast && (
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-full text-[12px] font-bold whitespace-nowrap" style={{ background: "rgba(0,0,0,0.75)" }}>
+              {toast}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Transport */}
+      <div className="flex items-center justify-center gap-2 px-4 py-2.5 shrink-0">
+        <span className="text-[11px] font-mono w-14" style={{ color: MUTED }}>{fmt(playhead)}</span>
+        <button onClick={() => seek(0)} aria-label="Début" className="w-9 h-9 rounded-full flex items-center justify-center active:scale-90" style={{ background: CARD }}>
+          <ChevronLeft className="w-4 h-4" style={{ color: MUTED }} /><ChevronLeft className="w-4 h-4 -ml-3" style={{ color: MUTED }} />
+        </button>
+        <button onClick={() => seek(playhead - 1)} aria-label="-1s" className="h-9 px-2.5 rounded-full text-[11px] font-bold active:scale-90" style={{ background: CARD, color: MUTED }}>-1s</button>
+        <button onClick={togglePlay} aria-label={playing ? "Pause" : "Lecture"} className="w-13 h-13 rounded-full flex items-center justify-center active:scale-95" style={{ width: 52, height: 52, background: ACCENT }}>
+          {playing ? <Pause className="w-6 h-6 text-white" /> : <Play className="w-6 h-6 text-white ml-0.5" />}
+        </button>
+        <button onClick={() => seek(playhead + 1)} aria-label="+1s" className="h-9 px-2.5 rounded-full text-[11px] font-bold active:scale-90" style={{ background: CARD, color: MUTED }}>+1s</button>
+        <button onClick={() => seek(totalDur)} aria-label="Fin" className="w-9 h-9 rounded-full flex items-center justify-center active:scale-90" style={{ background: CARD }}>
+          <ChevronRight className="w-4 h-4" style={{ color: MUTED }} /><ChevronRight className="w-4 h-4 -ml-3" style={{ color: MUTED }} />
+        </button>
+        <span className="text-[11px] font-mono w-14 text-right" style={{ color: MUTED }}>{fmt(totalDur)}</span>
+      </div>
+
+      {/* Timeline */}
+      <div className="mx-2 rounded-2xl overflow-hidden shrink-0" style={{ background: "#101016", border: `1px solid ${BORDER}` }}>
+        <div className="flex items-center justify-between px-3 py-1.5" style={{ borderBottom: `1px solid ${BORDER}` }}>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => setZoom((z) => clamp(z - 0.25, 0.5, 4))} aria-label="Zoom -" className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90" style={{ background: CARD }}>
+              <ZoomOut className="w-3.5 h-3.5" style={{ color: MUTED }} />
+            </button>
+            <button onClick={() => setZoom((z) => clamp(z + 0.25, 0.5, 4))} aria-label="Zoom +" className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90" style={{ background: CARD }}>
+              <ZoomIn className="w-3.5 h-3.5" style={{ color: MUTED }} />
+            </button>
+          </div>
+          <button onClick={() => setOrigMuted((m) => !m)} className="flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-[10px] font-black" style={{ background: origMuted ? "rgba(255,44,85,0.15)" : CARD, color: origMuted ? "#ff2c55" : MUTED }}>
+            {origMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />} SON ORIG.
+          </button>
+        </div>
+        <div className="flex">
+          <div className="shrink-0" style={{ width: 40 }}>
+            <div style={{ height: 20 }} />
+            {["V1", "A1", "T1"].map((t) => (
+              <div key={t} className="flex items-center justify-center" style={{ height: 46, borderTop: `1px solid ${BORDER}` }}>
+                <span className="text-[9px] font-black" style={{ color: t === "V1" ? "#7c9eff" : t === "A1" ? "#30d158" : "#bf5af2" }}>{t}</span>
               </div>
             ))}
-            <div className="absolute top-0 bottom-0 w-0.5 z-30 pointer-events-none" style={{ left: timeToX(currentTime), background: "#ff3333" }} />
+          </div>
+          <div ref={scrollRef} className="flex-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+            <div className="relative" style={{ width: Math.max(totalDur * PPS + 80, 400) }}>
+              {/* Règle */}
+              <div className="relative" style={{ height: 20 }}
+                onPointerDown={(e) => { e.preventDefault(); trackSeek(e); const mv = (ev) => trackSeek(ev); const up = () => { document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up); }; document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up); }}>
+                {rulerMarks.map((t) => (
+                  <div key={t} className="absolute top-0" style={{ left: t * PPS }}>
+                    <div className="w-px h-1.5" style={{ background: MUTED }} />
+                    <span className="text-[7px] font-mono" style={{ color: MUTED }}>{fmt(t)}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Piste V1 */}
+              <div className="relative" style={{ height: 46, borderTop: `1px solid ${BORDER}` }}>
+                {clips.map((c, i) => {
+                  const x = starts[i] * PPS, w = Math.max(26, tlDur(c) * PPS);
+                  const active = sel?.id === c.id;
+                  return (
+                    <div key={c.id}
+                      onPointerDown={(e) => {
+                        if (e.target.closest(".th")) return;
+                        e.stopPropagation();
+                        setSel({ type: "clip", id: c.id });
+                        const sx = e.clientX, ox = x, dragId = c.id;
+                        let moved = false;
+                        const mv = (ev) => {
+                          const dx = ev.clientX - sx;
+                          if (!moved && Math.abs(dx) < 6) return;
+                          moved = true;
+                          const cxp = ox + dx + w / 2;
+                          setClips((p) => {
+                            const from = p.findIndex((cc) => cc.id === dragId);
+                            if (from < 0) return p;
+                            let acc2 = 0, target = from;
+                            for (let j = 0; j < p.length; j++) { const cw = Math.max(26, tlDur(p[j]) * PPS); if (cxp >= acc2 && cxp < acc2 + cw) { target = j; break; } acc2 += cw; }
+                            if (target === from) return p;
+                            const n = [...p]; const [m] = n.splice(from, 1); n.splice(target, 0, m); return n;
+                          });
+                        };
+                        const up = () => { document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up); };
+                        document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up);
+                      }}
+                      className="absolute top-1 bottom-1 rounded-lg flex items-center px-2 overflow-hidden cursor-grab"
+                      style={{ left: x, width: w, background: active ? "linear-gradient(135deg,#E8732A,#ff9a3c)" : "linear-gradient(135deg,#2a2a38,#3a3a4a)", border: active ? "2px solid #fff" : "1px solid rgba(255,255,255,0.12)", zIndex: active ? 5 : 1 }}>
+                      <span className="text-[9px] font-bold truncate" style={{ color: active ? "#fff" : MUTED }}>{c.kind === "image" ? "🖼 " : ""}{c.name}</span>
+                      {active && c.kind === "video" && (
+                        <>
+                          <div className="th absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize rounded-l-lg" style={{ background: "rgba(255,255,255,0.85)" }}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              const sx = e.clientX, oS = c.trimS;
+                              const mv2 = (ev) => patchClip(c.id, { trimS: clamp(oS + ((ev.clientX - sx) / PPS) * c.speed, 0, c.trimE - 0.2) });
+                              const up2 = () => { document.removeEventListener("pointermove", mv2); document.removeEventListener("pointerup", up2); };
+                              document.addEventListener("pointermove", mv2); document.addEventListener("pointerup", up2);
+                            }} />
+                          <div className="th absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize rounded-r-lg" style={{ background: "rgba(255,255,255,0.85)" }}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              const sx = e.clientX, oE = c.trimE;
+                              const mv2 = (ev) => patchClip(c.id, { trimE: clamp(oE + ((ev.clientX - sx) / PPS) * c.speed, c.trimS + 0.2, c.srcDur) });
+                              const up2 = () => { document.removeEventListener("pointermove", mv2); document.removeEventListener("pointerup", up2); };
+                              document.addEventListener("pointermove", mv2); document.addEventListener("pointerup", up2);
+                            }} />
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Piste A1 */}
+              <div className="relative" style={{ height: 46, borderTop: `1px solid ${BORDER}` }} onPointerDown={(e) => { if (e.target === e.currentTarget) { trackSeek(e); } }}>
+                {music && (
+                  <div onClick={(e) => { e.stopPropagation(); setSel({ type: "music", id: "m" }); setTool("SON"); }}
+                    className="absolute top-1 bottom-1 rounded-lg flex items-center gap-1.5 px-2 overflow-hidden cursor-pointer"
+                    style={{ left: 0, width: Math.max(40, Math.min(music.dur, totalDur) * PPS), background: "rgba(48,209,88,0.16)", border: sel?.type === "music" ? "2px solid #fff" : "1px solid rgba(48,209,88,0.4)" }}>
+                    <AudioLines className="w-3 h-3 shrink-0" style={{ color: "#30d158" }} />
+                    <span className="text-[9px] font-bold truncate" style={{ color: "#30d158" }}>{music.name}</span>
+                  </div>
+                )}
+              </div>
+              {/* Piste T1 */}
+              <div className="relative" style={{ height: 46, borderTop: `1px solid ${BORDER}` }} onPointerDown={(e) => { if (e.target === e.currentTarget) trackSeek(e); }}>
+                {texts.map((t) => (
+                  <div key={t.id} onClick={(e) => { e.stopPropagation(); setSel({ type: "text", id: t.id }); setTool("TEXTE"); }}
+                    className="absolute top-1 bottom-1 rounded-lg flex items-center px-2 overflow-hidden cursor-pointer"
+                    style={{ left: t.start * PPS, width: Math.max(30, (t.end - t.start) * PPS), background: "rgba(191,90,242,0.16)", border: sel?.id === t.id ? "2px solid #fff" : "1px solid rgba(191,90,242,0.4)" }}>
+                    <span className="text-[9px] font-bold truncate" style={{ color: "#bf5af2" }}>{t.text || "Texte"}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Tête de lecture */}
+              <div className="absolute top-0 bottom-0 z-20 pointer-events-none" style={{ left: playhead * PPS }}>
+                <div className="w-[2px] h-full" style={{ background: "#ff2c55" }} />
+                <div className="absolute -top-0 -left-[5px]" style={{ borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "8px solid #ff2c55" }} />
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── Add clip button ── */}
-      <button onClick={() => fileInput2Ref.current?.click()} className="mx-4 mt-3 flex items-center justify-center gap-2 h-11 rounded-xl border-2 border-dashed text-[13px] font-bold active:scale-[0.98] transition-all" style={{ borderColor: `${PRIMARY_ALPHA}0.35)`, color: PRIMARY }}>
+      {/* Ajouter un clip */}
+      <button onClick={() => fileClipRef.current?.click()} className="mx-4 mt-2.5 h-11 shrink-0 rounded-2xl border-2 border-dashed text-[13px] font-black flex items-center justify-center gap-2 active:scale-[0.98]" style={{ borderColor: "rgba(232,115,42,0.4)", color: ACCENT }}>
         <Plus className="w-4 h-4" /> AJOUTER UN CLIP
       </button>
 
-      {/* ── Transport controls ── */}
-      <div className="flex items-center justify-center gap-3 px-4 py-3">
-        <button onClick={() => { const v = videoRef.current; if (v) { v.currentTime = Math.max(trimStart, v.currentTime - 5); setCurrentTime(v.currentTime); } }} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: cardBg, border: `1px solid ${panelBorder}` }}>
-          <SkipBack className="w-4 h-4" style={{ color: textMuted }} />
-        </button>
-        <button onClick={togglePlay} className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg" style={{ background: PRIMARY, boxShadow: `0 4px 20px ${PRIMARY_ALPHA}0.4)` }}>
-          {isPlaying ? <Pause className="w-7 h-7 text-white" /> : <Play className="w-7 h-7 text-white ml-1" />}
-        </button>
-        <button onClick={() => { const v = videoRef.current; if (v) { v.currentTime = Math.min(trimEnd, v.currentTime + 5); setCurrentTime(v.currentTime); } }} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: cardBg, border: `1px solid ${panelBorder}` }}>
-          <SkipForward className="w-4 h-4" style={{ color: textMuted }} />
-        </button>
-        <button className="flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-bold" style={{ background: cardBg, border: `1px solid ${panelBorder}`, color: textMuted }}>
-          <Zap className="w-3.5 h-3.5" /> {speed}x
-        </button>
-        <button onClick={() => setShowSoundPanel(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-bold" style={{ background: cardBg, border: `1px solid ${panelBorder}`, color: textMuted }}>
-          <AudioLines className="w-3.5 h-3.5" /> Ajouter un son
-        </button>
-        <button onClick={() => setOriginalMuted(m => !m)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: cardBg, border: `1px solid ${panelBorder}` }}>
-          {originalMuted ? <VolumeX className="w-4 h-4" style={{ color: textMuted }} /> : <Volume2 className="w-4 h-4" style={{ color: textMuted }} />}
-        </button>
-      </div>
-
-      {/* ── Tool buttons ── */}
-      <div className="flex items-center justify-around px-3 pb-4">
-        {[{ id: "RETOUCHE", label: "RETOUCHE", icon: <Settings className="w-5 h-5" /> }, { id: "FILTRES", label: "FILTRES", icon: <Palette className="w-5 h-5" /> }, { id: "COUPER", label: "COUPER", icon: <Scissors className="w-5 h-5" /> }, { id: "VITESSE", label: "VITESSE", icon: <Zap className="w-5 h-5" /> }, { id: "TEXTE", label: "TEXTE", icon: <Type className="w-5 h-5" /> }].map(tool => (
-          <button key={tool.id} onClick={() => setActiveTool(activeTool === tool.id ? null : tool.id)} className="flex flex-col items-center gap-1.5 w-14 py-2 rounded-xl transition-all">
-            <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: activeTool === tool.id ? `${PRIMARY_ALPHA}0.15)` : (isDark ? "rgba(255,255,255,0.06)" : "#f3f4f6"), border: activeTool === tool.id ? `1px solid ${PRIMARY}` : `1px solid ${panelBorder}` }}>
-              <span style={{ color: activeTool === tool.id ? PRIMARY : textMuted }}>{tool.icon}</span>
-            </div>
-            <span className="text-[8px] font-bold uppercase tracking-wider" style={{ color: activeTool === tool.id ? PRIMARY : textMuted }}>{tool.label}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* ── Tool panels ── */}
-      {activeTool && <ToolPanel tool={activeTool} isDark={isDark} cardBg={cardBg} panelBorder={panelBorder} textPrimary={textPrimary} textMuted={textMuted} PRIMARY={PRIMARY} onClose={() => setActiveTool(null)} brightness={brightness} setBrightness={setBrightness} contrast={contrast} setContrast={setContrast} saturation={saturation} setSaturation={setSaturation} filter={filter} setFilter={setFilter} speed={speed} setSpeed={setSpeed} textOverlay={textOverlay} setTextOverlay={setTextOverlay} flipH={flipH} setFlipH={setFlipH} />}
-
-      {/* ── Sound Panel ── */}
-      {showSoundPanel && (
-        <div className="fixed inset-0 z-[100] flex flex-col" style={{ background: isDark ? "#0a0a0a" : "#f8f9fa" }}>
-          <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${panelBorder}` }}>
-            <button onClick={() => { setShowSoundPanel(false); previewAudioRef.current?.pause(); setPreviewingSound(null); }} className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: cardBg, border: `1px solid ${panelBorder}` }}>
-              <X className="w-5 h-5" style={{ color: textPrimary }} />
-            </button>
-            <span className="text-[16px] font-black" style={{ color: textPrimary }}>Ajouter un son</span>
-            <div className="w-10" />
-          </div>
-          <div className="px-4 py-3 flex items-center gap-2">
-            <div className="flex-1 flex items-center gap-2 rounded-xl px-4 py-3" style={{ background: cardBg, border: `1px solid ${panelBorder}` }}>
-              <AudioLines className="w-4 h-4" style={{ color: textMuted }} />
-              <input value={soundSearch} onChange={(e) => setSoundSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") searchSounds(); }} placeholder="Artiste, titre, genre..." className="flex-1 bg-transparent text-[14px] outline-none" style={{ color: textPrimary }} />
-            </div>
-            <button onClick={searchSounds} className="px-4 py-3 rounded-xl text-[13px] font-black" style={{ color: PRIMARY }}>Rechercher</button>
-          </div>
-          <div className="flex-1 overflow-y-auto px-4 pb-20">
-            {soundSearching && <div className="text-center py-8" style={{ color: textMuted }}>Recherche en cours...</div>}
-            {!soundSearching && soundResults.length === 0 && soundSearch && <div className="text-center py-8" style={{ color: textMuted }}>Aucun résultat</div>}
-            {soundResults.map((track, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 rounded-xl mb-2" style={{ background: cardBg, border: `1px solid ${panelBorder}` }}>
-                <div className="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-gray-200">
-                  {track.artworkUrl100 && <BeautyImage src={track.artworkUrl100} alt="" className="w-full h-full object-cover" />}
-                  <button onClick={() => previewSound(track)} className="absolute inset-0 flex items-center justify-center bg-black/30">
-                    {previewingSound === track.previewUrl ? <Pause className="w-5 h-5 text-white" /> : <Play className="w-5 h-5 text-white ml-0.5" />}
-                  </button>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-bold truncate" style={{ color: textPrimary }}>{track.trackName}</p>
-                  <p className="text-[11px] truncate" style={{ color: textMuted }}>{track.artistName}</p>
-                </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span className="text-[11px] font-mono" style={{ color: textMuted }}>{Math.floor(track.trackTimeMillis / 60000)}:{String(Math.floor((track.trackTimeMillis % 60000) / 1000)).padStart(2, "0")}</span>
-                  <button onClick={() => selectSound(track)} className="text-[10px] font-black px-2 py-0.5 rounded-full" style={{ color: "#10b981", background: "rgba(16,185,129,0.1)" }}>Aperçu</button>
-                </div>
+      {/* Barre d'outils */}
+      <div className="flex gap-1 overflow-x-auto px-2 py-2.5 shrink-0" style={{ scrollbarWidth: "none", paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}>
+        {TOOLS.map((t) => {
+          const active = tool === t.id;
+          return (
+            <button key={t.id}
+              onClick={() => {
+                if (t.id === "SUPPR") {
+                  if (sel?.type === "clip") deleteClip(sel.id);
+                  else if (sel?.type === "text") deleteText(sel.id);
+                  else if (sel?.type === "music") removeMusic();
+                  else say("Sélectionnez un élément à supprimer");
+                  return;
+                }
+                if (t.id === "MIROIR") {
+                  if (!needClip()) return;
+                  patchClip(sel.id, { flip: !selClip.flip });
+                  say(selClip.flip ? "Miroir désactivé" : "Miroir activé");
+                  return;
+                }
+                if (t.id === "COUPER") {
+                  if (!needClip()) return;
+                  splitAtPlayhead();
+                  return;
+                }
+                if (t.id === "TEXTE" && tool !== "TEXTE") { addText(); return; }
+                setTool(active ? null : t.id);
+                if (["ROGNER", "VITESSE", "FILTRES", "RETOUCHE", "VOLUME"].includes(t.id)) needClip();
+              }}
+              className="flex flex-col items-center gap-1 w-[62px] shrink-0 py-1.5 rounded-xl active:scale-95">
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: active ? "rgba(232,115,42,0.18)" : CARD, border: active ? `1.5px solid ${ACCENT}` : `1px solid ${BORDER}` }}>
+                <t.icon className="w-5 h-5" style={{ color: active ? ACCENT : MUTED }} />
               </div>
-            ))}
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 px-4 pb-6 pt-3" style={{ background: isDark ? "#0a0a0a" : "#f8f9fa", borderTop: `1px solid ${panelBorder}` }}>
-            <button onClick={() => { setShowSoundPanel(false); fileInputAudioRef.current?.click(); }} className="w-full py-4 rounded-2xl text-white text-[14px] font-black flex items-center justify-center gap-2 active:scale-[0.98] transition-all" style={{ background: PRIMARY, boxShadow: `0 4px 20px ${PRIMARY_ALPHA}0.4)` }}>
-              <Download className="w-5 h-5" /> Importer depuis mes fichiers
+              <span className="text-[8px] font-black uppercase tracking-wide" style={{ color: active ? ACCENT : MUTED }}>{t.label}</span>
             </button>
+          );
+        })}
+      </div>
+
+      {/* Panneau d'outil */}
+      {tool && (
+        <div className="shrink-0 rounded-t-3xl px-4 pt-3 pb-6 max-h-[34vh] overflow-y-auto" style={{ background: "#14141b", borderTop: `1px solid ${BORDER}`, paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
+          <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: BORDER }} />
+          {tool === "ROGNER" && selClip && (
+            <Panel title={`Rogner — ${selClip.name}`}>
+              {selClip.kind === "video" ? (
+                <>
+                  <Slider label="Début" min={0} max={selClip.srcDur} step={0.1} value={selClip.trimS} fmtv={fmt} onChange={(v) => patchClip(selClip.id, { trimS: clamp(v, 0, selClip.trimE - 0.2) })} />
+                  <Slider label="Fin" min={0} max={selClip.srcDur} step={0.1} value={selClip.trimE} fmtv={fmt} onChange={(v) => patchClip(selClip.id, { trimE: clamp(v, selClip.trimS + 0.2, selClip.srcDur) })} />
+                  <p className="text-[11px] mt-1" style={{ color: MUTED }}>Durée montée : <b style={{ color: TXT }}>{fmt(tlDur(selClip))}</b></p>
+                </>
+              ) : (
+                <Slider label="Durée d'affichage" min={1} max={10} step={0.5} value={selClip.trimE - selClip.trimS} fmtv={(v) => `${v.toFixed(1)}s`} onChange={(v) => patchClip(selClip.id, { trimE: selClip.trimS + v })} />
+              )}
+            </Panel>
+          )}
+          {tool === "VITESSE" && selClip && (
+            <Panel title={`Vitesse — ${selClip.name}`}>
+              <div className="flex gap-2 flex-wrap">
+                {SPEEDS.map((s) => (
+                  <button key={s} onClick={() => patchClip(selClip.id, { speed: s })}
+                    className="px-4 py-2.5 rounded-xl text-[13px] font-black active:scale-95"
+                    style={selClip.speed === s ? { background: ACCENT, color: "#fff" } : { background: CARD, color: MUTED, border: `1px solid ${BORDER}` }}>
+                    {s}x
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] mt-2" style={{ color: MUTED }}>Durée montée : <b style={{ color: TXT }}>{fmt(tlDur(selClip))}</b></p>
+            </Panel>
+          )}
+          {tool === "FILTRES" && selClip && (
+            <Panel title={`Filtres — ${selClip.name}`}>
+              <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+                {FILTERS.map((f) => (
+                  <button key={f.id} onClick={() => patchClip(selClip.id, { filter: f.id })}
+                    className="shrink-0 px-4 py-2.5 rounded-xl text-[12px] font-black active:scale-95"
+                    style={selClip.filter === f.id ? { background: ACCENT, color: "#fff" } : { background: CARD, color: MUTED, border: `1px solid ${BORDER}` }}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </Panel>
+          )}
+          {tool === "RETOUCHE" && selClip && (
+            <Panel title={`Retouche — ${selClip.name}`}>
+              <Slider label="Luminosité" min={40} max={180} value={selClip.b} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(selClip.id, { b: v })} />
+              <Slider label="Contraste" min={40} max={180} value={selClip.c} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(selClip.id, { c: v })} />
+              <Slider label="Saturation" min={0} max={220} value={selClip.s} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(selClip.id, { s: v })} />
+              <button onClick={() => patchClip(selClip.id, { b: 100, c: 100, s: 100, filter: "none" })} className="mt-1 text-[12px] font-bold" style={{ color: ACCENT }}>Réinitialiser</button>
+            </Panel>
+          )}
+          {tool === "VOLUME" && selClip && (
+            <Panel title={`Volume — ${selClip.name}`}>
+              <Slider label="Volume du clip" min={0} max={100} value={selClip.vol} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(selClip.id, { vol: v })} />
+              <button onClick={() => patchClip(selClip.id, { muted: !selClip.muted })}
+                className="mt-2 w-full py-3 rounded-xl text-[13px] font-black active:scale-[0.98]"
+                style={selClip.muted ? { background: "rgba(255,44,85,0.15)", color: "#ff2c55" } : { background: CARD, color: MUTED, border: `1px solid ${BORDER}` }}>
+                {selClip.muted ? "Réactiver le son" : "Couper le son du clip"}
+              </button>
+            </Panel>
+          )}
+          {tool === "TEXTE" && (
+            <Panel title={selText ? "Modifier le texte" : "Texte"}>
+              {!selText ? (
+                <button onClick={addText} className="w-full py-3.5 rounded-2xl text-white text-[13px] font-black flex items-center justify-center gap-2 active:scale-[0.98]" style={{ background: ACCENT }}>
+                  <Plus className="w-4 h-4" /> Ajouter un texte à {fmt(playhead)}
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <textarea value={selText.text} rows={2} onChange={(e) => patchText(selText.id, { text: e.target.value })}
+                    placeholder="Votre texte..." className="w-full px-4 py-3 rounded-xl text-[14px] outline-none resize-none" style={{ background: CARD, border: `1px solid ${BORDER}`, color: TXT }} />
+                  <div className="flex gap-2 flex-wrap">
+                    {FONTS.map((f) => (
+                      <button key={f} onClick={() => patchText(selText.id, { font: f })}
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-bold" style={{ background: selText.font === f ? ACCENT : CARD, color: selText.font === f ? "#fff" : MUTED, fontFamily: f }}>Ag</button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    {COLORS.map((c) => (
+                      <button key={c} onClick={() => patchText(selText.id, { color: c })} aria-label={`Couleur ${c}`}
+                        className="w-8 h-8 rounded-full" style={{ background: c, border: selText.color === c ? `2.5px solid ${ACCENT}` : "2px solid rgba(255,255,255,0.2)" }} />
+                    ))}
+                  </div>
+                  <Slider label="Taille" min={12} max={64} value={selText.size} fmtv={(v) => `${v}px`} onChange={(v) => patchText(selText.id, { size: v })} />
+                  <div className="flex gap-2">
+                    <button onClick={() => patchText(selText.id, { bold: !selText.bold })} className="px-4 py-2 rounded-xl text-[13px] font-black" style={{ background: selText.bold ? ACCENT : CARD, color: selText.bold ? "#fff" : MUTED }}>Gras</button>
+                    <button onClick={() => deleteText(selText.id)} className="px-4 py-2 rounded-xl text-[13px] font-black flex items-center gap-1.5" style={{ background: "rgba(255,44,85,0.12)", color: "#ff2c55" }}>
+                      <Trash2 className="w-4 h-4" /> Supprimer
+                    </button>
+                  </div>
+                  <Slider label="Apparaît à" min={0} max={totalDur} step={0.1} value={selText.start} fmtv={fmt} onChange={(v) => patchText(selText.id, { start: clamp(v, 0, selText.end - 0.3) })} />
+                  <Slider label="Disparaît à" min={0} max={totalDur} step={0.1} value={selText.end} fmtv={fmt} onChange={(v) => patchText(selText.id, { end: clamp(v, selText.start + 0.3, totalDur) })} />
+                  <p className="text-[11px]" style={{ color: MUTED }}>Astuce : glissez le texte sur l'aperçu pour le positionner.</p>
+                </div>
+              )}
+            </Panel>
+          )}
+          {tool === "SON" && (
+            <Panel title="Son">
+              <div className="space-y-3">
+                <button onClick={() => fileMusicRef.current?.click()} className="w-full py-3.5 rounded-2xl text-white text-[13px] font-black flex items-center justify-center gap-2 active:scale-[0.98]" style={{ background: ACCENT }}>
+                  <Music2 className="w-4 h-4" /> {music ? "Remplacer la musique" : "Ajouter une musique"}
+                </button>
+                {music ? (
+                  <>
+                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                      <AudioLines className="w-5 h-5 shrink-0" style={{ color: "#30d158" }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-bold truncate">{music.name}</p>
+                        <p className="text-[11px]" style={{ color: MUTED }}>{fmt(music.dur)}</p>
+                      </div>
+                      <button onClick={removeMusic} aria-label="Retirer la musique" className="w-9 h-9 rounded-xl flex items-center justify-center active:scale-90" style={{ background: "rgba(255,44,85,0.12)" }}>
+                        <Trash2 className="w-4 h-4" style={{ color: "#ff2c55" }} />
+                      </button>
+                    </div>
+                    <Slider label="Volume musique" min={0} max={100} value={music.vol} fmtv={(v) => `${v}%`} onChange={(v) => setMusic((m) => ({ ...m, vol: v }))} />
+                  </>
+                ) : (
+                  <p className="text-[12px]" style={{ color: MUTED }}>Aucune musique. Le son original des clips est utilisé.</p>
+                )}
+                <button onClick={() => setOrigMuted((m) => !m)}
+                  className="w-full py-3 rounded-xl text-[13px] font-black flex items-center justify-center gap-2 active:scale-[0.98]"
+                  style={origMuted ? { background: "rgba(255,44,85,0.15)", color: "#ff2c55" } : { background: CARD, color: TXT, border: `1px solid ${BORDER}` }}>
+                  {origMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  {origMuted ? "Son original coupé" : "Son original activé"}
+                </button>
+              </div>
+            </Panel>
+          )}
+          {(tool === "COUPER" || tool === "ROGNER" || tool === "VITESSE" || tool === "FILTRES" || tool === "RETOUCHE" || tool === "VOLUME") && !selClip && (
+            <p className="text-[13px] text-center py-4" style={{ color: MUTED }}>Sélectionnez d'abord un clip sur la timeline.</p>
+          )}
+        </div>
+      )}
+
+      {/* Modale d'export */}
+      {exporting && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(6px)" }}>
+          <div className="w-full max-w-xs rounded-3xl p-6 text-center" style={{ background: "#14141b", border: `1px solid ${BORDER}` }}>
+            {exporting.phase === "render" ? (
+              <>
+                <Loader2 className="w-10 h-10 mx-auto animate-spin" style={{ color: ACCENT }} />
+                <p className="mt-3 text-[15px] font-black">Rendu de la vidéo…</p>
+                <p className="text-[12px] mt-1" style={{ color: MUTED }}>{Math.round(exporting.progress * 100)}%</p>
+              </>
+            ) : (
+              <>
+                <Share className="w-10 h-10 mx-auto" style={{ color: ACCENT }} />
+                <p className="mt-3 text-[15px] font-black">Envoi en cours…</p>
+                <p className="text-[12px] mt-1" style={{ color: MUTED }}>Téléversement de la vidéo finale</p>
+              </>
+            )}
+            <div className="mt-4 h-2 rounded-full overflow-hidden" style={{ background: CARD }}>
+              <div className="h-full rounded-full transition-all" style={{ width: `${exporting.phase === "render" ? exporting.progress * 100 : 100}%`, background: ACCENT }} />
+            </div>
+            {exporting.phase === "render" && (
+              <button onClick={() => { cancelRef.current = true; }} className="mt-4 text-[13px] font-bold" style={{ color: MUTED }}>Annuler</button>
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Panel({ title, children }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[13px] font-black">{title}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Slider({ label, min, max, step = 1, value, fmtv, onChange }) {
+  return (
+    <div className="mb-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[12px] font-bold" style={{ color: MUTED }}>{label}</span>
+        <span className="text-[12px] font-mono font-bold" style={{ color: TXT }}>{fmtv ? fmtv(value) : value}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+        style={{ background: `linear-gradient(90deg, ${ACCENT} ${((value - min) / (max - min)) * 100}%, #2a2a35 ${((value - min) / (max - min)) * 100}%)` }} />
     </div>
   );
 }
