@@ -25,6 +25,7 @@ import { entities, uploadFile } from '@/api/entities';
 import apiClient from '@/lib/apiClient';
 import { supabase } from '@/api/supabaseClient';
 import VideoEditor from "@/components/studio/VideoEditor";
+import SoundLibrary from "@/components/studio/SoundLibrary";
 import EditeurPhotos from "@/components/studio/EditeurPhotos";
 import AutoCut from "@/components/studio/AutoCut";
 import Legendes from "@/components/studio/Legendes";
@@ -648,15 +649,6 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
     setCaptureMode(mode);
   };
   const [showSoundPanel, setShowSoundPanel] = useState(false);
-  const [sounds, setSounds] = useCachedState("publication_options", [], c => c?.sounds || []);
-  const [soundSearch, setSoundSearch] = useState("");
-  const [loadingSounds, setLoadingSounds] = useState(false);
-  const [playingSound, setPlayingSound] = useState(null);
-  const [suggestions, setSuggestions] = useState([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const audioRef = useRef(null);
-  const suggestTimerRef = useRef(null);
   const [recSeconds, setRecSeconds] = useState(0);
   const recTimerRef = useRef(null);
   // Fond texte
@@ -682,66 +674,6 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
   const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
   // Charger sons au montage — recherche iTunes par défaut "beauty"
-  useEffect(() => {
-    fetchSounds("beauty pop");
-  }, []);
-
-  // ── Recherche musique via iTunes Search API (gratuite, CORS OK) ──────────────
-  const fetchSounds = async (query = 'beauty pop') => {
-    setLoadingSounds(true);
-    try {
-      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=25&country=fr`;
-      const res = await fetch(url);
-      const json = await res.json();
-      const mapped = (json.results || []).map(track => ({
-        id: track.trackId,
-        title: track.trackName || 'Titre inconnu',
-        artist: track.artistName || '',
-        genre: track.primaryGenreName || '',
-        artwork: track.artworkUrl100 || track.artworkUrl60 || '',
-        previewUrl: track.previewUrl || null,
-        duration: track.trackTimeMillis
-          ? `${Math.floor(track.trackTimeMillis / 60000)}:${String(Math.floor((track.trackTimeMillis % 60000) / 1000)).padStart(2, '0')}`
-          : '',
-        popularite: 'Trending',
-      }));
-      setSounds(mapped);
-      // Ne mettre en cache que la liste par défaut ("beauty…"), pas les recherches utilisateur.
-      if (/^beauty/i.test(query)) mergePageCache("publication_options", { sounds: mapped });
-    } catch {
-      setSounds([]);
-    }
-    setLoadingSounds(false);
-  };
-
-  const handleSearchInput = (value) => {
-    setSoundSearch(value);
-    setShowSuggestions(false);
-    clearTimeout(suggestTimerRef.current);
-    if (value.trim().length < 2) { setSuggestions([]); return; }
-    setLoadingSuggestions(true);
-    suggestTimerRef.current = setTimeout(async () => {
-      try {
-        const url = `https://itunes.apple.com/search?term=${encodeURIComponent(value)}&media=music&entity=song&limit=8&country=fr`;
-        const res = await fetch(url);
-        const json = await res.json();
-        const raw = json.results || [];
-        setSuggestions(raw.map(t => ({
-          trackId: t.trackId,
-          trackName: t.trackName,
-          artistName: t.artistName,
-          primaryGenreName: t.primaryGenreName,
-          artworkUrl60: t.artworkUrl60,
-          previewUrl: t.previewUrl,
-        })));
-        setShowSuggestions(true);
-      } catch {
-        setSuggestions([]);
-      }
-      setLoadingSuggestions(false);
-    }, 350);
-  };
-
   const hasMedia = form.video_url || form.images.length > 0;
 
   // ── Retour anticipé : VideoEditor plein écran ──
@@ -838,143 +770,30 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
 
       {/* Sound panel overlay — thème */}
       {showSoundPanel && (
-        <div className={`fixed inset-0 z-[70] flex flex-col font-display`} style={{ backgroundColor: "#000000" }}>
-          {/* Audio caché pour la précoute */}
-          <audio ref={audioRef} loop onEnded={() => setPlayingSound(null)} />
-
-          <div className="flex items-center gap-3 px-5 pt-6 pb-4 border-b" style={{ borderColor: "rgba(255,255,255,0.1)" }}>
-            <button onClick={() => { setShowSoundPanel(false); setPlayingSound(null); if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; } }}
-              className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(255,255,255,0.1)" }}>
-              <X className="w-5 h-5 text-white" />
-            </button>
-            <h2 className="text-[17px] font-black flex-1 text-center text-white">Ajouter un son</h2>
-            <div className="w-9" />
-          </div>
-          <div className="px-4 mb-3 relative">
-            <div className="flex items-center gap-2 rounded-2xl px-4 py-3" style={{ backgroundColor: "rgba(255,255,255,0.1)" }}>
-              <Music className="w-4 h-4 shrink-0 text-white/40" />
-              <input
-                value={soundSearch}
-                onChange={e => handleSearchInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") { setShowSuggestions(false); fetchSounds(soundSearch || "beauty pop"); } }}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                placeholder="Artiste, titre, genre..."
-                className="flex-1 bg-transparent text-[13px] outline-none text-white placeholder:text-white/30"
-              />
-              {loadingSuggestions
-                ? <div className="w-4 h-4 border-2 border-white/30 border-t-primary rounded-full animate-spin shrink-0" />
-                : <button onClick={() => { setShowSuggestions(false); fetchSounds(soundSearch || "beauty pop"); }} className="text-primary text-[12px] font-black shrink-0">Rechercher</button>
-              }
-            </div>
-
-            {/* Suggestions déroulantes */}
-            {showSuggestions && suggestions.length > 0 && (
-              <div className="absolute left-4 right-4 top-full mt-1 rounded-2xl overflow-hidden z-10 shadow-2xl border" style={{ backgroundColor: "#14141e", borderColor: "rgba(255,255,255,0.1)" }}>
-                {suggestions.map((track, idx) => (
-                  <button
-                    key={track.trackId || idx}
-                    onMouseDown={() => {
-                      const key = `${track.trackName} - ${track.artistName}`;
-                      setSoundSearch(track.trackName);
-                      setShowSuggestions(false);
-                      fetchSounds(`${track.trackName} ${track.artistName}`);
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 transition-all text-left hover:bg-white/10 active:bg-white/20"
-                  >
-                    {track.artworkUrl60
-                      ? <BeautyImage src={track.artworkUrl60} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
-                      : <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.1)" }}><Music className="w-4 h-4 text-white/40" /></div>
-                    }
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12px] font-black truncate text-white">{track.trackName}</p>
-                      <p className="text-[10px] truncate text-white/50">{track.artistName} • {track.primaryGenreName}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          {loadingSounds && (
-            <div className="flex justify-center mt-8">
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-10 h-10 border-4 border-orange-200 border-t-orange-500 rounded-full animate-spin" />
-                <p className="text-[12px] font-bold text-white/40">Chargement des sons tendance...</p>
-              </div>
-            </div>
-          )}
-          {!loadingSounds && sounds.length === 0 && (
-            <div className="flex flex-col items-center justify-center mt-8 gap-4">
-              <div className="w-16 h-16 rounded-3xl flex items-center justify-center" style={{ backgroundColor: "rgba(255,255,255,0.05)" }}>
-                <Music className="w-8 h-8 text-white/20" />
-              </div>
-              <p className="text-[13px] font-medium text-white/40">Aucun résultat trouvé</p>
-              <button onClick={() => fetchSounds("beauty pop")} className="bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black px-6 py-3 rounded-2xl text-[13px] active:scale-95 shadow-lg shadow-orange-500/20">
-                🎵 Musiques tendance
-              </button>
-            </div>
-          )}
-          <div className="flex-1 overflow-y-auto px-4 space-y-2 pb-8 hide-scrollbar">
-            {sounds.map((s, i) => {
-              const key = `${s.title} - ${s.artist}`;
-              const isPlaying = playingSound === i;
-              const hasPreview = !!s.previewUrl;
-
-              const togglePlay = (e) => {
-                e.stopPropagation();
-                if (!audioRef.current) return;
-                if (isPlaying) {
-                  audioRef.current.pause();
-                  setPlayingSound(null);
-                } else {
-                  if (s.previewUrl) {
-                    setPlayingSound(i);
-                    audioRef.current.src = s.previewUrl;
-                    audioRef.current.play().catch(() => setPlayingSound(null));
-                  }
+        <SoundLibrary
+          onClose={() => setShowSoundPanel(false)}
+          selectedKey={form.sound}
+          onPick={(tr) => {
+            setForm((f) => ({ ...f, sound: `${tr.title} - ${tr.artist}`, soundPreviewUrl: tr.previewUrl || null }));
+          }}
+          onImport={() => {
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = "audio/*";
+            input.onchange = async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try {
+                const { file_url } = await uploadFile({ file });
+                if (file_url) {
+                  setForm((f) => ({ ...f, sound: file.name.replace(/\.[^.]+$/, ""), soundPreviewUrl: file_url }));
+                  setShowSoundPanel(false);
                 }
-              };
-
-              return (
-                <div key={i} className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
-                  form.sound === key
-                    ? "bg-orange-500/10 border border-orange-500/30"
-                    : "bg-white/5"
-                }`}>
-                  {/* Pochette + bouton play/pause */}
-                  <div className="relative w-12 h-12 shrink-0">
-                    {s.artwork
-                      ? <BeautyImage src={s.artwork} alt={s.title} className="w-12 h-12 rounded-xl object-cover" />
-                      : <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-400/40 to-purple-500/40 flex items-center justify-center"><Music className="w-5 h-5 text-white" /></div>
-                    }
-                    {s.previewUrl && (
-                      <button onClick={togglePlay}
-                        className={`absolute inset-0 rounded-xl flex items-center justify-center transition-all active:scale-95 ${isPlaying ? "bg-black/60" : "bg-black/30 hover:bg-black/50"}`}>
-                        {isPlaying
-                          ? <div className="flex gap-0.5 items-end h-3"><div className="w-1 bg-white rounded-full animate-bounce" style={{height:"50%",animationDelay:"0ms"}} /><div className="w-1 bg-white rounded-full animate-bounce" style={{height:"100%",animationDelay:"150ms"}} /><div className="w-1 bg-white rounded-full animate-bounce" style={{height:"70%",animationDelay:"300ms"}} /></div>
-                          : <Play className="w-4 h-4 text-white ml-0.5" />
-                        }
-                      </button>
-                    )}
-                  </div>
-                  {/* Infos + sélection */}
-                  <button className="flex-1 text-left" onClick={() => { setForm(f => ({ ...f, sound: key, soundPreviewUrl: s.previewUrl || null })); if (audioRef.current) { audioRef.current.pause(); } setPlayingSound(null); /* Video auto-plays via useEffect on soundPreviewUrl */ }}>
-                    <p className="text-[13px] font-black text-white">{s.title}</p>
-                    <p className="text-[11px] text-white/50">{s.artist} • {s.genre}</p>
-                  </button>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <span className="text-[10px] font-bold text-white/40">{s.duration}</span>
-                    {hasPreview && (
-                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase bg-emerald-500/20 text-emerald-400">
-                        ▶ Aperçu
-                      </span>
-                    )}
-                  </div>
-                  {form.sound === key && <Check className="w-4 h-4 text-orange-500 shrink-0" />}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+              } catch (err) { alert(err.message || "Import impossible"); }
+            };
+            input.click();
+          }}
+        />
       )}
 
       {/* Fond : preview avec styles appliqués sur vidéo ET image */}
@@ -1213,7 +1032,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
 
         {/* Ajouter un son — moderne */}
         <button
-          onClick={() => { if (form.sound) { setShowAudioMixer(true); } else { setShowSoundPanel(true); if (sounds.length === 0) fetchSounds("beauty"); } }}
+          onClick={() => { if (form.sound) { setShowAudioMixer(true); } else { setShowSoundPanel(true); } }}
           className={`flex items-center gap-2.5 rounded-full px-4 py-2.5 active:scale-95 transition-all border ${isDark ? "bg-white/10 backdrop-blur-md border-white/15" : "bg-black/5 backdrop-blur-md border-black/10"}`}
         >
           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 flex items-center justify-center">
@@ -1531,7 +1350,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
                     </button>
                   </div>
                 ) : (
-                  <button onClick={() => { setShowTrackEditor(false); setShowSoundPanel(true); if (sounds.length === 0) fetchSounds("beauty"); }}
+                  <button onClick={() => { setShowTrackEditor(false); setShowSoundPanel(true); }}
                     className="w-full flex items-center justify-center gap-2 py-3 border border-dashed border-white/10 rounded-xl active:scale-95">
                     <Plus className="w-4 h-4 text-white/40" />
                     <span className="text-[11px] font-bold text-white/40">Ajouter un son</span>
@@ -1814,7 +1633,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
                 )}
               </div>
             ) : (
-              <button onClick={() => { setShowAudioMixer(false); setShowSoundPanel(true); if (sounds.length === 0) fetchSounds("beauty"); }}
+              <button onClick={() => { setShowAudioMixer(false); setShowSoundPanel(true); }}
                 className="w-full bg-white/5 border-2 border-dashed border-white/10 rounded-2xl p-6 flex flex-col items-center gap-2 active:scale-[0.98] transition-all">
                 <div className="w-12 h-12 rounded-2xl bg-orange-500/20 flex items-center justify-center">
                   <Plus className="w-6 h-6 text-orange-400" />
