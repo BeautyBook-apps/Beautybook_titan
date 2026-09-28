@@ -250,3 +250,30 @@
   pointer-events: none;
 }
 .recharts-wrapper:focus, .recharts-surface:focus { outline: none; }
+
+/* ── Thème sombre ── */
+html.dark .scaling-page {
+  --ink: #f9fafb; --muted: #9ca3af; --line: #374151;
+  --surface: #1f2937; --bg-canvas: #1a1a2e;
+  --orange-light: #2d1a08;
+}
+html.dark .scaling-periods { background: #232838; }
+html.dark .scaling-tab.active { background: #f9fafb; border-color: #f9fafb; color: #1a1a2e; }
+html.dark .scaling-ring .track { stroke: #374151; }
+html.dark .scaling-progress { background: #374151; }
+html.dark .scaling-channel .ch-bar { background: #374151; }
+html.dark .scaling-modal { background: #1f2937; }
+html.dark .scaling-field input { background: #232838; }
+html.dark .scaling-empty { border-color: #374151; }
+html.dark .scaling-insight {
+  background: linear-gradient(135deg, #2d1a08, #3d2000);
+  border-color: #7c4a12;
+}
+html.dark .scaling-delta.up { background: #052e16; color: #86efac; }
+html.dark .scaling-delta.down { background: #2d0a0a; color: #fca5a5; }
+html.dark .scaling-delta.flat { background: #374151; color: #9ca3af; }
+html.dark .scaling-rank.r2 { background: #374151; color: #9ca3af; }
+html.dark .scaling-rank.r3 { background: #3d2000; color: #fdba74; }
+html.dark .scaling-rank.rx { background: #232838; color: #6b7280; }
+html.dark .scaling-chip { background: #374151; }
+html.dark .scaling-card { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35); }

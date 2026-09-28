@@ -200,7 +200,7 @@ function BookingSummaryCard({ data }) {
   ].filter(r => r.value);
 
   return (
-    <div className="bg-gradient-to-br from-green-50 to-teal-50 border border-green-200 rounded-2xl p-4 mt-2">
+    <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mt-2">
       <div className="flex items-center gap-2 mb-3">
         <Calendar className="w-4 h-4 text-green-600" />
         <span className="text-[12px] font-black text-green-700 uppercase tracking-widest">Récapitulatif réservation</span>
@@ -248,7 +248,7 @@ function ServiceRecapCard({ data, onConfirm, onModify }) {
   ].filter(s => s.value);
 
   return (
-    <div className="bg-gradient-to-br from-orange-50 to-amber-50 border-2 border-orange-200 rounded-2xl p-5 mt-2 shadow-lg shadow-orange-100/50">
+    <div className="bg-orange-50 border-2 border-orange-200 rounded-2xl p-5 mt-2 shadow-lg shadow-orange-100/50">
       <div className="flex items-center gap-2.5 mb-4">
         <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-500 rounded-2xl flex items-center justify-center shadow-md shadow-orange-200">
           <CheckCircle className="w-5 h-5 text-white" />
@@ -259,7 +259,7 @@ function ServiceRecapCard({ data, onConfirm, onModify }) {
         </div>
       </div>
 
-      <div className="bg-white/80 rounded-2xl p-4 mb-4 space-y-2.5 border border-orange-100">
+      <div className="bg-white rounded-2xl p-4 mb-4 space-y-2.5 border border-orange-100">
         {steps.map(({ icon, label, value }) => (
           <div key={label} className="flex items-center gap-3">
             <span className="text-[16px]">{icon}</span>
@@ -272,7 +272,7 @@ function ServiceRecapCard({ data, onConfirm, onModify }) {
       </div>
 
       {data.notes && (
-        <div className="bg-white/60 rounded-xl px-4 py-3 mb-4 border border-orange-100">
+        <div className="bg-white rounded-xl px-4 py-3 mb-4 border border-orange-100">
           <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Notes</p>
           <p className="text-[13px] text-gray-700 font-medium">{data.notes}</p>
         </div>

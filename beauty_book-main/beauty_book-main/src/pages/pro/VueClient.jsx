@@ -19,6 +19,7 @@ import { useTheme } from "@/hooks/useTheme";
 import VTCSection from "@/components/service/VTCSection";
 import SalonMap from "@/components/map/SalonMap";
 import { isOpenNow, getEffectiveOpening, formatOpeningHours, getOpeningStatus, applyNightMode } from "@/lib/hours";
+import AssistantChatWidget from "@/components/AssistantChatWidget";
 
 function getBannerGradient(theme) {
   if (theme === "night") return "linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.55) 60%, #000000 100%)";
@@ -1482,6 +1483,11 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
           proName={proInfo?.salon_name}
           onClose={() => setSelectedPlat(null)}
         />
+      )}
+
+      {/* Widget « Discuter avec Maria » — visiteurs uniquement (pas le/la propriétaire) */}
+      {!isOwnProfile && targetEmail && (
+        <AssistantChatWidget proEmail={targetEmail} salonName={proInfo?.salon_name || ""} />
       )}
 
       {/* Menu Modal */}

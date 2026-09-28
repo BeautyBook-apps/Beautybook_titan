@@ -1,0 +1,202 @@
+/* Widget « Discuter avec Maria » — bouton flottant + panneau de chat */
+
+.maria-widget {
+  position: fixed;
+  bottom: 86px;
+  right: 16px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.maria-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 14px 18px;
+  font-size: 13.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(124, 58, 237, 0.45);
+  transition: transform 0.15s;
+}
+.maria-fab:active { transform: scale(0.96); }
+.maria-fab.open { padding: 14px; }
+.maria-fab-label { white-space: nowrap; }
+
+.maria-panel {
+  width: min(360px, calc(100vw - 32px));
+  height: 520px;
+  max-height: calc(100vh - 220px);
+  background: #fff;
+  border-radius: 22px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #f0f0f0;
+}
+.maria-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #1a1a2e, #4c1d95);
+  color: #fff;
+  padding: 14px 14px;
+}
+.maria-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.maria-title { font-size: 13.5px; font-weight: 900; }
+.maria-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+.maria-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; }
+.maria-close {
+  margin-left: auto;
+  background: rgba(255, 255, 255, 0.14);
+  border: none;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.maria-chat {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fafafa;
+}
+.maria-bubble {
+  max-width: 85%;
+  padding: 10px 13px;
+  border-radius: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.maria-bubble.bot { background: #fff; border: 1px solid #f0f0f0; align-self: flex-start; border-bottom-left-radius: 6px; color: #111827; }
+.maria-bubble.me { background: #7c3aed; color: #fff; align-self: flex-end; border-bottom-right-radius: 6px; }
+.maria-typing { display: flex; gap: 5px; padding: 14px 16px; }
+.maria-typing span {
+  width: 7px; height: 7px; border-radius: 50%; background: #a1a1aa;
+  animation: maria-blink 1.2s infinite;
+}
+.maria-typing span:nth-child(2) { animation-delay: 0.2s; }
+.maria-typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes maria-blink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+
+.maria-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  background: #7c3aed;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.maria-booking {
+  background: #fff;
+  border: 1.5px solid #ede9fe;
+  border-radius: 16px;
+  padding: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  align-self: stretch;
+}
+.maria-booking-title { font-size: 13px; font-weight: 900; }
+.maria-booking label { display: flex; flex-direction: column; gap: 5px; }
+.maria-booking label > span { font-size: 11px; font-weight: 700; color: #6b7280; }
+.maria-booking input, .maria-booking select {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  width: 100%;
+  outline: none;
+  font-family: inherit;
+}
+.maria-booking input:focus, .maria-booking select:focus { border-color: #7c3aed; }
+.maria-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.maria-err { font-size: 11.5px; color: #dc2626; line-height: 1.5; }
+.maria-booking-actions { display: flex; gap: 8px; }
+.maria-btn {
+  flex: 1;
+  border: none;
+  border-radius: 12px;
+  padding: 11px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.maria-btn.primary { background: #7c3aed; color: #fff; }
+.maria-btn.primary:disabled { opacity: 0.6; }
+.maria-btn.ghost { background: #f3f4f6; color: #4b5563; }
+
+.maria-inputbar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid #f0f0f0;
+  background: #fff;
+}
+.maria-inputbar input {
+  flex: 1;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 10px 15px;
+  font-size: 13px;
+  outline: none;
+}
+.maria-inputbar input:focus { border-color: #7c3aed; }
+.maria-inputbar button {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 50%;
+  border: none;
+  background: #7c3aed;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+@media (min-width: 768px) {
+  .maria-widget { bottom: 28px; right: 28px; }
+}

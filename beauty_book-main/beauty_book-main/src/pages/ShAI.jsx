@@ -15,6 +15,7 @@ import { supabase } from '@/api/supabaseClient';
 import { apiClient } from '@/lib/apiClient';
 import { useLikedProducts } from "@/hooks/useLikedProducts";
 import { useCartSync } from "@/hooks/useCartSync";
+import { useTheme } from "@/hooks/useTheme";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -794,7 +795,7 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
       )}
 
       {error && (
-        <div className="bg-orange-50/80 border border-orange-100 rounded-2xl px-4 py-3">
+        <div className="bg-orange-50 border border-orange-100 rounded-2xl px-4 py-3">
           <p className="text-[12px] text-orange-600/80 font-medium leading-relaxed">{error}</p>
         </div>
       )}
@@ -1036,7 +1037,7 @@ function EchangeTenues() {
           </div>
         </div>
       )}
-      {error && <div className="bg-orange-50/80 border border-orange-100 rounded-2xl px-4 py-3"><p className="text-[12px] text-orange-600/80 font-medium">{error}</p></div>}
+      {error && <div className="bg-orange-50 border border-orange-100 rounded-2xl px-4 py-3"><p className="text-[12px] text-orange-600/80 font-medium">{error}</p></div>}
       <button onClick={exchange} disabled={!userPhoto || !referencePhoto || loading}
         className="w-full bg-primary text-white font-black text-[14px] uppercase tracking-widest py-4 rounded-2xl shadow-lg shadow-primary/30 active:scale-95 transition-all disabled:opacity-40 flex items-center justify-center gap-3">
         <Repeat2 className="w-5 h-5" /> Échanger la tenue
@@ -1073,6 +1074,7 @@ class ShAIErrorBoundary extends Component {
 // MAIN PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ShAI() {
+  useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const [activeTab, setActiveTab] = useState("cabine");

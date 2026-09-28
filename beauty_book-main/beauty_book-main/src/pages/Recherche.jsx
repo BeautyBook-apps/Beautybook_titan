@@ -10,6 +10,7 @@ import BeautyImage from '@/components/ui/BeautyImage';
 import { supabase } from '@/api/supabaseClient';
 import { entities } from '@/api/entities';
 import { searchSalons, matchesCategory, normalizeSearch } from '@/lib/salonSearch.mjs';
+import { useTheme } from '@/hooks/useTheme';
 import './Recherche.css';
 
 const entityTabs = [
@@ -209,6 +210,7 @@ function FilterDialog({ filters, cities, servicesAvailable, onClose, onApply, re
 }
 
 export default function Recherche() {
+  useTheme();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const q = params.get('q') || '';

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { entities } from '@/api/entities';
+import { useTheme } from '@/hooks/useTheme';
 import './ReceptionnistIA.css';
 
 // ─── Réglages persistés ─────────────────────────────────────────────────────
@@ -63,6 +64,7 @@ const fmtDuration = (startIso, endIso) => {
 };
 
 export default function ReceptionnistIA() {
+  useTheme();
   const navigate = useNavigate();
 
   // Navigation & salon

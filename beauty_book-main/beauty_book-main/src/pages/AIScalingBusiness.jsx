@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import { entities } from "@/api/entities";
 import { supabase } from "@/api/supabaseClient";
+import { useTheme } from "@/hooks/useTheme";
 import './Recherche.css';
 import './AIScalingBusiness.css';
 
@@ -172,6 +173,7 @@ const chartTooltipStyle = {
 
 /* ── Composant principal ──────────────────────────────────────── */
 export default function AIScalingBusiness() {
+  useTheme();
   const navigate = useNavigate();
   const [tab, setTab] = useState("overview");
   const [periodId, setPeriodId] = useState("30d");

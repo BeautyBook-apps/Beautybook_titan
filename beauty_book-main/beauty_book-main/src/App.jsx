@@ -85,7 +85,7 @@ const Visite3D = safeLazy(() => import('@/pages/pro/Visite3D'));
 const Franchise = safeLazy(() => import('@/pages/pro/Franchise'));
 const LancerDirect = safeLazy(() => import('@/pages/pro/LancerDirect'));
 const ModifierProfilPro = safeLazy(() => import('@/pages/pro/ModifierProfilPro'));
-const SocialMedia = safeLazy(() => import('@/pages/SocialMedia'));
+const AssistantConversationnel = safeLazy(() => import('@/pages/AssistantConversationnel'));
 const VueClient = safeLazy(() => import('@/pages/pro/VueClient'));
 const Abonnements = safeLazy(() => import('@/pages/pro/Abonnements'));
 const AbonnementsClient = safeLazy(() => import('@/pages/AbonnementsClient'));
@@ -314,7 +314,7 @@ const AuthenticatedApp = () => {
         <Route path="/live" element={<LiveFeed />} />
         <Route path="/live-detail/:id" element={<LiveDetail />} />
         <Route path="/reels" element={<Reels />} />
-        <Route path="/social-media" element={<SocialMedia />} />
+        <Route path="/social-media" element={<AssistantConversationnel />} />
         <Route path="/reseau-social" element={<Reels />} />
         <Route path="/immobilier" element={<Immobilier />} />
         <Route path="/immobilier/:id" element={<ImmobilierDetail />} />

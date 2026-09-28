@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
+import { useTheme } from "@/hooks/useTheme";
 
 const HAIR_TYPES = [
   { id: "fins",    label: "Fins & Fragiles",  Icon: Feather },
@@ -49,7 +50,7 @@ const SCAN_GUIDE_STEPS = [
   {
     icon: SunMedium,
     color: "text-amber-500",
-    bg: "bg-amber-50 border-amber-200",
+    bg: "bg-yellow-50 border-amber-200",
     title: "Bonne luminosité",
     desc: "Placez-vous face à une fenêtre ou sous une lumière directe. Évitez les contre-jours et les ombres sur vos cheveux.",
     tip: "La lumière naturelle donne les meilleurs résultats.",
@@ -234,7 +235,7 @@ function PhotoUploader({ onCapture, onBack }) {
           </button>
         )}
 
-        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-3 flex items-start gap-2">
+        <div className="bg-yellow-50 border border-amber-100 rounded-2xl p-3 flex items-start gap-2">
           <span className="text-[16px] shrink-0">💡</span>
           <p className="text-[12px] text-amber-800 font-medium leading-relaxed">
             Pour un meilleur diagnostic, utilisez une photo avec les cheveux bien visibles, éclairés naturellement, de face ou de dos.
@@ -1140,7 +1141,7 @@ function RoutinesModal({ results, onClose }) {
                     </div>
                   </div>
                   {created.includes(i) ? (
-                    <div className="flex items-center gap-1.5 bg-green-100 text-green-700 text-[11px] font-black px-3 py-2 rounded-xl shrink-0">
+                    <div className="flex items-center gap-1.5 bg-green-50 text-green-700 text-[11px] font-black px-3 py-2 rounded-xl shrink-0">
                       <CheckCircle2 className="w-3.5 h-3.5" /> Ajoutée
                     </div>
                   ) : (
@@ -1615,6 +1616,7 @@ function generateClientAnalysis(hairType, origine, concerns, hairTypeLabel, orig
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 export default function ScanCapillaire() {
+  useTheme();
   const navigate = useNavigate();
   const [phase, setPhase] = useState("guide"); // guide | camera | upload | form | analyse | results
   const [capturedPhoto, setCapturedPhoto] = useState(null);   // object URL
@@ -1796,7 +1798,7 @@ Génère un diagnostic professionnel ultra-personnalisé en JSON :
 
   // ── PHASE: Formulaire (après capture) ──────────────────────────────────────
   if (phase === "form") return (
-    <div className="font-display min-h-full bg-[#f8f7f5] flex flex-col">
+    <div className="font-display min-h-full bg-[#f8f9fa] flex flex-col">
       <div className="bg-white px-5 pt-5 pb-4 flex items-center gap-3 border-b border-gray-100 sticky top-0 z-10">
         <button onClick={() => setPhase("camera")}
           className="w-10 h-10 bg-gray-100 rounded-2xl flex items-center justify-center active:scale-95">
@@ -1961,7 +1963,7 @@ Génère un diagnostic professionnel ultra-personnalisé en JSON :
 
   // ── PHASE: Résultats ────────────────────────────────────────────────────────
   if (phase === "results" && results) return (
-    <div className="font-display min-h-full bg-[#f8f7f5]">
+    <div className="font-display min-h-full bg-[#f8f9fa]">
       <div className="bg-white px-5 pt-5 pb-4 flex items-center gap-3 border-b border-gray-100 sticky top-0 z-10">
         <button onClick={() => { setPhase("guide"); setResults(null); setCapturedPhoto(null); setCapturedFile(null); }}
           className="w-10 h-10 bg-gray-100 rounded-2xl flex items-center justify-center active:scale-95">
@@ -2112,7 +2114,7 @@ Génère un diagnostic professionnel ultra-personnalisé en JSON :
                 </button>
                 {activeRoutineDay === jour && (
                   <div className="px-4 pb-4 space-y-2">
-                    <div className="flex items-start gap-2 bg-amber-50 rounded-xl p-3">
+                    <div className="flex items-start gap-2 bg-yellow-50 rounded-xl p-3">
                       <div className="w-6 h-6 bg-gradient-to-br from-amber-400 to-orange-400 rounded-lg flex items-center justify-center shrink-0">
                         <Sunrise className="w-3.5 h-3.5 text-white" strokeWidth={2} />
                       </div>

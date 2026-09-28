@@ -1109,3 +1109,160 @@
   }
 }
 
+
+/* ── Thème sombre ── */
+html.dark .discovery-page {
+  --ink: #f9fafb;
+  --muted: #9ca3af;
+  --line: #374151;
+  --surface: #1f2937;
+  --bg-canvas: #1a1a2e;
+  --orange-light: #2d1a08;
+}
+
+/* Header & Hero */
+html.dark .discovery-hero {
+  background: #1f2937;
+  border-bottom-color: #374151;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* Barre de recherche */
+html.dark .discovery-searchbar {
+  background: #232838;
+  border-color: #4b5563;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+html.dark .discovery-query input::placeholder {
+  color: #6b7280;
+}
+
+/* Onglets entités */
+html.dark .discovery-entity-tab {
+  border-color: #4b5563;
+  background: #1f2937;
+}
+html.dark .discovery-entity-tab .tab-badge {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Pastilles catégories */
+html.dark .discovery-categories button {
+  border-color: #4b5563;
+  background: #232838;
+  color: #d1d5db;
+}
+html.dark .discovery-categories button.selected {
+  color: #1a1a2e;
+}
+
+/* Toggle vue + tri */
+html.dark .discovery-view-toggle {
+  border-color: #4b5563;
+  background: #232838;
+}
+html.dark .discovery-view-toggle button[aria-pressed=true] {
+  background: #1f2937;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+html.dark .discovery-result-tools select {
+  background: #232838;
+  border-color: #4b5563;
+}
+
+/* Cartes salons/services */
+html.dark .discovery-salon {
+  border-color: #374151;
+  background: #1f2937;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+html.dark .discovery-salon-photo {
+  background: #232838;
+}
+html.dark .discovery-rating {
+  background: rgba(26, 26, 46, 0.94);
+}
+html.dark .discovery-photo-arrow {
+  background: #232838;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+html.dark .discovery-salon-bottom {
+  border-top-color: #374151;
+}
+
+/* Carte bundle */
+html.dark .bundle-card {
+  background: linear-gradient(135deg, #1f2937 0%, #232838 100%);
+}
+
+/* Boutons */
+html.dark .discovery-secondary {
+  border-color: #4b5563;
+  background: #1f2937;
+}
+
+/* Panneau carte */
+html.dark .discovery-map-panel {
+  border-color: #374151;
+  background: #1f2937;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+}
+
+/* Modale filtres */
+html.dark .discovery-dialog {
+  background: #1f2937;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
+}
+html.dark .discovery-dialog-head {
+  border-bottom-color: #374151;
+  background: #1f2937;
+}
+html.dark .discovery-dialog-head h2 {
+  color: #f9fafb;
+}
+html.dark .discovery-filter-group > label,
+html.dark .filter-label-header > label {
+  color: #f9fafb;
+}
+html.dark .filter-input-wrapper input,
+html.dark .discovery-filter-group input[type="number"] {
+  border-color: #4b5563;
+  background: #232838;
+  color: #f9fafb;
+}
+html.dark .filter-input-wrapper input::placeholder,
+html.dark .discovery-filter-group input[type="number"]::placeholder {
+  color: #6b7280;
+}
+html.dark .filter-input-wrapper input:focus,
+html.dark .discovery-filter-group input[type="number"]:focus {
+  background: #232838;
+}
+html.dark .filter-clear-btn {
+  background: #4b5563;
+  color: #f9fafb;
+}
+html.dark .filter-pill-btn {
+  border-color: #4b5563;
+  background: #232838;
+  color: #d1d5db;
+}
+html.dark .filter-help-text {
+  color: #9ca3af;
+}
+html.dark .filter-rating-pill {
+  border-color: #4b5563;
+  background: #232838;
+  color: #d1d5db;
+}
+html.dark .filter-checkboxes-stack {
+  background: #232838;
+  border-color: #374151;
+}
+html.dark .filter-checkbox-item {
+  color: #f9fafb !important;
+}
+html.dark .discovery-dialog-actions {
+  border-top-color: #374151;
+  background: #1f2937;
+}
