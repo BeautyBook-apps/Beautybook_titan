@@ -42,7 +42,7 @@ import AppShell from '@/components/layout/AppShell';
 import LoadingScreen from '@/components/layout/LoadingScreen';
 
 function safeLazy(importFn) {
-  return lazy(async () => {
+  const Component = lazy(async () => {
     try {
       return await importFn();
     } catch (err) {
@@ -57,6 +57,32 @@ function safeLazy(importFn) {
       throw err;
     }
   });
+  // Précharge le chunk en arrière-plan : la navigation devient instantanée,
+  // sans écran de chargement intermédiaire. Le module ES étant mis en cache,
+  // le lazy() ci-dessus ne retélécharge rien.
+  Component.preload = () => {
+    try {
+      const p = importFn();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch { /* ignore */ }
+  };
+  return Component;
+}
+
+// Premier fallback Suspense = splash de démarrage (normal au lancement).
+// Ensuite : simple spinner dans le flux, sans recouvrir l'écran —
+// fini l'effet « page par-dessus la page » lors des navigations.
+let bootFallbackShown = false;
+function SmartFallback() {
+  if (!bootFallbackShown) {
+    bootFallbackShown = true;
+    return <LoadingScreen message="Chargement des modules..." />;
+  }
+  return (
+    <div className="min-h-[55vh] flex items-center justify-center" role="status" aria-label="Chargement de la page">
+      <div className="w-8 h-8 border-4 border-gray-200 border-t-primary rounded-full animate-spin" />
+    </div>
+  );
 }
 
 const Home = safeLazy(() => import('@/pages/Home'));
@@ -247,6 +273,20 @@ const AuthenticatedApp = () => {
     checkProfile();
   }, [isAuthenticated, profile, onboarded, isSpecialRoute]);
 
+  // Précharge les pages principales une fois l'app démarrée : la navigation
+  // vers l'accueil, le profil ou l'agenda devient instantanée, sans
+  // écran de chargement intermédiaire.
+  useEffect(() => {
+    if (isSpecialRoute || isLoadingPublicSettings || isLoadingAuth) return;
+    const t = setTimeout(() => {
+      Home.preload?.();
+      Profil.preload?.();
+      ProfilPro.preload?.();
+      GestionAgenda.preload?.();
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [isSpecialRoute, isLoadingPublicSettings, isLoadingAuth]);
+
   // Afficher le loading UNIQUEMENT pour les routes normales (pas admin/vendeur)
   if (!isSpecialRoute && (isLoadingPublicSettings || isLoadingAuth)) {
     return <LoadingScreen message="Initialisation de votre espace..." />;
@@ -277,7 +317,7 @@ const AuthenticatedApp = () => {
         open={showGlobalAuthModal && !isAuthPage && !isSpecialRoute}
         onClose={() => setShowGlobalAuthModal(false)}
       />
-      <Suspense fallback={<LoadingScreen message="Chargement des modules..." />}><Routes>
+      <Suspense fallback={<SmartFallback />}><Routes>
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/connexion" element={<Connexion />} />
         <Route path="/maria-site/:code" element={<MariaSite />} />
