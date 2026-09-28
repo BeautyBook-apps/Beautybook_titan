@@ -1,5 +1,5 @@
 import BeautyImage from '@/components/ui/BeautyImage';
-import apiClient from '@/lib/apiClient';
+import { grokChat } from '@/lib/grok';
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft, Send, Search, MessageSquare, Trash2, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Scissors, Clock, ChevronRight, PhoneCall, Sparkles, Zap, Image, Smile, Users } from "lucide-react";
@@ -50,8 +50,7 @@ RÈGLES:
     { role: 'user', content: `Message de ${clientName}: "${clientMessage}"` },
   ];
 
-  const data = await apiClient.post('/api/ai/maria', { messages });
-  const reply = data?.choices?.[0]?.message?.content;
+  const reply = await grokChat(messages, { max_tokens: 300 });
   if (!reply) throw new Error('Maria n’a pas pu générer de réponse.');
   return reply;
 }

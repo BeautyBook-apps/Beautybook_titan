@@ -3,7 +3,7 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { entities } from '@/api/entities';
 import { useAuth } from "@/lib/AuthContext";
 
-import {apiClient} from '@/lib/apiClient';
+import { grokChat } from '@/lib/grok';
 
 export default function AIDescriptionButton({ serviceName, category, onDescription }) {
   const { user } = useAuth();
@@ -28,8 +28,7 @@ export default function AIDescriptionButton({ serviceName, category, onDescripti
     try {
       const prompt = `Tu es un expert en coiffure et beauté. Rédige une description professionnelle et attrayante pour une prestation de beauté nommée "${serviceName}" dans la catégorie "${category || 'beauté'}". La description doit faire 2 à 3 phrases, être en français, mettre en valeur l'expertise, la technique et le résultat final. Format : uniquement le texte de la description, sans guillemets ni markdown.`;
 
-      const data = await apiClient.post('/api/ai/invoke-llm',{prompt});
-      const content = data.result?.content?.trim();
+      const content = (await grokChat([{ role: 'user', content: prompt }], { max_tokens: 300 }))?.trim();
       if (content) {
         onDescription(content);
       } else {

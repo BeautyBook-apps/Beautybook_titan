@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect } from "react";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
+import { grokChat } from './grok';
 
 const VoiceAgentContext = createContext(null);
 
@@ -234,32 +235,17 @@ Quand l'utilisateur te demande d'ouvrir une page, retourne un bloc JSON d'action
 \`\`\``;
 
     try {
-        const apiRes = await fetch('/api/ai/maria', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'deepseek/deepseek-chat-v3-0324',
-            messages: [
-              { role: 'system', content: MARIA_SYSTEM_PROMPT },
-              { role: 'user', content: text },
-            ],
-            temperature: 0.7,
-            max_tokens: 200,
-          }),
-        });
-      if (!apiRes.ok) {
-        const errBody = await apiRes.text();
-        throw new Error(`OpenRouter ${apiRes.status}: ${errBody}`);
-      }
-      const apiData = await apiRes.json();
-      const rawReply = apiData.choices?.[0]?.message?.content || apiData.choices?.[0]?.message?.reasoning || '';
+      const rawReply = await grokChat(
+        [{ role: 'user', content: text }],
+        { system: MARIA_SYSTEM_PROMPT, max_tokens: 300 }
+      );
       reply = rawReply || reply;
       const jsonMatch = rawReply.match(/```json\s*({[^`]+})\s*```/);
       if (jsonMatch) {
         try { action = JSON.parse(jsonMatch[1]); } catch {}
       }
     } catch (err2) {
-      console.error("[VoiceAgent] OpenRouter failed:", err2);
+      console.error("[VoiceAgent] Grok failed:", err2);
       reply = "Désolée, je rencontre un problème technique. Réessaie dans quelques instants ! 💫";
     }
 

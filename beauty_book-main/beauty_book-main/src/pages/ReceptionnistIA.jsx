@@ -1,101 +1,74 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, PhoneCall, PhoneIncoming, PhoneOutgoing, BookOpen, Settings,
-  Bot, CheckCircle2, AlertCircle, Copy, Check, RefreshCw, Clock,
-  ChevronDown, ExternalLink, Server, XCircle, Loader2, Sparkles,
-  Scissors, CalendarCheck, Link2, Unplug,
+  ArrowLeft, PhoneCall, Mic, MicOff, PhoneOff, BookOpen, Settings,
+  Bot, CheckCircle2, AlertCircle, RefreshCw, Loader2, Sparkles,
+  Scissors, KeyRound, ExternalLink, Volume2,
 } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { entities } from '@/api/entities';
 import { useTheme } from '@/hooks/useTheme';
+import { GrokVoiceSession } from '@/lib/grokVoice';
+import { getGrokAgentId, setGrokAgentId, mintVoiceToken } from '@/lib/grok';
 import './ReceptionnistIA.css';
 
-// ─── Réglages persistés ─────────────────────────────────────────────────────
-const LS_URL = 'voice_server_url';
-const LS_TOKEN = 'voice_server_admin_token';
-const LS_SALON = 'voice_server_salon';
+const LS_VOICE = 'bb_grok_voice';
+const GROK_VOICES = [
+  { id: 'ara', label: 'Ara — voix féminine' },
+  { id: 'eve', label: 'Eve — voix féminine' },
+  { id: 'rex', label: 'Rex — voix masculine' },
+  { id: 'sal', label: 'Sal — voix masculine' },
+  { id: 'leo', label: 'Leo — voix masculine' },
+];
 
-const E164 = /^\+[1-9]\d{6,14}$/;
-const normBase = (u) => (u || '').trim().replace(/\/+$/, '');
+const fmtPrice = (s) => (s.price != null && s.price !== '' ? `${Number(s.price).toFixed(0)} €` : '—');
+const fmtDur = (s) => `${s.duration || s.duration_min || 60} min`;
 
-// ─── Appels API vers le serveur vocal ───────────────────────────────────────
-async function apiCall(base, path, { method = 'GET', body, token } = {}) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['x-admin-token'] = token;
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  let data = null;
-  try { data = await res.json(); } catch (_) { /* réponse non JSON */ }
-  if (!res.ok) {
-    const err = new Error((data && data.error) || `Erreur ${res.status}`);
-    err.status = res.status;
-    throw err;
-  }
-  return data;
+function buildInstructions(salonName, services) {
+  const lines = (services || []).slice(0, 40).map(
+    (s) => `- ${s.title || s.name || 'Prestation'} : ${fmtPrice(s)}, durée ${fmtDur(s)}`
+  );
+  return [
+    `Tu es Maria, la réceptionniste vocale du salon de beauté « ${salonName || 'BeautyBook'} ».`,
+    'Tu réponds toujours en français, avec un ton chaleureux et professionnel.',
+    'Tu accueilles les appelants, présentes les prestations, donnes les tarifs et les durées,',
+    "et proposes de les aider à réserver via l'application BeautyBook.",
+    'Prestations du salon (noms, tarifs et durées réels — ne jamais en inventer d\'autres) :',
+    ...lines,
+    "Si on te demande quelque chose hors de ton rôle, redirige poliment vers le salon.",
+    'Tes réponses restent courtes et adaptées à une conversation téléphonique.',
+  ].join('\n');
 }
-
-// ─── Libellés ───────────────────────────────────────────────────────────────
-const QUAL_LABEL = {
-  qualifie: { label: 'RDV pris', cls: 'q-ok' },
-  non_interesse: { label: 'Non intéressé', cls: 'q-no' },
-  rappel_humain: { label: 'Rappel humain', cls: 'q-recall' },
-  hors_sujet: { label: 'Hors sujet', cls: 'q-off' },
-};
-
-const LANG_LABEL = { fr: 'Français', en: 'Anglais', es: 'Espagnol', de: 'Allemand', it: 'Italien', pt: 'Portugais', ar: 'Arabe' };
-const langName = (c) => LANG_LABEL[c] || c.toUpperCase();
-
-const fmtDateTime = (iso) => {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  } catch { return '—'; }
-};
-
-const fmtDuration = (startIso, endIso) => {
-  if (!startIso) return '—';
-  const end = endIso ? new Date(endIso) : new Date();
-  const s = Math.max(0, Math.round((end - new Date(startIso)) / 1000));
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-};
 
 export default function ReceptionnistIA() {
   useTheme();
   const navigate = useNavigate();
 
-  // Navigation & salon
   const [tab, setTab] = useState('vocal');
   const [salonName, setSalonName] = useState('');
   const [services, setServices] = useState([]);
   const [loadingServices, setLoadingServices] = useState(true);
 
-  // Connexion au serveur vocal
-  const [base, setBase] = useState(() => localStorage.getItem(LS_URL) || '');
-  const [adminToken, setAdminToken] = useState(() => localStorage.getItem(LS_TOKEN) || '');
-  const [urlDraft, setUrlDraft] = useState(() => localStorage.getItem(LS_URL) || '');
-  const [tokenDraft, setTokenDraft] = useState(() => localStorage.getItem(LS_TOKEN) || '');
-  const [health, setHealth] = useState(null); // null = non testé, false = injoignable, objet = OK
-  const [checking, setChecking] = useState(false);
-  const [connError, setConnError] = useState('');
-  const [salons, setSalons] = useState([]);
-  const [salonId, setSalonId] = useState(() => localStorage.getItem(LS_SALON) || '');
-  const [callLog, setCallLog] = useState([]);
-  const [copied, setCopied] = useState(false);
+  // Configuration Grok
+  const [agentId, setAgentId] = useState(() => getGrokAgentId());
+  const [agentDraft, setAgentDraft] = useState(() => getGrokAgentId());
+  const [voice, setVoice] = useState(() => {
+    try { return localStorage.getItem(LS_VOICE) || 'ara'; } catch { return 'ara'; }
+  });
 
-  // Appel de test
-  const [tcNumber, setTcNumber] = useState('');
-  const [tcContext, setTcContext] = useState('');
-  const [tcState, setTcState] = useState('idle'); // idle | sending | waiting | done | error
-  const [tcError, setTcError] = useState('');
-  const [tcEntry, setTcEntry] = useState(null);
-  const pollRef = useRef(null);
+  // État du service (test réel du endpoint de token)
+  const [svcState, setSvcState] = useState('unknown'); // unknown | checking | ok | error
+  const [svcError, setSvcError] = useState('');
 
-  const connected = !!(health && health.ok);
-  const currentSalon = salons.find((s) => s.id === salonId) || null;
+  // Session voix en direct
+  const [voiceState, setVoiceState] = useState('idle'); // idle | connecting | live | error
+  const [voiceError, setVoiceError] = useState('');
+  const [speaking, setSpeaking] = useState(null); // 'user' | 'agent' | null
+  const [muted, setMuted] = useState(false);
+  const [mode, setMode] = useState(null); // 'agent' | 'direct'
+  const [transcript, setTranscript] = useState([]); // [{who, text, done}]
+  const sessionRef = useRef(null);
+  const transcriptEndRef = useRef(null);
 
   // ─── Chargement initial : profil pro + vrais services ────────────────────
   useEffect(() => {
@@ -119,173 +92,136 @@ export default function ReceptionnistIA() {
         setLoadingServices(false);
       }
     })();
+    return () => { sessionRef.current?.disconnect(); };
   }, []);
-
-  // ─── Santé + données serveur ──────────────────────────────────────────────
-  const checkHealth = useCallback(async (b) => {
-    const target = normBase(b);
-    if (!target) { setHealth(null); return false; }
-    setChecking(true);
-    try {
-      const h = await apiCall(target, '/health');
-      setHealth(h);
-      setConnError('');
-      return true;
-    } catch (e) {
-      setHealth(false);
-      setConnError(`Serveur injoignable (${e.message}). Vérifiez l'URL et que le serveur est démarré.`);
-      return false;
-    } finally {
-      setChecking(false);
-    }
-  }, []);
-
-  const loadServerData = useCallback(async (b, tok) => {
-    const target = normBase(b);
-    if (!target) return;
-    try {
-      const list = await apiCall(target, '/api/salons', { token: tok });
-      setSalons(list || []);
-      setSalonId((prev) => {
-        if (prev && (list || []).some((s) => s.id === prev)) return prev;
-        if ((list || []).length === 1) {
-          localStorage.setItem(LS_SALON, list[0].id);
-          return list[0].id;
-        }
-        return prev;
-      });
-    } catch (e) {
-      if (e.status === 401) {
-        setConnError("L'API du serveur est protégée : renseignez le token admin ci-dessous.");
-      } else {
-        setConnError(e.message);
-      }
-    }
-    try {
-      const log = await apiCall(target, '/api/calls/log', { token: tok });
-      setCallLog(log || []);
-    } catch (_) { /* l'historique peut rester vide */ }
-  }, []);
-
-  const refreshServer = useCallback(async () => {
-    const ok = await checkHealth(base);
-    if (ok) await loadServerData(base, adminToken);
-  }, [base, adminToken, checkHealth, loadServerData]);
 
   useEffect(() => {
-    if (base) refreshServer();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [transcript]);
+
+  // ─── Test réel du service vocal (mint d'un token éphémère) ───────────────
+  const checkService = useCallback(async () => {
+    setSvcState('checking');
+    setSvcError('');
+    try {
+      await mintVoiceToken();
+      setSvcState('ok');
+    } catch (e) {
+      setSvcState('error');
+      setSvcError(e.message);
+    }
   }, []);
 
-  useEffect(() => () => clearInterval(pollRef.current), []);
-
-  // ─── Configuration ────────────────────────────────────────────────────────
-  const saveServerUrl = async () => {
-    const v = normBase(urlDraft);
-    localStorage.setItem(LS_URL, v);
-    setBase(v);
-    setHealth(null);
-    setSalons([]);
-    setCallLog([]);
-    if (v) {
-      const ok = await checkHealth(v);
-      if (ok) await loadServerData(v, adminToken);
-    }
-  };
-
-  const saveAdminToken = () => {
-    const v = tokenDraft.trim();
-    if (v) localStorage.setItem(LS_TOKEN, v);
-    else localStorage.removeItem(LS_TOKEN);
-    setAdminToken(v);
-    setConnError('');
-    if (base) loadServerData(base, v);
-  };
-
-  const chooseSalon = (id) => {
-    setSalonId(id);
-    if (id) localStorage.setItem(LS_SALON, id);
-    else localStorage.removeItem(LS_SALON);
-  };
-
-  const copyWebhook = () => {
-    if (!base) return;
-    navigator.clipboard.writeText(`${base}/voice/incoming`).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    }).catch(() => {});
-  };
-
-  const connectGoogle = () => {
-    if (base && salonId) window.open(`${base}/auth/google?salon=${encodeURIComponent(salonId)}`, '_blank');
-  };
-
-  // ─── Appel de test réel ───────────────────────────────────────────────────
-  const launchTestCall = async () => {
-    setTcError('');
-    setTcEntry(null);
-    const to = tcNumber.trim();
-    if (!E164.test(to)) {
-      setTcError("Numéro invalide : utilisez le format international, par ex. +33612345678.");
-      return;
-    }
-    if (!salonId) {
-      setTcError("Aucun salon sélectionné sur le serveur (onglet Configuration).");
-      return;
-    }
-    setTcState('sending');
-    try {
-      const res = await apiCall(base, '/api/calls', {
-        method: 'POST',
-        body: { to, salon: salonId, context: tcContext.trim() },
-        token: adminToken,
+  // ─── Session voix ────────────────────────────────────────────────────────
+  const handleVoiceEvent = useCallback((type, p) => {
+    if (type === 'state') {
+      if (p.state === 'connected') {
+        setVoiceState('live');
+        setMode(p.mode || null);
+        setVoiceError('');
+      } else if (p.state === 'disconnected') {
+        setVoiceState('idle');
+        setSpeaking(null);
+      } else if (p.state === 'error') {
+        setVoiceState('error');
+      }
+    } else if (type === 'error') {
+      setVoiceError(p.message || 'Erreur de session vocale.');
+      setVoiceState((s) => (s === 'live' ? s : 'error'));
+    } else if (type === 'speaking') {
+      setSpeaking(p.who);
+      if (p.who === 'agent') {
+        setTranscript((t) => {
+          const last = t[t.length - 1];
+          if (last && last.who === 'agent' && !last.done) return t;
+          return [...t, { who: 'agent', text: '', done: false }];
+        });
+      }
+    } else if (type === 'user-transcript') {
+      const text = (p.text || '').trim();
+      if (!text) return;
+      setTranscript((t) => {
+        const last = t[t.length - 1];
+        if (last && last.who === 'user' && !p.final) {
+          return [...t.slice(0, -1), { who: 'user', text, done: false }];
+        }
+        if (last && last.who === 'user' && last.text === text) return t;
+        return [...t, { who: 'user', text, done: !!p.final }];
       });
-      setTcState('waiting');
-      let tries = 0;
-      clearInterval(pollRef.current);
-      pollRef.current = setInterval(async () => {
-        tries += 1;
-        try {
-          const log = await apiCall(base, '/api/calls/log', { token: adminToken });
-          const entry = (log || []).find((e) => e.callSid === res.callSid);
-          if (entry) {
-            setTcEntry(entry);
-            setCallLog(log || []);
-            if (entry.status !== 'en_cours' || tries >= 45) {
-              clearInterval(pollRef.current);
-              setTcState('done');
-            }
-          } else if (tries >= 45) {
-            clearInterval(pollRef.current);
-            setTcState('done');
+    } else if (type === 'agent-transcript') {
+      if (p.delta) {
+        setTranscript((t) => {
+          const last = t[t.length - 1];
+          if (last && last.who === 'agent' && !last.done) {
+            return [...t.slice(0, -1), { who: 'agent', text: last.text + p.delta, done: false }];
           }
-        } catch (_) { /* on réessaie au prochain tour */ }
-      }, 4000);
+          return [...t, { who: 'agent', text: p.delta, done: false }];
+        });
+      }
+      if (p.done) {
+        setTranscript((t) => {
+          const last = t[t.length - 1];
+          if (last && last.who === 'agent') {
+            return [...t.slice(0, -1), { who: 'agent', text: p.text || last.text, done: true }];
+          }
+          return t;
+        });
+        setSpeaking(null);
+      }
+    }
+  }, []);
+
+  const startCall = async () => {
+    if (voiceState === 'connecting' || voiceState === 'live') return;
+    setVoiceState('connecting');
+    setVoiceError('');
+    setTranscript([]);
+    setSpeaking(null);
+    setMode(null);
+    try {
+      const { token } = await mintVoiceToken();
+      const session = new GrokVoiceSession({
+        token,
+        agentId,
+        voice,
+        language: 'fr',
+        instructions: buildInstructions(salonName, services),
+        onEvent: handleVoiceEvent,
+      });
+      sessionRef.current = session;
+      await session.connect();
     } catch (e) {
-      setTcState('error');
-      setTcError(e.status === 401
-        ? "Le serveur exige un token admin : renseignez-le dans l'onglet Configuration."
-        : `Échec de l'appel : ${e.message}`);
+      setVoiceState('error');
+      setVoiceError(e.message || "Impossible de démarrer l'appel vocal.");
     }
   };
 
-  const goTestCall = () => {
-    if (connected) {
-      setTab('vocal');
-      setTimeout(() => document.getElementById('rp-testcall')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-    } else {
-      setTab('config');
-    }
+  const hangUp = () => {
+    sessionRef.current?.disconnect();
+    sessionRef.current = null;
+    setMuted(false);
   };
 
-  // ─── Statistiques réelles (historique serveur) ────────────────────────────
-  const stats = {
-    total: callLog.length,
-    booked: callLog.filter((c) => c.qualification === 'qualifie').length,
-    ongoing: callLog.filter((c) => c.status === 'en_cours').length,
+  const toggleMute = () => {
+    const m = !muted;
+    setMuted(m);
+    sessionRef.current?.setMuted(m);
   };
 
-  const webhookUrl = base ? `${base}/voice/incoming` : '';
+  const saveAgentId = () => {
+    const v = agentDraft.trim();
+    if (!v) return;
+    setGrokAgentId(v);
+    setAgentId(v);
+  };
+
+  const saveVoice = (v) => {
+    setVoice(v);
+    try { localStorage.setItem(LS_VOICE, v); } catch { /* stockage indisponible */ }
+  };
+
+  const serviceReady = svcState === 'ok';
+  const inCall = voiceState === 'live' || voiceState === 'connecting';
 
   return (
     <div className="receptionist-v2 min-h-screen pb-24">
@@ -296,9 +232,9 @@ export default function ReceptionnistIA() {
           <h1>Réceptionniste IA</h1>
           <p>{salonName || 'Votre salon'}</p>
         </div>
-        <div className={`rp-active-badge ${connected ? '' : 'inactive'}`}>
+        <div className={`rp-active-badge ${serviceReady ? '' : 'inactive'}`}>
           <span className="rp-pulse-dot" />
-          {connected ? 'ACTIF 24h/24' : 'NON CONNECTÉ'}
+          {serviceReady ? 'GROK PRÊT' : 'À CONFIGURER'}
         </div>
       </header>
 
@@ -309,14 +245,14 @@ export default function ReceptionnistIA() {
           <div className="rp-hero-content">
             <div className="rp-hero-avatar"><Bot size={30} /></div>
             <div className="rp-hero-text">
-              <span className="rp-hero-badge"><Sparkles size={10} /> Agent vocal téléphonique — appels réels</span>
+              <span className="rp-hero-badge"><Sparkles size={10} /> Agent vocal Grok — conversation en direct</span>
               <h2>Maria — Votre Réceptionniste Vocale</h2>
               <p>
-                Décroche vos appels, qualifie vos prospects et réserve automatiquement
-                dans votre agenda BeautyBook et Google Agenda, 24h/24.
+                Parlez directement à votre agent vocal Grok depuis cette page :
+                il vous répond à voix haute, en français, 24h/24.
               </p>
-              <button className="rp-hero-cta" onClick={goTestCall}>
-                <PhoneCall size={14} /> Tester un appel téléphonique
+              <button className="rp-hero-cta" onClick={() => { setTab('vocal'); setTimeout(startCall, 150); }}>
+                <PhoneCall size={14} /> Parler à l'agent
               </button>
             </div>
           </div>
@@ -335,216 +271,135 @@ export default function ReceptionnistIA() {
           ))}
         </div>
 
-        {connError && tab !== 'config' && (
-          <div className="rp-alert warn"><AlertCircle size={15} /><span>{connError}</span>
-            <button className="rp-alert-link" onClick={() => setTab('config')}>Configurer</button>
-          </div>
-        )}
-
         {/* ══════════ ONGLET : AGENT VOCAL ══════════ */}
         {tab === 'vocal' && (
           <div className="space-y-4">
-            {/* État de l'agent */}
+            {/* État du service */}
             <div className="rp-card">
               <div className="rp-card-title-row">
-                <Server size={15} className="rp-card-icon" />
-                <h3>État de l'agent vocal</h3>
-                <button className="rp-btn-ghost-sm" onClick={refreshServer} disabled={checking || !base}>
-                  <RefreshCw size={12} className={checking ? 'rp-spin' : ''} /> Actualiser
+                <Bot size={15} className="rp-card-icon" />
+                <h3>État de l'agent Grok</h3>
+                <button className="rp-btn-ghost-sm" onClick={checkService} disabled={svcState === 'checking'}>
+                  <RefreshCw size={12} className={svcState === 'checking' ? 'rp-spin' : ''} /> Vérifier
                 </button>
               </div>
-
-              {!connected ? (
-                <div className="rp-notconn">
-                  <Unplug size={26} className="rp-notconn-icon" />
-                  <h4>Serveur vocal non connecté</h4>
-                  <p>
-                    L'agent téléphonique tourne sur un serveur dédié (pas encore déployé).
-                    Renseignez son URL dans l'onglet <strong>Configuration</strong> pour voir
-                    ici son état en direct, passer des appels de test et consulter l'historique.
-                  </p>
-                  <button className="rp-btn-primary" onClick={() => setTab('config')}>
-                    <Settings size={14} /> Ouvrir la configuration
-                  </button>
-                </div>
-              ) : (
-                <div className="rp-status-grid">
-                  <div className="rp-status-row">
-                    <span className="rp-status-label">Serveur</span>
-                    <span className="rp-status-val mono">{base}</span>
-                  </div>
-                  <div className="rp-status-row">
-                    <span className="rp-status-label">Salon sur le serveur</span>
-                    <span className="rp-status-val">{currentSalon ? currentSalon.name : '—'}</span>
-                  </div>
-                  <div className="rp-status-row">
-                    <span className="rp-status-label">Numéro Twilio</span>
-                    <span className="rp-status-val mono">{currentSalon?.twilio_number || '—'}</span>
-                  </div>
-                  <div className="rp-status-row">
-                    <span className="rp-status-label">Langue par défaut</span>
-                    <span className="rp-status-val">{currentSalon ? langName(currentSalon.default_language || 'fr') : '—'}</span>
-                  </div>
-                  <div className="rp-status-row">
-                    <span className="rp-status-label">Voix configurées</span>
-                    <span className="rp-status-val">
-                      {currentSalon && Object.keys(currentSalon.voices || {}).length > 0
-                        ? Object.keys(currentSalon.voices).map(langName).join(', ')
-                        : '—'}
-                    </span>
-                  </div>
-                  <div className="rp-status-row">
-                    <span className="rp-status-label">Google Agenda</span>
-                    <span className={`rp-pill ${currentSalon?.google_connected ? 'ok' : 'warn'}`}>
-                      {currentSalon?.google_connected ? 'Connecté' : 'Non connecté'}
-                    </span>
-                  </div>
-                  <div className="rp-status-row">
-                    <span className="rp-status-label">Appels en cours</span>
-                    <span className="rp-status-val">{health.activeCalls ?? 0}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Appel de test réel */}
-            <div className="rp-card" id="rp-testcall">
-              <div className="rp-card-title-row">
-                <PhoneOutgoing size={15} className="rp-card-icon" />
-                <h3>Passer un vrai appel de test</h3>
-              </div>
-              <p className="rp-card-sub">
-                L'agent appelle le numéro indiqué, se présente et converse en conditions réelles.
-              </p>
-              {!connected ? (
+              {svcState === 'unknown' && (
                 <div className="rp-info-box">
                   <AlertCircle size={15} />
-                  <span>Connectez d'abord le serveur vocal (onglet Configuration) pour passer un appel.</span>
+                  <span>Appuyez sur « Vérifier » pour tester la connexion au service vocal Grok.</span>
                 </div>
-              ) : (
-                <>
-                  <div className="rp-field">
-                    <label className="rp-label">Numéro à appeler (format international)</label>
-                    <input
-                      type="tel"
-                      className="rp-input mono"
-                      placeholder="+33612345678"
-                      value={tcNumber}
-                      onChange={(e) => setTcNumber(e.target.value)}
-                      disabled={tcState === 'sending' || tcState === 'waiting'}
-                    />
-                  </div>
-                  <div className="rp-field">
-                    <label className="rp-label">Contexte de l'appel (optionnel)</label>
-                    <input
-                      type="text"
-                      className="rp-input"
-                      placeholder="Ex : prospect intéressée par un lissage"
-                      value={tcContext}
-                      onChange={(e) => setTcContext(e.target.value)}
-                      disabled={tcState === 'sending' || tcState === 'waiting'}
-                    />
-                  </div>
-                  {tcError && <div className="rp-alert error"><XCircle size={15} /><span>{tcError}</span></div>}
-                  <button
-                    className="rp-btn-primary full"
-                    onClick={launchTestCall}
-                    disabled={tcState === 'sending' || tcState === 'waiting'}
-                  >
-                    {tcState === 'sending' || tcState === 'waiting'
-                      ? <><Loader2 size={14} className="rp-spin" /> Appel en cours…</>
-                      : <><PhoneCall size={14} /> Lancer l'appel</>}
-                  </button>
+              )}
+              {svcState === 'checking' && (
+                <div className="rp-loading"><Loader2 size={18} className="rp-spin" /><span>Vérification…</span></div>
+              )}
+              {svcState === 'ok' && (
+                <div className="rp-alert ok">
+                  <CheckCircle2 size={15} />
+                  <span>Service vocal opérationnel — token éphémère obtenu, clé API jamais exposée.</span>
+                </div>
+              )}
+              {svcState === 'error' && (
+                <div className="rp-alert error">
+                  <AlertCircle size={15} />
+                  <span>{svcError || 'Service vocal indisponible.'}</span>
+                </div>
+              )}
+              <div className="rp-status-grid">
+                <div className="rp-status-row">
+                  <span className="rp-status-label">Agent</span>
+                  <span className="rp-status-val mono">{agentId.slice(0, 24)}…</span>
+                </div>
+                <div className="rp-status-row">
+                  <span className="rp-status-label">Voix (mode direct)</span>
+                  <span className="rp-status-val">{GROK_VOICES.find((v) => v.id === voice)?.label || voice}</span>
+                </div>
+                <div className="rp-status-row">
+                  <span className="rp-status-label">Langue</span>
+                  <span className="rp-status-val">Français</span>
+                </div>
+              </div>
+            </div>
 
-                  {tcEntry && (
-                    <div className="rp-call-result">
-                      <div className="rp-call-result-head">
-                        <span className={`rp-pill ${tcEntry.status === 'en_cours' ? 'warn' : 'ok'}`}>
-                          {tcEntry.status === 'en_cours' ? 'En cours' : 'Terminé'}
-                        </span>
-                        {tcEntry.qualification && (
-                          <span className={`rp-qual ${QUAL_LABEL[tcEntry.qualification]?.cls || ''}`}>
-                            {QUAL_LABEL[tcEntry.qualification]?.label || tcEntry.qualification}
-                          </span>
-                        )}
-                        <span className="rp-call-time"><Clock size={11} /> {fmtDuration(tcEntry.startedAt, tcEntry.endedAt)}</span>
-                      </div>
-                      {tcEntry.summary && <p className="rp-call-summary">{tcEntry.summary}</p>}
-                      {tcEntry.transcript?.length > 0 && (
-                        <details className="rp-transcript">
-                          <summary><ChevronDown size={13} /> Transcription ({tcEntry.transcript.length})</summary>
-                          <div className="rp-transcript-body">
-                            {tcEntry.transcript.map((t, i) => (
-                              <p key={i} className={`rp-tr-line ${/assistant|agent|maria/i.test(t.role || '') ? 'agent' : 'caller'}`}>
-                                <strong>{/assistant|agent|maria/i.test(t.role || '') ? 'Maria' : 'Appelant'} :</strong> {t.text}
-                              </p>
-                            ))}
-                          </div>
-                        </details>
-                      )}
+            {/* Conversation vocale en direct */}
+            <div className="rp-card rp-voice-card">
+              <div className="rp-card-title-row">
+                <Volume2 size={15} className="rp-card-icon" />
+                <h3>Conversation en direct</h3>
+              </div>
+
+              {!inCall && voiceState !== 'error' && (
+                <div className="rp-voice-idle">
+                  <button className="rp-voice-start" onClick={startCall} aria-label="Parler à l'agent">
+                    <Mic size={26} />
+                  </button>
+                  <p>Appuyez et parlez à Maria.<br />Elle vous répond à voix haute.</p>
+                </div>
+              )}
+
+              {voiceState === 'connecting' && (
+                <div className="rp-voice-idle">
+                  <div className="rp-voice-start connecting"><Loader2 size={26} className="rp-spin" /></div>
+                  <p>Connexion à l'agent Grok…</p>
+                </div>
+              )}
+
+              {voiceState === 'error' && (
+                <div className="rp-voice-idle">
+                  <div className="rp-alert error"><AlertCircle size={15} /><span>{voiceError}</span></div>
+                  <button className="rp-btn-primary" onClick={startCall} style={{ marginTop: 12 }}>
+                    <RefreshCw size={14} /> Réessayer
+                  </button>
+                </div>
+              )}
+
+              {voiceState === 'live' && (
+                <>
+                  <div className="rp-voice-live">
+                    <div className={`rp-orb${speaking === 'agent' ? ' speaking-agent' : speaking === 'user' ? ' speaking-user' : ''}`}>
+                      <Bot size={30} />
                     </div>
-                  )}
+                    <p className="rp-voice-status">
+                      {mode === 'agent' ? 'Agent Grok connecté' : 'Mode direct Grok'}
+                      {' · '}
+                      {speaking === 'agent' ? 'Maria parle…' : speaking === 'user' ? 'Vous parlez…' : muted ? 'Micro coupé' : 'À vous…'}
+                    </p>
+                    <div className="rp-voice-controls">
+                      <button className={`rp-voice-btn${muted ? ' active' : ''}`} onClick={toggleMute} aria-label={muted ? 'Réactiver le micro' : 'Couper le micro'}>
+                        {muted ? <MicOff size={18} /> : <Mic size={18} />}
+                      </button>
+                      <button className="rp-voice-btn hangup" onClick={hangUp} aria-label="Raccrocher">
+                        <PhoneOff size={18} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rp-transcript-live">
+                    {transcript.length === 0 && (
+                      <p className="rp-transcript-hint">Parlez… la transcription s'affiche ici en direct.</p>
+                    )}
+                    {transcript.map((t, i) => (
+                      <div key={i} className={`rp-tl ${t.who}`}>
+                        <span className="rp-tl-who">{t.who === 'agent' ? 'Maria' : 'Vous'}</span>
+                        <p>{t.text || '…'}</p>
+                      </div>
+                    ))}
+                    <div ref={transcriptEndRef} />
+                  </div>
                 </>
               )}
             </div>
 
-            {/* Historique réel des appels */}
             <div className="rp-card">
               <div className="rp-card-title-row">
-                <Clock size={15} className="rp-card-icon" />
-                <h3>Historique des appels</h3>
+                <Sparkles size={15} className="rp-card-icon" />
+                <h3>Bon à savoir</h3>
               </div>
-              {!connected ? (
-                <div className="rp-info-box">
-                  <AlertCircle size={15} />
-                  <span>L'historique apparaîtra ici une fois le serveur connecté.</span>
-                </div>
-              ) : callLog.length === 0 ? (
-                <div className="rp-empty">
-                  <PhoneCall size={24} />
-                  <h4>Aucun appel pour le moment</h4>
-                  <p>Les appels entrants et sortants de l'agent apparaîtront ici avec leur transcription et leur issue.</p>
-                </div>
-              ) : (
-                <div className="rp-calls-list">
-                  {callLog.slice(0, 15).map((c) => (
-                    <details key={c.callSid} className="rp-call-item">
-                      <summary>
-                        <span className={`rp-dir ${c.direction === 'inbound' ? 'in' : 'out'}`}>
-                          {c.direction === 'inbound' ? <PhoneIncoming size={13} /> : <PhoneOutgoing size={13} />}
-                        </span>
-                        <span className="rp-call-main">
-                          <strong>{c.direction === 'inbound' ? (c.from || 'Appel entrant') : (c.to || 'Appel sortant')}</strong>
-                          <span className="rp-call-meta">
-                            {fmtDateTime(c.startedAt)} · {fmtDuration(c.startedAt, c.endedAt)}
-                            {c.language ? ` · ${langName(c.language)}` : ''}
-                          </span>
-                        </span>
-                        {c.qualification && (
-                          <span className={`rp-qual ${QUAL_LABEL[c.qualification]?.cls || ''}`}>
-                            {QUAL_LABEL[c.qualification]?.label || c.qualification}
-                          </span>
-                        )}
-                        <ChevronDown size={14} className="rp-chev" />
-                      </summary>
-                      <div className="rp-call-detail">
-                        {c.summary && <p className="rp-call-summary">{c.summary}</p>}
-                        {c.transcript?.length > 0 ? (
-                          <div className="rp-transcript-body">
-                            {c.transcript.map((t, i) => (
-                              <p key={i} className={`rp-tr-line ${/assistant|agent|maria/i.test(t.role || '') ? 'agent' : 'caller'}`}>
-                                <strong>{/assistant|agent|maria/i.test(t.role || '') ? 'Maria' : 'Appelant'} :</strong> {t.text}
-                              </p>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="rp-no-transcript">Pas de transcription disponible.</p>
-                        )}
-                      </div>
-                    </details>
-                  ))}
-                </div>
-              )}
+              <p className="rp-card-sub">
+                La connexion utilise un <strong>token éphémère de 5 minutes</strong> : votre clé API xAI
+                reste sur le serveur et n'est jamais exposée dans l'application.
+                Pour recevoir de vrais appels téléphoniques, attachez un numéro à votre agent
+                depuis la console xAI (page de l'agent → onglet Deployment).
+              </p>
             </div>
           </div>
         )}
@@ -558,7 +413,7 @@ export default function ReceptionnistIA() {
                 <h3>Ce que Maria connaît de votre salon</h3>
                 <p>
                   L'agent lit vos <strong>vraies prestations BeautyBook</strong> en temps réel :
-                  noms, tarifs et durées ci-dessous sont exactement ce qu'elle propose au téléphone.
+                  noms, tarifs et durées ci-dessous sont exactement ce qu'elle annonce à voix haute.
                 </p>
               </div>
             </div>
@@ -586,11 +441,9 @@ export default function ReceptionnistIA() {
                       <div key={s.id} className="rp-service-row">
                         <div className="rp-service-info">
                           <strong>{s.title || s.name || 'Prestation'}</strong>
-                          <span>{s.duration || s.duration_min || 60} min</span>
+                          <span>{fmtDur(s)}</span>
                         </div>
-                        <span className="rp-service-price">
-                          {s.price != null && s.price !== '' ? `${Number(s.price).toFixed(0)} €` : '—'}
-                        </span>
+                        <span className="rp-service-price">{fmtPrice(s)}</span>
                       </div>
                     ))}
                   </div>
@@ -604,18 +457,14 @@ export default function ReceptionnistIA() {
             <div className="rp-card">
               <div className="rp-card-title-row">
                 <Sparkles size={15} className="rp-card-icon" />
-                <h3>Consignes fines de l'agent</h3>
+                <h3>Personnalité de l'agent</h3>
               </div>
               <p className="rp-card-sub">
-                Le ton, les spécialités du salon (ex : coiffure afro, lissages, tresses) et le message
-                d'accueil se règlent dans la configuration du salon sur le serveur vocal
-                (<span className="mono">salons/mamara-hair-91.json</span>, champ <span className="mono">extra_prompt</span>),
-                puis dans l'onglet Configuration du dashboard serveur.
+                Le ton, les instructions et la voix de l'agent se règlent dans la
+                <strong> console xAI</strong> (votre agent <span className="mono">{agentId}</span>).
+                Si l'agent configuré est injoignable, l'application bascule automatiquement
+                en mode direct : Maria utilise alors les prestations ci-dessus et la voix « {voice} ».
               </p>
-              <div className="rp-info-box">
-                <CheckCircle2 size={15} />
-                <span>L'agent vérifie toujours vos disponibilités réelles (horaires + RDV existants) avant de proposer un créneau.</span>
-              </div>
             </div>
           </div>
         )}
@@ -625,137 +474,81 @@ export default function ReceptionnistIA() {
           <div className="space-y-4">
             <div className="rp-card">
               <div className="rp-card-title-row">
-                <Server size={15} className="rp-card-icon" />
-                <h3>Serveur vocal</h3>
-              </div>
-              <div className="rp-field">
-                <label className="rp-label">URL du serveur vocal</label>
-                <input
-                  type="url"
-                  className="rp-input mono"
-                  placeholder="https://votre-serveur.onrender.com"
-                  value={urlDraft}
-                  onChange={(e) => setUrlDraft(e.target.value)}
-                />
-                <p className="rp-field-help">Adresse publique du serveur (Render, Railway…). Enregistrée sur cet appareil uniquement.</p>
-              </div>
-              <div className="flex gap-2">
-                <button className="rp-btn-primary" onClick={saveServerUrl} disabled={checking}>
-                  {checking ? <Loader2 size={14} className="rp-spin" /> : <Check size={14} />} Enregistrer
-                </button>
-                <button className="rp-btn-ghost" onClick={() => checkHealth(base)} disabled={checking || !base}>
-                  <RefreshCw size={13} className={checking ? 'rp-spin' : ''} /> Tester la connexion
-                </button>
-              </div>
-              {health && health.ok && (
-                <div className="rp-alert ok"><CheckCircle2 size={15} /><span>Serveur joignable — {health.salons} salon(s), {health.activeCalls ?? 0} appel(s) en cours.</span></div>
-              )}
-              {health === false && (
-                <div className="rp-alert error"><XCircle size={15} /><span>Serveur injoignable. Vérifiez l'URL et que le serveur est démarré.</span></div>
-              )}
-            </div>
-
-            <div className="rp-card">
-              <div className="rp-card-title-row">
-                <Settings size={15} className="rp-card-icon" />
-                <h3>Salon & sécurité</h3>
-              </div>
-              <div className="rp-field">
-                <label className="rp-label">Salon sur le serveur</label>
-                <select
-                  className="rp-input"
-                  value={salonId}
-                  onChange={(e) => chooseSalon(e.target.value)}
-                  disabled={salons.length === 0}
-                >
-                  <option value="">{salons.length === 0 ? '— connectez le serveur —' : 'Choisir un salon…'}</option>
-                  {salons.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.twilio_number || 'sans numéro'})</option>
-                  ))}
-                </select>
-              </div>
-              <div className="rp-field">
-                <label className="rp-label">Token admin du serveur (optionnel)</label>
-                <input
-                  type="password"
-                  className="rp-input mono"
-                  placeholder="x-admin-token"
-                  value={tokenDraft}
-                  onChange={(e) => setTokenDraft(e.target.value)}
-                  autoComplete="off"
-                />
-                <p className="rp-field-help">
-                  Requis uniquement si le serveur est protégé par <span className="mono">ADMIN_TOKEN</span>.
-                  Stocké localement sur cet appareil.
-                </p>
-              </div>
-              <button className="rp-btn-ghost" onClick={saveAdminToken}><Check size={13} /> Enregistrer le token</button>
-            </div>
-
-            <div className="rp-card">
-              <div className="rp-card-title-row">
-                <Link2 size={15} className="rp-card-icon" />
-                <h3>Branchement Twilio</h3>
+                <KeyRound size={15} className="rp-card-icon" />
+                <h3>Clé API xAI</h3>
               </div>
               <p className="rp-card-sub">
-                Pour que Maria décroche vos appels entrants, collez cette URL dans la console Twilio :
-                <strong> Phone Numbers → votre numéro → Voice → « A call comes in » → Webhook (POST)</strong>.
+                Le service vocal et le chatbot utilisent votre clé xAI <strong>côté serveur uniquement</strong>.
+                Ajoutez-la dans Vercel, puis redéployez :
               </p>
-              <div className="rp-webhook-box">
-                <code className="mono">{webhookUrl || '— renseignez d\u2019abord l\u2019URL du serveur —'}</code>
-                <button className="rp-copy-btn" onClick={copyWebhook} disabled={!webhookUrl}>
-                  {copied ? <Check size={14} /> : <Copy size={14} />}
-                </button>
-              </div>
-              {copied && <p className="rp-copied-msg">URL copiée !</p>}
-            </div>
-
-            <div className="rp-card">
-              <div className="rp-card-title-row">
-                <CalendarCheck size={15} className="rp-card-icon" />
-                <h3>Google Agenda</h3>
-              </div>
-              {!connected ? (
-                <p className="rp-card-sub">Connectez le serveur pour gérer l'agenda Google.</p>
-              ) : currentSalon?.google_connected ? (
-                <div className="rp-alert ok"><CheckCircle2 size={15} /><span>Agenda Google connecté pour {currentSalon.name} — les RDV pris au téléphone y sont ajoutés.</span></div>
-              ) : (
-                <>
-                  <p className="rp-card-sub">Reliez l'agenda Google du salon pour que chaque RDV téléphonique y soit créé automatiquement.</p>
-                  <button className="rp-btn-primary" onClick={connectGoogle} disabled={!salonId}>
-                    <ExternalLink size={14} /> Connecter Google Agenda
-                  </button>
-                </>
+              <ol className="rp-steps">
+                <li>Ouvrez le dashboard Vercel du projet <span className="mono">thelastjiren</span></li>
+                <li><strong>Settings → Environment Variables</strong> → ajoutez <span className="mono">XAI_API_KEY</span></li>
+                <li>Collez votre clé (console.x.ai → API Keys), environnement <strong>Production</strong></li>
+                <li><strong>Deployments → Redéployer</strong> le dernier déploiement</li>
+              </ol>
+              <button className="rp-btn-primary" onClick={checkService} disabled={svcState === 'checking'}>
+                {svcState === 'checking' ? <Loader2 size={14} className="rp-spin" /> : <CheckCircle2 size={14} />}
+                {' '}Tester la connexion au service
+              </button>
+              {svcState === 'ok' && (
+                <div className="rp-alert ok" style={{ marginTop: 12 }}>
+                  <CheckCircle2 size={15} /><span>Clé configurée : le service vocal et le chatbot répondent.</span>
+                </div>
+              )}
+              {svcState === 'error' && (
+                <div className="rp-alert error" style={{ marginTop: 12 }}>
+                  <AlertCircle size={15} /><span>{svcError}</span>
+                </div>
               )}
             </div>
 
             <div className="rp-card">
               <div className="rp-card-title-row">
                 <Bot size={15} className="rp-card-icon" />
-                <h3>Dashboard du serveur</h3>
+                <h3>Agent vocal Grok</h3>
+              </div>
+              <div className="rp-field">
+                <label className="rp-label">Identifiant de l'agent (console xAI)</label>
+                <input
+                  type="text"
+                  className="rp-input mono"
+                  value={agentDraft}
+                  onChange={(e) => setAgentDraft(e.target.value)}
+                  placeholder="agent_…"
+                  autoComplete="off"
+                />
+                <p className="rp-field-help">L'agent créé dans console.x.ai → Voice → Agents. Enregistré sur cet appareil.</p>
+              </div>
+              <button className="rp-btn-ghost" onClick={saveAgentId}>
+                <CheckCircle2 size={13} /> Enregistrer l'agent
+              </button>
+              <div className="rp-field" style={{ marginTop: 14 }}>
+                <label className="rp-label">Voix (utilisée en mode direct)</label>
+                <select className="rp-input" value={voice} onChange={(e) => saveVoice(e.target.value)}>
+                  {GROK_VOICES.map((v) => (
+                    <option key={v.id} value={v.id}>{v.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="rp-card">
+              <div className="rp-card-title-row">
+                <PhoneCall size={15} className="rp-card-icon" />
+                <h3>Numéro de téléphone</h3>
               </div>
               <p className="rp-card-sub">
-                Voix par langue, langue par défaut, journal détaillé : tout se règle aussi depuis le dashboard du serveur.
+                Pour que Maria décroche vos vrais appels, attachez un numéro à votre agent
+                depuis la console xAI (page de l'agent → onglet <strong>Deployment</strong>).
               </p>
               <button
                 className="rp-btn-ghost full"
-                disabled={!base}
-                onClick={() => window.open(base, '_blank')}
+                onClick={() => window.open('https://console.x.ai/', '_blank')}
               >
-                <ExternalLink size={13} /> Ouvrir le dashboard
+                <ExternalLink size={13} /> Ouvrir la console xAI
               </button>
             </div>
-          </div>
-        )}
-
-        {/* ── CHIFFRES RÉELS ── */}
-        {connected && (
-          <div className="rp-kpi-strip">
-            <div className="rp-kpi"><strong>{stats.total}</strong><span>Appels</span></div>
-            <div className="rp-kpi-divider" />
-            <div className="rp-kpi"><strong>{stats.booked}</strong><span>RDV pris</span></div>
-            <div className="rp-kpi-divider" />
-            <div className="rp-kpi"><strong>{stats.ongoing}</strong><span>En cours</span></div>
           </div>
         )}
       </div>

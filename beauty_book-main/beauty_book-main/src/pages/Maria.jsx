@@ -26,6 +26,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useAuthGate } from "@/hooks/useAuthGate";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import AuthModal from "@/components/ui/AuthModal";
+import { grokChat } from "@/lib/grok";
 
 const SCAN_IMG = "https://images.unsplash.com/photo-1620331311520-246422fd82f9?q=80&w=400";
 const STYLE_IMG = "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?q=80&w=400";
@@ -860,13 +861,16 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
         content: m.content,
       }));
       
-      const apiData = await apiClient.post('/api/ai/maria', {
-        messages: [...historyMsgs, { role: 'user', content: userContent }],
-      });
-      action = apiData.actions?.length>1 ? {type:'ACTION_GROUP',items:apiData.actions} : apiData.actions?.[0] || null;
-
-      const rawReply = apiData.choices?.[0]?.message?.content || apiData.choices?.[0]?.message?.reasoning || '';
+      const rawReply = await grokChat(
+        [...historyMsgs, { role: 'user', content: userContent }],
+        { system: MARIA_SYSTEM_PROMPT, max_tokens: 800 }
+      );
       reply = rawReply || reply;
+      // Les blocs d'action ```json émis par Grok (NAVIGATE, SERVICE_RECAP…)
+      const jsonMatch = rawReply.match(/```json\s*({[^`]+})\s*```/);
+      if (jsonMatch) {
+        try { action = JSON.parse(jsonMatch[1]); } catch { /* pas un JSON valide */ }
+      }
 
     } catch (err2) {
       console.error("[Maria] All APIs failed:", err2);

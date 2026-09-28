@@ -1,4 +1,4 @@
-import apiClient from '@/lib/apiClient';
+import { grokChat } from '@/lib/grok';
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -539,11 +539,10 @@ TU AIDES À: analyser le CA, fidéliser, définir des objectifs, créer des prom
 
 STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, actionnables. Listes et étapes claires. Ne.JAMAIS d'emojis.`;
     try {
-      const apiData = await apiClient.post('/api/ai/maria', {
-        messages: [...messages.slice(-6).map(m => ({ role: m.role, content: m.content })), { role: 'user', content }],
-        system: systemPrompt,
-      });
-      const reply = apiData?.choices?.[0]?.message?.content;
+      const reply = await grokChat(
+        [...messages.slice(-6).map(m => ({ role: m.role, content: m.content })), { role: 'user', content }],
+        { system: systemPrompt, max_tokens: 800 }
+      );
       setMessages(prev => [...prev, { role: "assistant", content: reply || "Aucune réponse disponible. Vérifiez votre connexion." }]);
     } catch (e) {
       setMessages(prev => [...prev, { role: "assistant", content: "Une erreur est survenue. Réessayez dans un instant." }]);

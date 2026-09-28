@@ -1,9 +1,12 @@
-import apiClient from './apiClient';
+import { grokChat } from './grok';
+
 async function invokeLLMBackend({ prompt, response_json_schema, file_urls }) {
-  const result = await apiClient.post('/api/ai/invoke-llm', { prompt, response_json_schema, file_urls });
-  return result.result;
+  // Grok (xAI) via le proxy serveur /api/xai-chat — la clé API reste côté serveur.
+  const reply = await grokChat([{ role: 'user', content: prompt || '' }], { max_tokens: 800 });
+  return reply;
 }
 async function generateSpeechBackend({ text }) {
+  const apiClient = (await import('./apiClient')).default;
   const audio = await apiClient.request('/api/ai/tts', { method: 'POST', body: JSON.stringify({ text }), responseType: 'blob' });
   return { url: URL.createObjectURL(audio) };
 }
