@@ -9,6 +9,7 @@
 import { supabase } from "@/api/supabaseClient";
 import { entities } from "@/api/entities";
 import { getEffectiveOpening, formatOpeningHours, isOpenNow } from "@/lib/hours";
+import { formatAnswersSummary } from "@/lib/questionnaires";
 
 /** Normalise pour le matching : minuscules + sans accents. */
 export function normText(s) {
@@ -86,6 +87,7 @@ export async function buildKnowledge(proEmail) {
       name: s.name || s.title || "Prestation",
       price: s.price ?? null,
       duration: s.duration_min || s.duration || 60,
+      category: s.category || "",
     }));
   } catch {
     knowledge.services = [];
@@ -343,10 +345,15 @@ export async function createAssistantReservation({
   clientName,
   clientPhone,
   clientEmail, // optionnel : email capturé plus tôt dans la conversation
+  answers, // optionnel : réponses au questionnaire par catégorie (étape 2 du parcours)
 }) {
   const digits = String(clientPhone || "").replace(/\D/g, "");
   const svcName = service?.name || service?.title || "Prestation";
   const duration = service?.duration_min || service?.duration || 60;
+  // Résumé des réponses au questionnaire (mêmes questions que l'étape 2 web),
+  // concaténé aux notes pour le professionnel. Réponses optionnelles.
+  const answersSummary = formatAnswersSummary(answers || {}, service || {});
+  const baseNotes = `RDV pris via l'assistant conversationnel Maria. Tél client : ${clientPhone}.`;
   const payload = {
     // client_email est NOT NULL : sans email, identifiant déterministe basé
     // sur le téléphone (même convention que l'assistante vocale).
@@ -366,7 +373,7 @@ export async function createAssistantReservation({
     payment_type: "surplace",
     payment_status: "non_paye",
     status: "en_attente",
-    notes: `RDV pris via l'assistant conversationnel Maria. Tél client : ${clientPhone}.`,
+    notes: answersSummary ? `${baseNotes} Préférences : ${answersSummary}` : baseNotes,
     salon_name: salonName || "",
     source: "maria_assistant",
   };

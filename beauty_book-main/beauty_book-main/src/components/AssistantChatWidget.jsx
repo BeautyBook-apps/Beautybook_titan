@@ -11,6 +11,7 @@ import {
   createAssistantReservation, pushToGoogleCalendar, bookingConfirmationText,
   formatDateFr,
 } from "@/lib/mariaAssistant";
+import { getQuestionnaireForService } from "@/lib/questionnaires";
 import "./AssistantChatWidget.css";
 
 const GREETING = (salon) =>
@@ -112,6 +113,7 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
         clientName: data.name.trim(),
         clientPhone: data.phone.trim(),
         clientEmail: data.email?.trim() || undefined,
+        answers: data.answers || {},
       });
       const googleResult = await pushToGoogleCalendar({
         date: data.date,
@@ -202,14 +204,27 @@ export function WidgetBookingForm({ services, onConfirm, onCancel }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [answers, setAnswers] = useState({});
   const [err, setErr] = useState("");
   const [sending, setSending] = useState(false);
   const todayStr = new Date().toISOString().slice(0, 10);
 
+  const selectedService = (services || []).find((s) => String(s.id) === String(serviceId)) || null;
+  // Mêmes questions que l'étape 2 du parcours web, selon la catégorie du service.
+  const questionnaire = getQuestionnaireForService(selectedService || {});
+
+  const pickService = (id) => {
+    setServiceId(id);
+    setAnswers({}); // on change de service → on réinitialise les réponses
+  };
+  const toggleAnswer = (qid, opt) => {
+    setAnswers((prev) => ({ ...prev, [qid]: opt }));
+  };
+
   const submit = async () => {
     setSending(true);
     try {
-      await onConfirm({ serviceId, date, time, name, phone, email }, setErr);
+      await onConfirm({ serviceId, date, time, name, phone, email, answers }, setErr);
     } finally {
       setSending(false);
     }
@@ -219,13 +234,38 @@ export function WidgetBookingForm({ services, onConfirm, onCancel }) {
     <div className="maria-booking">
       <p className="maria-booking-title">📅 Votre réservation</p>
       <label><span>Service</span>
-        <select value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+        <select value={serviceId} onChange={(e) => pickService(e.target.value)}>
           <option value="">— Choisir —</option>
           {services.map((s) => (
             <option key={s.id} value={s.id}>{s.name}{s.price != null ? ` — ${s.price}€` : ""}</option>
           ))}
         </select>
       </label>
+      {selectedService && questionnaire.questions.length > 0 && (
+        <div className="maria-q">
+          <p className="maria-q-title">
+            Vos préférences — {questionnaire.label} <span className="maria-q-optional">(optionnel)</span>
+          </p>
+          {questionnaire.tip && <p className="maria-q-tip">💡 {questionnaire.tip}</p>}
+          {questionnaire.questions.map((q) => (
+            <div key={q.id} className="maria-q-item">
+              <p className="maria-q-label">{q.question}</p>
+              <div className="maria-q-chips">
+                {q.options.map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    className={`maria-q-chip${answers[q.id] === opt ? " selected" : ""}`}
+                    onClick={() => toggleAnswer(q.id, opt)}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="maria-row">
         <label><span>Date</span>
           <input type="date" value={date} min={todayStr} onChange={(e) => setDate(e.target.value)} />

@@ -24,6 +24,7 @@ import {
   createAssistantReservation, pushToGoogleCalendar, bookingConfirmationText,
   formatDateFr, loadFaq, addFaqEntry, updateFaqEntry, deleteFaqEntry,
 } from "@/lib/mariaAssistant";
+import { getQuestionnaireForService } from "@/lib/questionnaires";
 import "./AssistantConversationnel.css";
 
 /* ════════════════════════ Plateformes (code repris de l'ancienne page) ════════════════════════ */
@@ -618,19 +619,58 @@ function BookingForm({ services, todayStr, onSubmit }) {
   const [time, setTime] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [answers, setAnswers] = useState({});
   const [err, setErr] = useState("");
+
+  const selectedService = (services || []).find((s) => String(s.id) === String(serviceId)) || null;
+  // Mêmes questions que l'étape 2 du parcours web, selon la catégorie du service.
+  const questionnaire = getQuestionnaireForService(selectedService || {});
+
+  const pickService = (id) => {
+    setServiceId(id);
+    setAnswers({}); // on change de service → on réinitialise les réponses
+  };
+  const toggleAnswer = (qid, opt) => {
+    setAnswers((prev) => ({ ...prev, [qid]: opt }));
+  };
+
   return (
     <div className="ac-interactive">
       <div className="ac-form">
         <label>
           <span>Service</span>
-          <select value={serviceId} onChange={(e) => setServiceId(e.target.value)} aria-label="Service">
+          <select value={serviceId} onChange={(e) => pickService(e.target.value)} aria-label="Service">
             <option value="">— Choisir —</option>
             {(services || []).map((s) => (
               <option key={s.id} value={s.id}>{s.name}{s.price != null ? ` — ${s.price}€` : ""}</option>
             ))}
           </select>
         </label>
+        {selectedService && questionnaire.questions.length > 0 && (
+          <div className="ac-q">
+            <p className="ac-q-title">
+              Vos préférences — {questionnaire.label} <span className="ac-q-optional">(optionnel)</span>
+            </p>
+            {questionnaire.tip && <p className="ac-q-tip">💡 {questionnaire.tip}</p>}
+            {questionnaire.questions.map((q) => (
+              <div key={q.id} className="ac-q-item">
+                <p className="ac-q-label">{q.question}</p>
+                <div className="ac-q-chips">
+                  {q.options.map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      className={`ac-q-chip${answers[q.id] === opt ? " selected" : ""}`}
+                      onClick={() => toggleAnswer(q.id, opt)}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="ac-form-row">
           <label>
             <span>Date</span>
@@ -653,7 +693,7 @@ function BookingForm({ services, todayStr, onSubmit }) {
         <button
           type="button"
           className="ac-chat-btn primary"
-          onClick={() => onSubmit({ serviceId, date, time, name: name.trim(), phone: phone.trim() }, setErr)}
+          onClick={() => onSubmit({ serviceId, date, time, name: name.trim(), phone: phone.trim(), answers }, setErr)}
         >
           <Calendar size={13} /> Confirmer la réservation
         </button>
@@ -1715,6 +1755,7 @@ export default function AssistantConversationnel() {
       clientName: booking.name,
       clientPhone: booking.phone,
       clientEmail: booking.email || undefined,
+      answers: booking.answers || {},
     });
     const googleResult = await pushToGoogleCalendar({
       date: booking.date,

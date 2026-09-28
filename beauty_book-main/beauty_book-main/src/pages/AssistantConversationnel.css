@@ -775,3 +775,33 @@
   display: block;
   background: #fff7f2;
 }
+
+/* Questionnaire par catégorie (mêmes questions que l'étape 2 du parcours web) */
+.ac-q {
+  background: #0c0c0e;
+  border: 1.5px solid #2a2a2e;
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ac-q-title { font-size: 12px; font-weight: 800; color: #fff; }
+.ac-q-optional { font-weight: 600; color: #a1a1aa; font-size: 10.5px; }
+.ac-q-tip { font-size: 11px; color: #fcd34d; line-height: 1.5; background: rgba(252,211,77,0.08); border-radius: 8px; padding: 6px 8px; }
+.ac-q-item { display: flex; flex-direction: column; gap: 6px; }
+.ac-q-label { font-size: 11.5px; font-weight: 700; color: #e4e4e7; line-height: 1.4; }
+.ac-q-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ac-q-chip {
+  font-size: 11px;
+  font-weight: 700;
+  color: #d4d4d8;
+  background: #1c1c1f;
+  border: 1.5px solid #2a2a2e;
+  border-radius: 999px;
+  padding: 6px 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ac-q-chip:active { transform: scale(0.96); }
+.ac-q-chip.selected { background: #7c3aed; border-color: #7c3aed; color: #fff; }

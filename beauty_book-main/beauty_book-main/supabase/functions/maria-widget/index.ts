@@ -88,6 +88,123 @@ function formatDateFr(iso: string): string {
   }
 }
 
+/* ───────── Questionnaires par catégorie (synchro étape 2 web) ───────── */
+
+const QUESTIONNAIRES_URL = "https://thelastjiren.vercel.app/questionnaires.json";
+const Q_CACHE_TTL = 6 * 3600 * 1000; // 6 h
+
+type QuestionnaireQuestion = { id: string; question: string; options: string[] };
+type QuestionnaireCategory = { label: string; tip?: string; questions: QuestionnaireQuestion[] };
+
+let qCache: { at: number; data: Record<string, QuestionnaireCategory> } | null = null;
+
+/**
+ * Récupère les questionnaires par catégorie depuis le site web (même source
+ * que l'étape 2 du parcours de réservation). Cache mémoire 6 h.
+ * Repli silencieux : retourne {} si le JSON est injoignable — ne bloque jamais.
+ */
+async function fetchQuestionnaires(): Promise<Record<string, QuestionnaireCategory>> {
+  const now = Date.now();
+  if (qCache && now - qCache.at < Q_CACHE_TTL) return qCache.data;
+  try {
+    const res = await fetch(QUESTIONNAIRES_URL, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const raw = (data && typeof data === "object"
+      ? (data as Record<string, unknown>).categories
+      : null) as Record<string, unknown> | null;
+    const clean: Record<string, QuestionnaireCategory> = {};
+    if (raw && typeof raw === "object") {
+      for (const [key, v] of Object.entries(raw)) {
+        const c = v as Partial<QuestionnaireCategory>;
+        if (!c || !Array.isArray(c.questions)) continue;
+        clean[key] = {
+          label: String(c.label || key),
+          tip: c.tip ? String(c.tip) : undefined,
+          questions: (c.questions as unknown[])
+            .filter((q) => q && typeof q === "object" && (q as Record<string, unknown>).question)
+            .map((q) => {
+              const o = q as Record<string, unknown>;
+              return {
+                id: String(o.id || ""),
+                question: String(o.question),
+                options: Array.isArray(o.options) ? (o.options as unknown[]).map(String) : [],
+              };
+            }),
+        };
+      }
+    }
+    qCache = { at: now, data: clean };
+    return clean;
+  } catch (e) {
+    console.error("fetchQuestionnaires:", e);
+    return {};
+  }
+}
+
+/**
+ * Détecte la clé de catégorie du questionnaire pour un service
+ * (insensible aux accents — même logique que l'étape 2 du parcours web).
+ */
+function detectCategoryKey(
+  category: string,
+  serviceName: string,
+  questionnaires: Record<string, QuestionnaireCategory>,
+): string {
+  const keys = Object.keys(questionnaires);
+  if (!keys.length) return "";
+  const catN = norm(category);
+  if (catN) {
+    for (const k of keys) {
+      if (k === "general") continue;
+      const kN = norm(k);
+      if (catN === kN || catN.includes(kN) || kN.includes(catN)) return k;
+    }
+  }
+  const fields = [category, serviceName].map(norm);
+  const has = (...words: string[]) => fields.some((f) => words.some((w) => f.includes(w)));
+  const order: [string, string[]][] = [
+    ["tresses", ["tresse", "braid", "natte", "vanille", "locs", "cornrow"]],
+    ["cils", ["cil", "sourcil", "lash", "brow"]],
+    ["coiffure", ["coiff", "cheveu", "lissage", "coloration", "coupe", "brushing", "chignon"]],
+    ["ongles", ["ongle", "manucure", "manucur", "pedicure", "nail"]],
+    ["maquillage", ["maquillage", "makeup"]],
+    ["barbe", ["barbe", "rasage", "barbier"]],
+    ["massage", ["massage", "spa", "bien-etre", "relax", "hammam"]],
+    ["epilation", ["epilation", "epil"]],
+    ["soin_visage", ["soin", "visage", "peau", "facial", "gommage", "hydra"]],
+  ];
+  for (const [key, words] of order) {
+    if (keys.includes(key) && has(...words)) return key;
+  }
+  return keys.includes("general") ? "general" : "";
+}
+
+/** Formate les réponses au questionnaire en "Question → Réponse ; ...". */
+function formatAnswersText(answers: unknown, idToQuestion: Map<string, string>): string {
+  const pairs: [string, string][] = [];
+  const pushPair = (q: string, r: string) => {
+    const qq = q.trim(), rr = r.trim();
+    if (qq && rr) pairs.push([qq, rr]);
+  };
+  if (Array.isArray(answers)) {
+    for (const a of answers) {
+      if (a && typeof a === "object") {
+        const o = a as Record<string, unknown>;
+        const r = String(o.answer ?? o.reponse ?? o.a ?? "");
+        const q = String(o.question ?? o.q ?? "");
+        if (q) pushPair(q, r);
+        else if (o.id) pushPair(idToQuestion.get(String(o.id)) || String(o.id), r);
+      }
+    }
+  } else if (answers && typeof answers === "object") {
+    for (const [id, v] of Object.entries(answers as Record<string, unknown>)) {
+      pushPair(idToQuestion.get(id) || id, String(v ?? ""));
+    }
+  }
+  return pairs.map(([q, r]) => `${q} → ${r}`).join(" ; ");
+}
+
 /* ───────────────────────── Connaissances ───────────────────────── */
 
 type Knowledge = {
@@ -98,7 +215,7 @@ type Knowledge = {
   city: string;
   phone: string;
   hoursText: string;
-  services: { id: string; name: string; price: number | null; duration: number }[];
+  services: { id: string; name: string; category: string; price: number | null; duration: number }[];
   faq: { question: string; answer: string }[];
 };
 
@@ -142,7 +259,7 @@ async function buildKnowledge(userEmail: string): Promise<Knowledge> {
   try {
     const { data: svcs } = await supabase
       .from("Service")
-      .select("id, name, title, price, duration_min, duration")
+      .select("id, name, title, category, price, duration_min, duration")
       .eq("pro_email", userEmail)
       .eq("status", "actif")
       .order("created_at", { ascending: false })
@@ -150,6 +267,7 @@ async function buildKnowledge(userEmail: string): Promise<Knowledge> {
     k.services = (svcs || []).map((s: Record<string, unknown>) => ({
       id: String(s.id),
       name: String(s.name || s.title || "Prestation"),
+      category: String(s.category || ""),
       price: s.price != null ? Number(s.price) : null,
       duration: Number(s.duration_min || s.duration || 60),
     }));
@@ -228,6 +346,7 @@ async function createReservation(
   service: Knowledge["services"][number],
   date: string, time: string,
   clientName: string, clientPhone: string, clientEmail?: string,
+  answersText?: string,
 ) {
   const digits = clientPhone.replace(/\D/g, "");
   const payload = {
@@ -247,7 +366,7 @@ async function createReservation(
     payment_type: "surplace",
     payment_status: "non_paye",
     status: "en_attente",
-    notes: `RDV pris via le chatbot Maria du site web du salon. Tél client : ${clientPhone}.`,
+    notes: `RDV pris via le chatbot Maria du site web du salon. Tél client : ${clientPhone}.${answersText ? ` Réponses questionnaire : ${answersText}.` : ""}`,
     salon_name: k.salonName,
     source: "maria_widget",
   };
@@ -329,6 +448,29 @@ serve(async (req: Request) => {
     });
   }
 
+  // GET /questions?category=xxx  (ou ?service_id= + ?code=)
+  // Retourne les questions du questionnaire de la catégorie
+  // (synchro avec l'étape 2 du parcours de réservation web).
+  if (req.method === "GET" && path.endsWith("/questions")) {
+    const questionnaires = await fetchQuestionnaires();
+    const categoryParam = url.searchParams.get("category") || "";
+    const serviceId = url.searchParams.get("service_id") || "";
+    const code = url.searchParams.get("code") || "";
+    let key = "";
+    if (serviceId && code) {
+      const email = decodeCode(code);
+      if (email) {
+        const k = await buildKnowledge(email);
+        const svc = k.services.find((s) => s.id === serviceId);
+        if (svc) key = detectCategoryKey(svc.category, svc.name, questionnaires);
+      }
+    }
+    if (!key) key = detectCategoryKey(categoryParam, "", questionnaires);
+    const cat = key ? questionnaires[key] : undefined;
+    if (!cat) return json({ ok: false, error: "Aucune question pour cette catégorie." }, 404);
+    return json({ ok: true, category: key, label: cat.label, tip: cat.tip || null, questions: cat.questions });
+  }
+
   // POST /chat
   if (req.method === "POST" && path.endsWith("/chat")) {
     const body = await req.json().catch(() => ({})) as { code?: string; message?: string };
@@ -370,8 +512,20 @@ serve(async (req: Request) => {
     if (phone.replace(/\D/g, "").length < 8) return json({ ok: false, error: "Numéro de téléphone incomplet." }, 400);
     if (clientEmail && !EMAIL_RE.test(clientEmail)) return json({ ok: false, error: "Cet email ne semble pas valide." }, 400);
 
+    // Réponses au questionnaire (optionnel) : "Q → R ; ..." concaténé aux notes.
+    // Accepte [{ question, answer }] ou { <id_question>: <reponse> }.
+    let answersText = "";
+    if (body.answers !== undefined) {
+      const questionnaires = await fetchQuestionnaires();
+      const qKey = detectCategoryKey(service.category, service.name, questionnaires);
+      const idToQuestion = new Map<string, string>();
+      const qs = (qKey && questionnaires[qKey] ? questionnaires[qKey].questions : []) || [];
+      for (const q of qs) if (q.id) idToQuestion.set(q.id, q.question);
+      answersText = formatAnswersText(body.answers, idToQuestion);
+    }
+
     try {
-      const reservation = await createReservation(k, service, date, time, name, phone, clientEmail || undefined);
+      const reservation = await createReservation(k, service, date, time, name, phone, clientEmail || undefined, answersText || undefined);
       const endTime = String(reservation.end_time_slot || addMinutes(time, service.duration));
       const googleOk = await pushGoogleCalendar(k, date, time, endTime, `${service.name} — ${name} (via Maria, site web)`, phone);
       const dateFr = formatDateFr(date);

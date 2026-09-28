@@ -86,7 +86,7 @@ type Knowledge = {
   city: string;
   phone: string;
   hoursText: string;
-  services: { id: string; name: string; price: number | null; duration: number }[];
+  services: { id: string; name: string; category: string; price: number | null; duration: number }[];
   faq: { question: string; answer: string }[];
 };
 
@@ -130,7 +130,7 @@ async function buildKnowledge(userEmail: string): Promise<Knowledge> {
   try {
     const { data: svcs } = await supabase
       .from("Service")
-      .select("id, name, title, price, duration_min, duration")
+      .select("id, name, title, category, price, duration_min, duration")
       .eq("pro_email", userEmail)
       .eq("status", "actif")
       .order("created_at", { ascending: false })
@@ -138,6 +138,7 @@ async function buildKnowledge(userEmail: string): Promise<Knowledge> {
     k.services = (svcs || []).map((s: Record<string, unknown>) => ({
       id: String(s.id),
       name: String(s.name || s.title || "Prestation"),
+      category: String(s.category || ""),
       price: s.price != null ? Number(s.price) : null,
       duration: Number(s.duration_min || s.duration || 60),
     }));
@@ -264,7 +265,7 @@ async function sendPrivateReply(userToken: string, commentId: string, text: stri
 
 /* ───────────────────────── Réservation réelle ───────────────────────── */
 
-async function createReservation(k: Knowledge, service: Knowledge["services"][number], date: string, time: string, clientName: string, clientPhone: string, clientEmail?: string) {
+async function createReservation(k: Knowledge, service: Knowledge["services"][number], date: string, time: string, clientName: string, clientPhone: string, clientEmail?: string, answersText?: string) {
   const digits = clientPhone.replace(/\D/g, "");
   const payload = {
     client_email: clientEmail || `tel:${digits}@phone.local`,
@@ -283,7 +284,7 @@ async function createReservation(k: Knowledge, service: Knowledge["services"][nu
     payment_type: "surplace",
     payment_status: "non_paye",
     status: "en_attente",
-    notes: `RDV pris via l'assistant conversationnel Maria (DM/commentaire). Tél client : ${clientPhone}.`,
+    notes: `RDV pris via l'assistant conversationnel Maria (DM/commentaire). Tél client : ${clientPhone}.${answersText ? ` Réponses questionnaire : ${answersText}.` : ""}`,
     salon_name: k.salonName,
     source: "maria_assistant",
   };
@@ -385,6 +386,110 @@ function parseContact(text: string): { name: string; phone: string } | null {
   return { name, phone };
 }
 
+/* ───────── Questionnaires par catégorie (synchro étape 2 web) ───────── */
+
+const QUESTIONNAIRES_URL = "https://thelastjiren.vercel.app/questionnaires.json";
+const Q_CACHE_TTL = 6 * 3600 * 1000; // 6 h
+
+type QuestionnaireQuestion = { id: string; question: string; options: string[] };
+type QuestionnaireCategory = { label: string; tip?: string; questions: QuestionnaireQuestion[] };
+
+let qCache: { at: number; data: Record<string, QuestionnaireCategory> } | null = null;
+
+/**
+ * Récupère les questionnaires par catégorie depuis le site web (même source
+ * que l'étape 2 du parcours de réservation). Cache mémoire 6 h.
+ * Repli silencieux : retourne {} si le JSON est injoignable — ne bloque jamais.
+ */
+async function fetchQuestionnaires(): Promise<Record<string, QuestionnaireCategory>> {
+  const now = Date.now();
+  if (qCache && now - qCache.at < Q_CACHE_TTL) return qCache.data;
+  try {
+    const res = await fetch(QUESTIONNAIRES_URL, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const raw = (data && typeof data === "object"
+      ? (data as Record<string, unknown>).categories
+      : null) as Record<string, unknown> | null;
+    const clean: Record<string, QuestionnaireCategory> = {};
+    if (raw && typeof raw === "object") {
+      for (const [key, v] of Object.entries(raw)) {
+        const c = v as Partial<QuestionnaireCategory>;
+        if (!c || !Array.isArray(c.questions)) continue;
+        clean[key] = {
+          label: String(c.label || key),
+          tip: c.tip ? String(c.tip) : undefined,
+          questions: (c.questions as unknown[])
+            .filter((q) => q && typeof q === "object" && (q as Record<string, unknown>).question)
+            .map((q) => {
+              const o = q as Record<string, unknown>;
+              return {
+                id: String(o.id || ""),
+                question: String(o.question),
+                options: Array.isArray(o.options) ? (o.options as unknown[]).map(String) : [],
+              };
+            }),
+        };
+      }
+    }
+    qCache = { at: now, data: clean };
+    return clean;
+  } catch (e) {
+    console.error("fetchQuestionnaires:", e);
+    return {};
+  }
+}
+
+/**
+ * Détecte la clé de catégorie du questionnaire pour un service
+ * (insensible aux accents — même logique que l'étape 2 du parcours web).
+ */
+function detectCategoryKey(
+  category: string,
+  serviceName: string,
+  questionnaires: Record<string, QuestionnaireCategory>,
+): string {
+  const keys = Object.keys(questionnaires);
+  if (!keys.length) return "";
+  const catN = norm(category);
+  if (catN) {
+    for (const k of keys) {
+      if (k === "general") continue;
+      const kN = norm(k);
+      if (catN === kN || catN.includes(kN) || kN.includes(catN)) return k;
+    }
+  }
+  const fields = [category, serviceName].map(norm);
+  const has = (...words: string[]) => fields.some((f) => words.some((w) => f.includes(w)));
+  const order: [string, string[]][] = [
+    ["tresses", ["tresse", "braid", "natte", "vanille", "locs", "cornrow"]],
+    ["cils", ["cil", "sourcil", "lash", "brow"]],
+    ["coiffure", ["coiff", "cheveu", "lissage", "coloration", "coupe", "brushing", "chignon"]],
+    ["ongles", ["ongle", "manucure", "manucur", "pedicure", "nail"]],
+    ["maquillage", ["maquillage", "makeup"]],
+    ["barbe", ["barbe", "rasage", "barbier"]],
+    ["massage", ["massage", "spa", "bien-etre", "relax", "hammam"]],
+    ["epilation", ["epilation", "epil"]],
+    ["soin_visage", ["soin", "visage", "peau", "facial", "gommage", "hydra"]],
+  ];
+  for (const [key, words] of order) {
+    if (keys.includes(key) && has(...words)) return key;
+  }
+  return keys.includes("general") ? "general" : "";
+}
+
+/** Formate une question pour un message DM (options numérotées si présentes). */
+function formatQuestionMessage(q: QuestionnaireQuestion, idx: number, total: number): string {
+  let t = `Question ${idx + 1}/${total} : ${q.question}`;
+  if (q.options.length) {
+    t += "\n" + q.options.map((o, i) => `${i + 1}. ${o}`).join("\n");
+    t += "\nRépondez par le numéro, ou écrivez « passer » pour ignorer cette question.";
+  } else {
+    t += "\n(Écrivez « passer » pour ignorer cette question)";
+  }
+  return t;
+}
+
 /** Envoie un message au bon canal (DM Instagram ou réponse privée au commentaire). */
 async function replyToSender(conn: { access_token: string }, state: ConvState, text: string, platform: string): Promise<void> {
   if (platform === "instagram" && state.commentId) {
@@ -449,9 +554,57 @@ async function handleIncoming(
         return;
       }
       d.service = svc;
-      state.stage = "booking_date";
+      // ── Questionnaire de la catégorie (optionnel, synchro étape 2 web) ──
+      const questionnaires = await fetchQuestionnaires();
+      const qKey = detectCategoryKey(svc.category, svc.name, questionnaires);
+      const qs = (qKey && questionnaires[qKey] ? questionnaires[qKey].questions : []) || [];
+      if (qs.length > 0) {
+        d.questionnaire = { key: qKey, index: 0, answers: [] as { question: string; answer: string }[] };
+        state.stage = "booking_questions";
+        await setConvState(userEmail, platform, state);
+        await say(
+          `Parfait, ${svc.name} ✅\n\nPour bien préparer votre rendez-vous, voici ${qs.length} petites questions (vous pouvez écrire « passer » à tout moment) :\n\n` +
+          formatQuestionMessage(qs[0], 0, qs.length)
+        );
+      } else {
+        state.stage = "booking_date";
+        await setConvState(userEmail, platform, state);
+        await say(`Parfait, ${svc.name} ✅\n\nPour quelle date ? (ex : 2026-10-05, ou « demain »)`);
+      }
+      return;
+    }
+    // Questionnaire par catégorie : questions posées UNE PAR UNE (optionnelles)
+    if (state.stage === "booking_questions") {
+      const questionnaires = await fetchQuestionnaires();
+      const qd = d.questionnaire as { key: string; index: number; answers: { question: string; answer: string }[] } | undefined;
+      const qs = (qd && questionnaires[qd.key] ? questionnaires[qd.key].questions : []) || [];
+      const goToDate = async () => {
+        const done = qd ? qd.answers : [];
+        delete d.questionnaire;
+        if (done.length) d.questionnaireAnswers = done;
+        state.stage = "booking_date";
+        await setConvState(userEmail, platform, state);
+        await say("Merci ! ✅\n\nPour quelle date souhaitez-vous réserver ? (ex : 2026-10-05, ou « demain »)");
+      };
+      const current = qd ? qs[qd.index] : undefined;
+      if (!qd || !current) { await goToDate(); return; }
+      const t = norm(text).trim();
+      if (/^(passer|suivant|suivante|skip|aucune|non merci|pas de question)/.test(t)) {
+        await goToDate();
+        return;
+      }
+      // Réponse libre ; si la cliente répond par un numéro et que la question
+      // a des options, on mappe le numéro vers l'option correspondante.
+      let answer = text.trim().slice(0, 300);
+      if (current.options.length && /^\d+$/.test(t)) {
+        const n = parseInt(t, 10);
+        if (n >= 1 && n <= current.options.length) answer = current.options[n - 1];
+      }
+      if (answer) qd.answers.push({ question: current.question, answer });
+      qd.index += 1;
+      if (qd.index >= qs.length) { await goToDate(); return; }
       await setConvState(userEmail, platform, state);
-      await say(`Parfait, ${svc.name} ✅\n\nPour quelle date ? (ex : 2026-10-05, ou « demain »)`);
+      await say(formatQuestionMessage(qs[qd.index], qd.index, qs.length));
       return;
     }
     // Date
@@ -490,8 +643,10 @@ async function handleIncoming(
       const svc = d.service as Knowledge["services"][number];
       const date = d.date as string;
       const time = d.time as string;
+      const qAnswers = (d.questionnaireAnswers || []) as { question: string; answer: string }[];
+      const answersText = qAnswers.map((p) => `${p.question} → ${p.answer}`).join(" ; ");
       try {
-        const reservation = await createReservation(k, svc, date, time, contact.name, contact.phone, d.email as string | undefined);
+        const reservation = await createReservation(k, svc, date, time, contact.name, contact.phone, d.email as string | undefined, answersText || undefined);
         const gOk = await pushGoogleCalendar(k, date, time, reservation.end_time_slot, `${svc.name} — ${contact.name} (via Maria)`, contact.phone);
         await logEvent({
           user_email: userEmail, platform, automation_id: state.automationId,
