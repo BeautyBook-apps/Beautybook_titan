@@ -1,7 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Search, ArrowLeft, Heart, MessageSquare, Share2, Volume2, VolumeX, ShoppingBag, Music, X, Send, Smile, Repeat2, Play, Pause, Lightbulb, Video, ChevronRight, Gauge, MoreHorizontal, ShoppingCart, Sparkles, Scissors, ArrowUpRight } from "lucide-react";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
@@ -875,9 +875,11 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function Reels() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
-  const targetReelId = searchParams.get("reelId");
+  // Les liens de partage utilisent ?id=, les liens internes ?reelId=
+  const targetReelId = searchParams.get("reelId") || searchParams.get("id");
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("Réels");
   const [reelsData, setReelsData] = useCachedState("reels_page", [], c => c?.reels || []);
@@ -899,6 +901,28 @@ export default function Reels() {
   const [searchQuery, setSearchQuery] = useState("");
   const scrollRef = useRef(null);
   const observerRef = useRef(null);
+
+  // ── À chaque (ré-)entrée sur la page Social, on repart du haut du fil ──
+  // /reels et /reseau-social partagent ce composant sans toujours le démonter :
+  // sans ceci, on retrouvait la dernière publication lue au lieu des nouveautés.
+  const entryKeyRef = useRef(null);
+  useEffect(() => {
+    const entryKey = location.pathname + location.search;
+    if (entryKeyRef.current === entryKey) return;
+    entryKeyRef.current = entryKey;
+    // Onglet demandé via ?tab= (ex : liens « Conseils » depuis les fiches)
+    const wantedTab = new URLSearchParams(location.search).get("tab");
+    if (wantedTab && TABS.includes(wantedTab)) setActiveTab(wantedTab);
+    setCurrentIdx(0);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [location.pathname, location.search]);
+
+  // Changement d'onglet : on remonte aussi en haut du fil
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setCurrentIdx(0);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  };
 
   // ── Charger les likes de l'utilisateur depuis Supabase ──
   useEffect(() => {
@@ -1302,7 +1326,7 @@ export default function Reels() {
             </button>
             <div className="flex-1 flex items-center justify-center gap-1">
               {TABS.map(tab => (
-                <button key={tab} onClick={() => setActiveTab(tab)}
+                <button key={tab} onClick={() => handleTabChange(tab)}
                   className={`px-4 py-2 rounded-full text-[13px] font-black transition-all ${activeTab === tab ? "bg-primary text-white shadow-md shadow-primary/30" : isCurrentAd ? "text-gray-500" : "text-white/70"}`}>
                   {tab}
                 </button>
