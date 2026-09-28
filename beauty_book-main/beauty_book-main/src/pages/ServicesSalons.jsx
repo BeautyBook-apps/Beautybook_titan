@@ -482,8 +482,8 @@ function StylesTab({ activeCategory }) {
         {filteredStyles.map((style, idx) => (
           <React.Fragment key={style.id}>
             {idx > 0 && idx % 5 === 0 && annonces.length > 0 && !hiddenAds.includes(idx) && (
-              <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "calc(100dvh - 252px - 160px)" }}
-                className="bg-gray-50 flex flex-col overflow-hidden">
+              <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))" }}
+                className="bg-black flex flex-col overflow-hidden">
                 <SponsoredCard annonce={annonces[Math.floor(idx / 5 - 1) % annonces.length]} onClose={() => setHiddenAds(h => [...h, idx])} variant="styles" />
               </div>
             )}
