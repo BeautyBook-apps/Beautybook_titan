@@ -78,19 +78,21 @@ function MediaSlider({ media, onImageClick }) {
 }
 
 /* ── Scroll to Top Button ─────────────────────────────────────── */
-function ScrollToTopButton({ containerRef }) {
+function ScrollToTopButton() {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
-    const el = containerRef?.current || window;
-    const onScroll = () => { const y = el === window ? window.scrollY : el.scrollTop; setVisible(y > 400); };
+    const el = document.getElementById("app-content");
+    if (!el) return;
+    const onScroll = () => setVisible(el.scrollTop > 600);
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [containerRef]);
+  }, []);
   if (!visible) return null;
   return (
-    <button onClick={() => { const el = containerRef?.current || window; el === window ? window.scrollTo({ top: 0, behavior: "smooth" }) : el.scrollTo({ top: 0, behavior: "smooth" }); }}
-      className="fixed bottom-36 right-4 z-40 w-12 h-12 bg-primary rounded-full flex items-center justify-center shadow-xl shadow-primary/40 active:scale-90 transition-all">
-      <ArrowUp className="w-5 h-5 text-white" />
+    <button onClick={() => { const el = document.getElementById("app-content"); if (el) el.scrollTo({ top: 0, behavior: "smooth" }); }}
+      className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 px-5 py-2.5 bg-primary/80 backdrop-blur-sm rounded-full flex items-center gap-2 shadow-lg shadow-primary/30 active:scale-90 transition-all">
+      <ArrowUp className="w-4 h-4 text-white" />
+      <span className="text-[12px] font-black text-white uppercase tracking-wide">Retour en haut</span>
     </button>
   );
 }
@@ -1174,7 +1176,7 @@ export default function ServiceDetail() {
       </div>
 
       {/* Scroll to top */}
-      <ScrollToTopButton containerRef={scrollRef} />
+      <ScrollToTopButton />
 
     </div>
   );

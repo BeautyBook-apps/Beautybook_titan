@@ -3,10 +3,21 @@ import PhotoAnalysis from '@/components/maria/PhotoAnalysis';
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Shield, Download, Heart, Check, Search, Sparkles, ImageIcon, GalleryHorizontalEnd, Loader2, Camera, Scissors } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, Shield, Download, Heart, Check, Search, Sparkles, ImageIcon, GalleryHorizontalEnd, Loader2, Camera, Scissors } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { apiClient } from '@/lib/apiClient';
+
+
+
+// ── Cache local de la galerie (les photos ne disparaissent plus à l'actualisation) ──
+const AI_STYLES_CACHE = "bb_ai_style_gallery";
+function readAIStylesCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(AI_STYLES_CACHE) || "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch { return []; }
+}
 
 
 
@@ -33,21 +44,23 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
   const [styleSearch, setStyleSearch] = useState("");
   const [comparePos, setComparePos] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
-  const [styles, setStyles] = useState([]);
-  const [loadingStyles, setLoadingStyles] = useState(true);
+  const [styles, setStyles] = useState(() => readAIStylesCache());
+  const [loadingStyles, setLoadingStyles] = useState(() => readAIStylesCache().length === 0);
+  const [visibleCount, setVisibleCount] = useState(12);
   const [errorMsg, setErrorMsg] = useState(null);
   const [photoAnalysis, setPhotoAnalysis] = useState(null);
   const [analyzingPhoto, setAnalyzingPhoto] = useState(false);
   const compareRef = useRef(null);
   const fileInputRef = useRef(null);
+  const modalScrollRef = useRef(null);
 
-  // Charger les styles depuis l'entité Style (BDD réelle) + Reels
+  // Charger les styles : UNIQUEMENT les publications de l'onglet Style (entité Style).
+  // Affichage immédiat depuis le cache local, rafraîchissement réseau en arrière-plan.
   useEffect(() => {
     const loadStyles = async () => {
       try {
-        // 1. Styles créés dans l'app (entité Style)
-        const dbStyles = await entities.Style.filter({ status: "publie" }, "-created_at", 80).catch(() => []);
-        const fromDb = dbStyles
+        const dbStyles = await entities.Style.filter({ status: "publie" }, "-created_at", 120).catch(() => []);
+        const realStyles = dbStyles
           .filter(s => s.images?.length > 0 || s.thumbnail_url)
           .map(s => ({
             id: s.id,
@@ -56,27 +69,14 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
             allImages: s.images || [s.thumbnail_url].filter(Boolean),
             author: s.author_name || null,
             category: s.category,
-            fromReel: false,
-            fromDb: true,
           }));
 
-        // 2. Reels publiés en complément
-        const reels = await entities.Reel.filter({ status: "publie" }, "-created_at", 30).catch(() => []);
-        const fromReels = reels
-          .filter(r => r.images?.length > 0 || r.thumbnail_url)
-          .map(r => ({
-            id: r.id,
-            label: r.title || "Style " + r.category,
-            img: (r.images?.[0]) || r.thumbnail_url,
-            allImages: r.images || [r.thumbnail_url].filter(Boolean),
-            author: r.author_name,
-            category: r.category,
-            fromReel: true,
-            fromDb: false,
-          }));
-
-        const realStyles = [...fromDb, ...fromReels];
-        setStyles(realStyles);
+        // N'écraser le cache que si le réseau a renvoyé des données :
+        // les photos restent visibles même en cas d'échec réseau.
+        if (realStyles.length > 0) {
+          setStyles(realStyles);
+          try { localStorage.setItem(AI_STYLES_CACHE, JSON.stringify(realStyles)); } catch {}
+        }
       } catch (err) {
         console.error("Failed to load styles:", err);
       }
@@ -91,6 +91,10 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
   const filteredStyles = styleSearch.trim()
     ? styles.filter(r => r.label.toLowerCase().includes(styleSearch.toLowerCase()))
     : [...favStylesList, ...nonFavStylesList];
+
+  // Pagination : 12 par 12 avec bouton « Voir plus »
+  const visibleStyles = filteredStyles.slice(0, visibleCount);
+  useEffect(() => { setVisibleCount(12); }, [styleSearch]);
 
   // Pre-select style from parent
   useEffect(() => {
@@ -123,7 +127,7 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
 
   const analyzePhoto=async(file)=>{setAnalyzingPhoto(true);setPhotoAnalysis(null);setErrorMsg(null);try{const {file_url}=await uploadFile({file},'private-images');setUserPhotoUploadedUrl(file_url);const res=await apiClient.callFunction('analyzePhoto',{photoUrl:file_url,productName:'coiffure'});setPhotoAnalysis(res.data);}catch(e){setErrorMsg(e.message||'L’analyse de la photo a échoué.');}finally{setAnalyzingPhoto(false);}};
 
-  const startSimulation=async()=>{if(!userPhoto||!selectedStyle)return;setStep(3);setProgress(50);setErrorMsg(null);setProgressMsg('Préparation de votre demande…');try{let uploadedUrl=userPhotoUploadedUrl;if(!uploadedUrl){uploadedUrl=(await uploadFile({file:userPhoto},'private-images')).file_url;setUserPhotoUploadedUrl(uploadedUrl);}const response=await apiClient.callFunction('shAiTryOn',{user_photo:uploadedUrl,garment_photo:selectedStyle.allImages?.filter(Boolean)[0]||selectedStyle.img,garment_name:'coiffure: '+selectedStyle.label,mode:'hair'},{onProgress:job=>setProgressMsg(job.status==='queued'?'Votre demande est dans la file d’attente…':'Génération de votre coiffure…')});if(!response.data?.result_url)throw new Error('Aucun résultat généré.');setResult({generatedImageUrl:response.data.result_url,styleLabel:selectedStyle.label,styleImg:selectedStyle.img,userPhotoUrl,fromReel:selectedStyle.fromReel,author:selectedStyle.author,fallback:false});setStep(4);}catch(e){setErrorMsg(e.message);setResult({error:e.message,styleLabel:selectedStyle.label,userPhotoUrl,fallback:false});setStep(4);}};
+  const startSimulation=async()=>{if(!userPhoto||!selectedStyle)return;setStep(3);setProgress(50);setErrorMsg(null);setProgressMsg('Préparation de votre demande…');try{let uploadedUrl=userPhotoUploadedUrl;if(!uploadedUrl){uploadedUrl=(await uploadFile({file:userPhoto},'private-images')).file_url;setUserPhotoUploadedUrl(uploadedUrl);}const response=await apiClient.callFunction('shAiTryOn',{user_photo:uploadedUrl,garment_photo:selectedStyle.allImages?.filter(Boolean)[0]||selectedStyle.img,garment_name:'coiffure: '+selectedStyle.label,mode:'hair'},{onProgress:job=>setProgressMsg(job.status==='queued'?'Votre demande est dans la file d’attente…':'Génération de votre coiffure…')});if(!response.data?.result_url)throw new Error('Aucun résultat généré.');setResult({generatedImageUrl:response.data.result_url,styleLabel:selectedStyle.label,styleImg:selectedStyle.img,userPhotoUrl,author:selectedStyle.author,fallback:false});setStep(4);}catch(e){setErrorMsg(e.message);setResult({error:e.message,styleLabel:selectedStyle.label,userPhotoUrl,fallback:false});setStep(4);}};
 
   const handleDownload = async () => {
     const imgUrl = result?.generatedImageUrl;
@@ -147,7 +151,7 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
 
   const modal = (
     <div className="fixed inset-0 bg-black/70 z-[9999] flex items-end">
-      <div className="w-full bg-white rounded-t-3xl max-h-[92vh] overflow-y-auto flex flex-col">
+      <div ref={modalScrollRef} className="w-full bg-white rounded-t-3xl max-h-[92vh] overflow-y-auto flex flex-col">
 
         {/* Header */}
         <div className="sticky top-0 bg-white px-5 py-4 border-b border-gray-100 flex items-center justify-between z-10">
@@ -259,11 +263,6 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-[15px] font-black text-gray-900 flex items-center gap-2"><GalleryHorizontalEnd className="w-4 h-4 text-primary" strokeWidth={1.5} /> Choisir un style</h3>
-                  {!loadingStyles && styles.some(s => s.fromReel) && (
-                    <span className="text-[9px] font-black text-primary bg-orange-50 px-2 py-1 rounded-full uppercase tracking-widest border border-orange-100">
-                      ✦ Publications réelles
-                    </span>
-                  )}
                 </div>
 
                 <div className="flex items-center gap-2 bg-gray-100 rounded-2xl px-3 py-2.5 mb-3">
@@ -289,7 +288,7 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                       <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-2">❤️ Mes favoris</p>
                     )}
                     <div className="grid grid-cols-4 gap-2">
-                      {filteredStyles.map(ref => (
+                      {visibleStyles.map(ref => (
                         <button
                           key={ref.id}
                           onClick={() => setSelectedStyle(ref)}
@@ -298,11 +297,6 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                           <div className={`w-full aspect-square rounded-xl overflow-hidden border-2 transition-all ${selectedStyle?.id === ref.id ? "border-primary shadow-md shadow-primary/20 scale-105" : "border-transparent"}`}>
                             <BeautyImage src={ref.img} alt={ref.label} className="w-full h-full object-cover" />
                           </div>
-                          {ref.fromReel && (
-                            <div className="absolute top-1 left-1 w-4 h-4 bg-primary/80 rounded-full flex items-center justify-center">
-                              <Sparkles className="w-2 h-2 text-white" />
-                            </div>
-                          )}
                           {favIds.has(ref.id) && !styleSearch && (
                             <div className="absolute top-1 left-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
                               <Heart className="w-2 h-2 text-white fill-white" />
@@ -322,6 +316,15 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                         </div>
                       )}
                     </div>
+                    {/* Voir plus : 12 styles par série */}
+                    {visibleCount < filteredStyles.length && (
+                      <button
+                        onClick={() => setVisibleCount(c => c + 12)}
+                        className="w-full mt-3 py-3.5 rounded-2xl border-2 border-primary/30 bg-primary/5 text-primary font-black text-[12px] uppercase tracking-widest active:scale-95 transition-all"
+                      >
+                        Voir plus ({filteredStyles.length - visibleCount} restants)
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -331,7 +334,7 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                   <BeautyImage src={selectedStyle.img} alt={selectedStyle.label} className="w-12 h-12 rounded-xl object-cover shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-[12px] font-black text-gray-900">Style sélectionné : {selectedStyle.label}</p>
-                    {selectedStyle.fromReel && selectedStyle.author && (
+                    {selectedStyle.author && (
                       <p className="text-[10px] text-primary font-bold">✦ Publié par {selectedStyle.author}</p>
                     )}
                     <p className="text-[11px] text-gray-500">OpenAI IA va générer votre photo avec ce style</p>
@@ -532,7 +535,7 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                   <BeautyImage src={result.styleImg} alt={result.styleLabel} className="w-12 h-12 rounded-xl object-cover shrink-0" />
                   <div>
                     <p className="text-[13px] font-black text-gray-900">{result.styleLabel}</p>
-                    {result.fromReel && result.author && (
+                    {result.author && (
                       <p className="text-[11px] text-primary font-bold">✦ Style de {result.author}</p>
                     )}
                     <p className="text-[11px] text-gray-400 font-medium">Image générée par OpenAI AI</p>
@@ -581,6 +584,17 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
           )}
         </div>
       </div>
+
+      {/* Retour en haut : apparaît à partir de la 4ᵉ série de « Voir plus » (48 styles affichés) */}
+      {step === 2 && visibleCount >= 48 && (
+        <button
+          onClick={() => modalScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[10000] px-5 py-2.5 bg-primary/80 backdrop-blur-sm rounded-full flex items-center gap-2 shadow-lg shadow-primary/30 active:scale-90 transition-all"
+        >
+          <ArrowUp className="w-4 h-4 text-white" />
+          <span className="text-[12px] font-black text-white uppercase tracking-wide">Retour en haut</span>
+        </button>
+      )}
     </div>
   );
 
