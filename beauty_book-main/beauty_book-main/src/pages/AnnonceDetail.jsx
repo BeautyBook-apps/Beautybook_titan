@@ -13,6 +13,7 @@ import {
   signerContrat, genererContrat, toggleFavori, isFavori
 } from "@/lib/annonces";
 import { useAuth } from "@/lib/AuthContext";
+import { readPageCache, writePageCache } from "@/hooks/usePageCache";
 import "./Annonces.css";
 
 const money = (v) => Number(v || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
@@ -57,28 +58,38 @@ export default function AnnonceDetail() {
   const { user } = useAuth();
   const userEmail = user?.email || "";
 
-  const [annonce, setAnnonce] = useState(null);
-  const [maCandidature, setMaCandidature] = useState(null);
+  // ── Cache de page par annonce : affichage direct depuis le cache, jamais de
+  // rendu vide — le lib annonces (localStorage) est re-lu en arrière-plan
+  // sans jamais vider l'affichage (cf. ProduitDetail).
+  const [initialCache] = useState(() => readPageCache(id ? `annonce_${id}` : null) || {});
+
+  const [annonce, setAnnonce] = useState(initialCache.annonce || null);
+  const [maCandidature, setMaCandidature] = useState(initialCache.maCandidature || null);
   const [showApply, setShowApply] = useState(false);
   const [applyForm, setApplyForm] = useState({ nom: "", tel: "", message: "" });
   const [sending, setSending] = useState(false);
-  const [fav, setFav] = useState(false);
+  const [fav, setFav] = useState(!!initialCache.fav);
   const [showContrat, setShowContrat] = useState(false);
   const [nomSignataire, setNomSignataire] = useState("");
-  const [contratSigne, setContratSigne] = useState(false);
+  const [contratSigne, setContratSigne] = useState(!!initialCache.contratSigne);
   const [signing, setSigning] = useState(false);
 
   const refresh = () => {
     const a = getAnnonceById(id);
     if (!a) { navigate("/annonces"); return; }
     setAnnonce(a);
+    let mine = null;
+    let favNow = false;
+    let signeNow = contratSigne;
     if (userEmail) {
-      setFav(isFavori(userEmail, id));
+      favNow = isFavori(userEmail, id);
+      setFav(favNow);
       const cands = getCandidatures(id);
-      const mine = cands.find(c => c.candidat_email === userEmail);
-      setMaCandidature(mine || null);
-      if (mine?.contrat?.signe) setContratSigne(true);
+      mine = cands.find(c => c.candidat_email === userEmail) || null;
+      setMaCandidature(mine);
+      if (mine?.contrat?.signe) { signeNow = true; setContratSigne(true); }
     }
+    writePageCache(`annonce_${id}`, { annonce: a, maCandidature: mine, fav: favNow, contratSigne: signeNow });
   };
 
   useEffect(() => { refresh(); incrementVues(id); }, [id, userEmail]);

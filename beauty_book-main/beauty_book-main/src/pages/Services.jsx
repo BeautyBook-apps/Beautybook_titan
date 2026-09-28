@@ -9,6 +9,7 @@ import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import usePullToRefresh from "@/hooks/usePullToRefresh";
 import { useLocation } from '@/contexts/LocationContext';
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 
 const isVideoUrl = (url) => {
   if (!url || typeof url !== "string") return false;
@@ -68,11 +69,11 @@ export default function Services() {
   const [filters, setFilters] = useState({});
   const [activeCategory, setActiveCategory] = useState(null);
   const [activeTab, setActiveTab] = useState("all");
-  const [styles, setStyles] = useState([]);
-  const [services, setServices] = useState([]);
-  const [pros, setPros] = useState([]);
-  const [loadingStyles, setLoadingStyles] = useState(true);
-  const [loadingServices, setLoadingServices] = useState(true);
+  const [styles, setStyles] = useCachedState("services_page", [], c => c?.styles || []);
+  const [services, setServices] = useCachedState("services_page", [], c => c?.services || []);
+  const [pros, setPros] = useCachedState("services_page", [], c => c?.pros || []);
+  const [loadingStyles, setLoadingStyles] = useState(() => !readPageCache("services_page")?.styles?.length);
+  const [loadingServices, setLoadingServices] = useState(() => !readPageCache("services_page")?.services?.length);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleRefresh = useCallback(() => {
@@ -81,25 +82,38 @@ export default function Services() {
   const { containerRef, pulling, pullDistance } = usePullToRefresh(handleRefresh);
 
   useEffect(() => {
-    setLoadingStyles(true);
     const filterObj = { status: "publie" };
     if (activeCategory) filterObj.category = activeCategory.dbValue;
     entities.Style.filter(filterObj, "-created_at", 20)
-      .then(setStyles).catch(() => setStyles([])).finally(() => setLoadingStyles(false));
+      .then(data => {
+        setStyles(data || []);
+        // Le cache ne garde que la vue non filtrée (« Tous »)
+        if (!activeCategory) mergePageCache("services_page", { styles: data || [] });
+      })
+      .catch(() => {})
+      .finally(() => setLoadingStyles(false));
   }, [activeCategory, refreshKey]);
 
   useEffect(() => {
-    setLoadingServices(true);
     const filterObj = { status: "actif" };
     if (activeCategory) filterObj.category = activeCategory.dbValue;
     entities.Service.filter(filterObj, "-created_at", 20)
-      .then(setServices).catch(() => setServices([])).finally(() => setLoadingServices(false));
+      .then(data => {
+        setServices(data || []);
+        if (!activeCategory) mergePageCache("services_page", { services: data || [] });
+      })
+      .catch(() => {})
+      .finally(() => setLoadingServices(false));
   }, [activeCategory, refreshKey]);
 
   useEffect(() => {
     entities.ProfilPro.filter({ status: "actif" }, "-created_at", 500)
-      .then(items => setPros(items || []))
-      .catch(() => setPros([]));
+      .then(items => {
+        const list = items || [];
+        setPros(list);
+        mergePageCache("services_page", { pros: list });
+      })
+      .catch(() => {});
   }, [refreshKey]);
 
   let mapItems = useMemo(() => pros
@@ -308,7 +322,7 @@ export default function Services() {
                 Découvrir →
               </button>
             </div>
-            {loadingStyles ? (
+            {loadingStyles && filteredStyles.length === 0 ? (
               <div className="flex gap-3 overflow-x-auto px-5">
                 {[1, 2, 3].map(i => <div key={i} className="shrink-0 w-44 h-64 bg-gray-100 rounded-3xl animate-pulse" />)}
               </div>
@@ -353,7 +367,7 @@ export default function Services() {
                 Voir tout →
               </button>
             </div>
-            {loadingServices ? (
+            {loadingServices && filteredServices.length === 0 ? (
               <div className="space-y-3">
                 {[1, 2].map(i => <div key={i} className="h-24 bg-gray-100 rounded-2xl animate-pulse" />)}
               </div>

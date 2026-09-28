@@ -22,7 +22,9 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
 import { useIsPro } from "@/hooks/useIsPro";
 import { useVoiceAgent } from "@/lib/VoiceAgentContext";
+import { useAuth } from "@/lib/AuthContext";
 import { useAuthGate } from "@/hooks/useAuthGate";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import AuthModal from "@/components/ui/AuthModal";
 
 const SCAN_IMG = "https://images.unsplash.com/photo-1620331311520-246422fd82f9?q=80&w=400";
@@ -366,12 +368,34 @@ function DictateButton({ onDictate, isDark }) {
   );
 }
 
+// ── Clé de cache par utilisateur, stable dès le premier rendu ─────────────────
+// useAuth() est encore null au montage (session chargée en async) : on lit
+// l'email directement dans la session persistée par supabase-js (synchrone).
+function readSessionEmailSync() {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !/^sb-.*-auth-token$/.test(k)) continue;
+      const parsed = JSON.parse(localStorage.getItem(k));
+      const email = parsed?.user?.email || parsed?.currentSession?.user?.email;
+      if (email) return email;
+    }
+  } catch { /* stockage indisponible */ }
+  return null;
+}
+const mariaCacheKey = (email) => (email ? `maria_${email}` : null);
+
 export default function Maria() {
   const navigate = useNavigate();
   const location = useLocation();
   const { theme } = useTheme();
   const voiceAgent = useVoiceAgent();
   const { showAuthModal, authMessage, requireAuth, closeAuthModal } = useAuthGate();
+  const { user } = useAuth();
+  // Affichage direct depuis le cache : l'historique et les chats récents
+  // s'affichent dès la première peinture, le rafraîchissement réseau se fait
+  // en arrière-plan sans jamais vider l'affichage.
+  const cacheKey = mariaCacheKey(user?.email || readSessionEmailSync());
 
   // Couleurs adaptées au thème
   const isDark = theme === "dark" || theme === "night";
@@ -400,17 +424,18 @@ export default function Maria() {
   const homeHeaderText = isDark ? "text-gray-100" : "text-gray-900";
   const homeBodyBg = isDark ? "bg-gray-950" : "bg-white";
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [view, setView] = useState("home");
+  // « chat » dès le premier rendu si l'historique est en cache (pas de flash « home »)
+  const [view, setView] = useState(() => (readPageCache(cacheKey)?.messages?.length > 0 ? "chat" : "home"));
   // null tant que le profil n'est pas déterminé : ni la version cliente ni la
   // version pro ne s'affichent entre-temps (pas de flash). Mémorisé en local
   // pour un affichage instantané au retour (voir hooks/useIsPro.js).
   const isPro = useIsPro();
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useCachedState(cacheKey, [], c => c?.messages || []);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [conversationId, setConversationId] = useState(null);
-  const [recentChats, setRecentChats] = useState([]);
+  const [recentChats, setRecentChats] = useCachedState(cacheKey, [], c => c?.recentChats || []);
   const [showSimulator, setShowSimulator] = useState(false);
   const [savedSimulations, setSavedSimulations] = useState([]);
   const [attachedFiles, setAttachedFiles] = useState([]);
@@ -461,6 +486,12 @@ export default function Maria() {
   // ── Détection pro centralisée (hooks/useIsPro.js) ──
 
   // ── Charger historique + résumé ──
+  // Les URL blob des pièces jointes ne survivent pas au rechargement :
+  // on les retire avant de persister l'historique en cache.
+  const sanitizeForCache = (list) => (list || []).map(m => {
+    if (!m.files?.length) return m;
+    return { ...m, files: m.files.map(f => ({ name: f.name, type: f.type })) };
+  });
   useEffect(() => {
     const load = async () => {
       try {
@@ -477,6 +508,7 @@ export default function Maria() {
             setView("chat");
             const userMsgs = msgs.filter(m => m.role === "user").map(m => m.content).slice(0, 5);
             setRecentChats(userMsgs);
+            mergePageCache(mariaCacheKey(user?.email) || cacheKey, { messages: sanitizeForCache(msgs), recentChats: userMsgs });
           }
         }
       } catch {}
@@ -676,6 +708,7 @@ export default function Maria() {
       requireAuth("Connectez-vous pour parler avec Maria AI.");
       return;
     }
+    const persistKey = mariaCacheKey(data?.user?.email) || cacheKey;
     setInput("");
     setView("chat");
 
@@ -696,7 +729,11 @@ export default function Maria() {
       timestamp: new Date().toISOString(),
     };
 
-    if (content) setRecentChats(prev => [content, ...prev.filter(c => c !== content)].slice(0, 5));
+    if (content) {
+      const newRecent = [content, ...recentChats.filter(c => c !== content)].slice(0, 5);
+      setRecentChats(newRecent);
+      mergePageCache(persistKey, { recentChats: newRecent });
+    }
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setAttachedFiles([]);
@@ -865,6 +902,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
 
     const finalMessages = [...newMessages, assistantMsg];
     setMessages(finalMessages);
+    mergePageCache(persistKey, { messages: sanitizeForCache(finalMessages) });
     setLoading(false);
 
     // Lire la réponse vocalement (typing uniquement en mode vocal)
@@ -882,6 +920,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
 
   const handleNewChat = async () => {
     setMessages([]);
+    mergePageCache(cacheKey, { messages: [] });
     setAttachedFiles([]);
     setProFormData({});
     setServiceData({});
@@ -907,7 +946,9 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
       sim,
       timestamp: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, msg]);
+    const updated = [...messages, msg];
+    setMessages(updated);
+    mergePageCache(cacheKey, { messages: sanitizeForCache(updated) });
   };
 
   const headerBurger = (onOpen) => (

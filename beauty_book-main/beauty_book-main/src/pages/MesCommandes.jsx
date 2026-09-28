@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Package, Clock, CheckCircle, XCircle, ChevronRight, ShoppingBag, Calendar, Crown, Star, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { format, parseISO } from "date-fns";
@@ -39,10 +40,16 @@ export default function MesCommandes() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("TOUT");
-  const [reservations, setReservations] = useState([]);
-  const [commandes, setCommandes] = useState([]);
-  const [abonnements, setAbonnements] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache : la première peinture montre les dernières
+  // données connues, le rafraîchissement réseau se fait en arrière-plan.
+  const cacheKey = user?.email ? `commandes_${user.email}` : null;
+  const [reservations, setReservations] = useCachedState(cacheKey, [], c => c?.reservations || []);
+  const [commandes, setCommandes] = useCachedState(cacheKey, [], c => c?.commandes || []);
+  const [abonnements, setAbonnements] = useCachedState(cacheKey, [], c => c?.abonnements || []);
+  const [loading, setLoading] = useState(() => {
+    const cached = readPageCache(cacheKey);
+    return !(cached?.reservations?.length || cached?.commandes?.length || cached?.abonnements?.length);
+  });
 
   useEffect(() => {
     if (!user?.email) { setLoading(false); return; }
@@ -54,6 +61,7 @@ export default function MesCommandes() {
       setReservations(r);
       setCommandes(c);
       setAbonnements(s);
+      mergePageCache(cacheKey, { reservations: r, commandes: c, abonnements: s });
     }).finally(() => setLoading(false));
   }, [user?.email]);
 
@@ -155,7 +163,7 @@ export default function MesCommandes() {
       </div>
 
       <div className="px-4 pt-4 space-y-3 pb-24">
-        {loading ? (
+        {(loading && allItems.length === 0) ? (
           Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="bg-white rounded-2xl p-4 flex items-center gap-4 shadow-sm animate-pulse">
               <div className="w-16 h-16 rounded-2xl bg-gray-100 shrink-0" />

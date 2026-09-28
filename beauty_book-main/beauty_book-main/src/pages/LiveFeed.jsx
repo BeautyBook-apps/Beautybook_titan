@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Radio, Users, RefreshCw, Volume2, VolumeX } from "lucide-react";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import Hls from "hls.js";
 
 // HLS player inline dans la card — joue avec son dès que possible
@@ -169,14 +170,19 @@ function LiveCard({ live, onNavigate }) {
 
 export default function LiveFeed() {
   const navigate = useNavigate();
-  const [lives, setLives] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache : la dernière liste de lives connue s'affiche
+  // immédiatement, le refresh (temps réel) suit en arrière-plan sans vider l'affichage.
+  const [lives, setLives] = useCachedState("livefeed_page", [], c => c?.lives || []);
+  const [loading, setLoading] = useState(() => !readPageCache("livefeed_page")?.lives?.length);
 
   const loadLives = () => {
-    setLoading(true);
     entities.LiveSession.filter({ status: "live" }, "-created_at", 20)
-      .then(items => setLives(items || []))
-      .catch(() => setLives([]))
+      .then(items => {
+        const list = items || [];
+        setLives(list);
+        mergePageCache("livefeed_page", { lives: list });
+      })
+      .catch(() => {})
       .finally(() => setLoading(false));
   };
 
@@ -184,9 +190,11 @@ export default function LiveFeed() {
     setLoading(true);
     entities.LiveSession.filter({ status: "live" }, "-created_at", 20)
       .then(items => {
-        setLives(items || []);
+        const list = items || [];
+        setLives(list);
+        mergePageCache("livefeed_page", { lives: list });
       })
-      .catch(() => setLives([]))
+      .catch(() => {})
       .finally(() => setLoading(false));
 
     window.addEventListener("focus", loadLives);
@@ -221,7 +229,8 @@ export default function LiveFeed() {
     };
   }, []);
 
-  if (loading) {
+  // Spinner plein écran uniquement si aucune donnée en cache à afficher.
+  if (loading && lives.length === 0) {
     return (
       <div className="w-full h-full bg-black flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-white/20 border-t-white rounded-full animate-spin" />

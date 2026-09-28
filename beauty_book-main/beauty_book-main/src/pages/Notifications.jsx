@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import {
   ArrowLeft, Bell, Check, X, Settings,
   MessageCircle, CalendarCheck, Tag, Star, ShoppingBag,
@@ -266,8 +268,12 @@ function NotifDetail({ notif, onClose, onNavigate }) {
 
 export default function Notifications() {
   const navigate = useNavigate();
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  // Affichage direct depuis le cache : les notifications s'affichent
+  // immédiatement, le rafraîchissement réseau se fait en arrière-plan.
+  const cacheKey = user?.email ? `notifs_${user.email}` : null;
+  const [notifications, setNotifications] = useCachedState(cacheKey, [], c => c?.notifications || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.notifications?.length);
   const [selectedNotif, setSelectedNotif] = useState(null);
   const userEmailRef = useRef(null);
 
@@ -303,6 +309,7 @@ export default function Notifications() {
       userEmailRef.current = user.email;
       const notifs = await loadNotifications(user.email, 50);
       setNotifications(notifs || []);
+      mergePageCache(cacheKey, { notifications: notifs || [] });
     } catch (e) {
       console.error("[Notifications] Load error:", e);
       setNotifications([]);
@@ -364,7 +371,7 @@ export default function Notifications() {
         </div>
       </div>
 
-      {loading ? (
+      {loading && notifications.length === 0 ? (
         <div className="space-y-3 p-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex items-start gap-3 animate-pulse">

@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useState, useEffect } from "react";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { ArrowLeft, Clock, Save, Plus, X, Trash2, Loader2, Copy, Check } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -11,6 +12,12 @@ import { isOvernight, ouvertureFromDemande, applyNightMode, summarizeHours } fro
 const DAYS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
 const DAY_LABELS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const DEFAULT_DAY = { open: false, start: "", end: "", pause_start: "", pause_end: "" };
+// Structure d'horaires vierge partagée (valeur initiale quand aucun cache).
+const DEFAULT_HORAIRES = (() => {
+  const init = {};
+  DAYS.forEach(d => { init[d] = { ...DEFAULT_DAY }; });
+  return init;
+})();
 
 // ── Horaires Form ──────────────────────────────────────────────────────────────
 function HorairesForm({ horaires, onChange }) {
@@ -334,17 +341,17 @@ function ModeNuitCard({ travailNuit, onToggle, horaires }) {
 export default function HorairesConges() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
+  const cacheKey = user?.email ? `horaires_${user.email}` : null;
+  // Affichage direct depuis le cache : les dernières valeurs connues s'affichent
+  // immédiatement, le rafraîchissement réseau se fait en arrière-plan sans jamais
+  // vider l'affichage. La logique de pré-remplissage reste dans l'effet ci-dessous.
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.horaires);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState("");
-  const [profil, setProfil] = useState(null);
-  const [horaires, setHoraires] = useState(() => {
-    const init = {};
-    DAYS.forEach(d => { init[d] = { ...DEFAULT_DAY }; });
-    return init;
-  });
-  const [conges, setConges] = useState([]);
+  const [profil, setProfil] = useCachedState(cacheKey, null, c => c?.profil || null);
+  const [horaires, setHoraires] = useCachedState(cacheKey, DEFAULT_HORAIRES, c => c?.horaires || DEFAULT_HORAIRES);
+  const [conges, setConges] = useCachedState(cacheKey, [], c => c?.conges || []);
   const [travailNuit, setTravailNuit] = useState(() => localStorage.getItem("bb_night_mode") === "true");
 
   useEffect(() => {
@@ -380,7 +387,9 @@ export default function HorairesConges() {
             }
           });
           setHoraires(init);
-          setConges(row.conges || ouv.conges || []);
+          const congesVal = row.conges || ouv.conges || [];
+          setConges(congesVal);
+          mergePageCache(cacheKey, { profil: row, horaires: init, conges: congesVal });
           const dbNight = !!row.travail_nuit || (prefill ? !!demande?.travail_nuit : false);
           const localNight = localStorage.getItem("bb_night_mode") === "true";
           if (dbNight !== localNight) {
@@ -489,6 +498,7 @@ export default function HorairesConges() {
         setSaveError("Erreur lors de la sauvegarde : " + saveErr.message);
       } else {
         setSaveSuccess(true);
+        mergePageCache(cacheKey, { horaires: ouverture, conges });
         setTimeout(() => setSaveSuccess(false), 3000);
       }
 
@@ -508,7 +518,7 @@ export default function HorairesConges() {
     // (client + réservation) sans écraser les horaires de jour personnalisés.
   };
 
-  if (loading) {
+  if (loading && !readPageCache(cacheKey)?.horaires) {
     return (
       <div className="font-display min-h-screen bg-[#f5f5f5] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />

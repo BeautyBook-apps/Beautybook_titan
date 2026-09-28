@@ -9,6 +9,7 @@ import { likesApi } from '@/api/likes';
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 import SponsoredCard from "@/components/reels/SponsoredCard";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 
 const TABS = ["Réels", "Conseils", "Tutos"];
 const SPEEDS = [0.5, 1, 1.5, 2, 5, 10];
@@ -879,15 +880,15 @@ export default function Reels() {
   const targetReelId = searchParams.get("reelId");
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("Réels");
-  const [reelsData, setReelsData] = useState([]);
-  const [annonces, setAnnonces] = useState([]);
+  const [reelsData, setReelsData] = useCachedState("reels_page", [], c => c?.reels || []);
+  const [annonces, setAnnonces] = useCachedState("reels_page", [], c => c?.annonces || []);
   const [hiddenAds, setHiddenAds] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [muted, setMuted] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [liked, setLiked] = useState([]);
-  const [reelLikeCounts, setReelLikeCounts] = useState({});
-  const [reelCommentCounts, setReelCommentCounts] = useState({});
+  const [reelLikeCounts, setReelLikeCounts] = useCachedState("reels_page", {}, c => c?.likeCounts || {});
+  const [reelCommentCounts, setReelCommentCounts] = useCachedState("reels_page", {}, c => c?.commentCounts || {});
   const [showBuySheet] = useState(null);
   const [repubs, setRepubs] = useState([]);
   const [followed, setFollowed] = useState([]);
@@ -923,7 +924,6 @@ export default function Reels() {
 
   useEffect(() => {
     setCurrentIdx(0);
-    setReelsData([]);
 
     const filters = activeTab !== "Réels" ? { category: activeTab, status: "publie" } : { status: "publie" };
 
@@ -951,7 +951,9 @@ export default function Reels() {
         setReelsData(enriched);
         const ckm = {};
         enriched.forEach(r => { ckm[r.id] = r.comments_count ?? 0; });
-        setReelCommentCounts(ckm);
+        setReelCommentCounts(prev => ({ ...prev, ...ckm }));
+        // Le cache ne garde que l'onglet par défaut (« Réels »)
+        if (activeTab === "Réels") mergePageCache("reels_page", { reels: enriched, commentCounts: { ...(readPageCache("reels_page")?.commentCounts || {}), ...ckm } });
 
         // Scroll to specific reel if reelId param exists
         if (targetReelId) {
@@ -983,11 +985,16 @@ export default function Reels() {
             const rid = String(c.style_id);
             ccm[rid] = (ccm[rid] || 0) + 1;
           });
-          setReelCommentCounts(prev => ({ ...prev, ...ccm }));
+          setReelCommentCounts(prev => {
+            const next = { ...prev, ...ccm };
+            mergePageCache("reels_page", { commentCounts: next });
+            return next;
+          });
 
           // Compter les likes via backend
           const lkm = await likesApi.getLikeCounts(reelIds, 'reel');
           setReelLikeCounts(lkm);
+          mergePageCache("reels_page", { likeCounts: lkm });
         } catch (e) {
           console.warn('[Reels] like count error:', e);
           const lkm = {};
@@ -995,7 +1002,7 @@ export default function Reels() {
           setReelLikeCounts(lkm);
         }
       })
-      .catch(() => setReelsData([]));
+      .catch(() => {});
 
     entities.Annonce.filter({ status: 'actif' }, '-created_at', 20)
       .then(data => {
@@ -1003,7 +1010,9 @@ export default function Reels() {
           const pages = a.pages || (a.type ? [a.type] : []);
           return pages.includes('reels');
         });
-        setAnnonces(filtered.length > 0 ? filtered : (data || []));
+        const list = filtered.length > 0 ? filtered : (data || []);
+        setAnnonces(list);
+        mergePageCache("reels_page", { annonces: list });
       })
       .catch(() => {});
   }, [activeTab]);
@@ -1014,7 +1023,7 @@ export default function Reels() {
     if (reelIds.length === 0) return;
     const refreshCounts = () => {
       likesApi.getLikeCounts(reelIds, 'reel')
-        .then(lkm => setReelLikeCounts(lkm))
+        .then(lkm => { setReelLikeCounts(lkm); mergePageCache("reels_page", { likeCounts: lkm }); })
         .catch(() => {});
     };
     const unsub = entities.Like.subscribe((event) => {
@@ -1030,7 +1039,7 @@ export default function Reels() {
     const onFocus = () => {
       if (document.visibilityState === 'visible') {
         likesApi.getLikeCounts(reelIds, 'reel')
-          .then(lkm => setReelLikeCounts(lkm))
+          .then(lkm => { setReelLikeCounts(lkm); mergePageCache("reels_page", { likeCounts: lkm }); })
           .catch(() => {});
       }
     };
@@ -1077,7 +1086,11 @@ export default function Reels() {
     try {
       const { data } = await supabase.from('user_like').select('id').eq('target_id', reelId).eq('target_type', 'reel');
       const count = data ? data.length : 0;
-      setReelLikeCounts(prev => ({ ...prev, [reelId]: count }));
+      setReelLikeCounts(prev => {
+        const next = { ...prev, [reelId]: count };
+        mergePageCache("reels_page", { likeCounts: next });
+        return next;
+      });
       setReelsData(prev => prev.map(r => String(r.id) === reelId ? { ...r, likes: count } : r));
     } catch (e) { console.error('[like] count error:', e); }
   };
@@ -1150,7 +1163,11 @@ export default function Reels() {
   // ── Callback quand un commentaire est ajouté ──
   const handleCommentCountChange = (reelId, newCount) => {
     const id = String(reelId);
-    setReelCommentCounts(prev => ({ ...prev, [id]: newCount }));
+    setReelCommentCounts(prev => {
+      const next = { ...prev, [id]: newCount };
+      mergePageCache("reels_page", { commentCounts: next });
+      return next;
+    });
     setReelsData(prev => prev.map(r => String(r.id) === id ? { ...r, comments_count: newCount } : r));
   };
 

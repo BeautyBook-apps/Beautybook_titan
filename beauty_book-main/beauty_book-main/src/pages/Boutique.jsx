@@ -17,6 +17,7 @@ import { apiClient } from "@/lib/apiClient";
 import usePullToRefresh from "@/hooks/usePullToRefresh";
 import { useLikedProducts } from "@/hooks/useLikedProducts";
 import { useCartSync } from "@/hooks/useCartSync";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 
 
 // ── Data ──────────────────────────────────────────────────────────────────────
@@ -87,23 +88,25 @@ const trustBadges = [
   { icon: Shield, label: "PAIEMENT SÉCURISÉ", color: "text-primary", border: "border-orange-200", bg: "bg-orange-50" },
 ];
 
+const DEFAULT_MAIN_CATEGORIES = [
+  { id: "tout", label: "Tout", img: SUB_IMAGES.Tout, subs: ["Tout"] },
+  ...DEFAULT_BOUTIQUE_CATS.map(c => ({
+    ...c, img: CAT_IMAGES[c.id] || "", subs: ["Tout", ...c.subs],
+  })),
+];
+
 export default function Boutique() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("tout");
-  const [boutiqueBanners, setBoutiqueBanners] = useState([]);
+  const [boutiqueBanners, setBoutiqueBanners] = useCachedState("boutique_page", [], c => c?.banners || []);
   const [activeSub, setActiveSub] = useState("Tout");
-  const [mainCategories, setMainCategories] = useState([
-    { id: "tout", label: "Tout", img: SUB_IMAGES.Tout, subs: ["Tout"] },
-    ...DEFAULT_BOUTIQUE_CATS.map(c => ({
-      ...c, img: CAT_IMAGES[c.id] || "", subs: ["Tout", ...c.subs],
-    })),
-  ]);
+  const [mainCategories, setMainCategories] = useCachedState("boutique_page", DEFAULT_MAIN_CATEGORIES, c => c?.categories || DEFAULT_MAIN_CATEGORIES);
   const { liked, toggle: toggleLike, isLiked } = useLikedProducts();
   const { addToCart, adding, cartCount } = useCartSync();
   const [justAdded, setJustAdded] = useState(null);
-  const [shopifyProducts, setShopifyProducts] = useState([]);
-  const [loadingProducts, setLoadingProducts] = useState(true);
+  const [shopifyProducts, setShopifyProducts] = useCachedState("boutique_page", [], c => (c?.products || []).filter(p => !p._shopify));
+  const [loadingProducts, setLoadingProducts] = useState(() => !readPageCache("boutique_page")?.products?.length);
   const [loadError, setLoadError] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [imageSearching, setImageSearching] = useState(false);
@@ -127,6 +130,7 @@ export default function Boutique() {
       .then(rows => {
         const bans = rows[0]?.value?.banners?.filter(b => b.active !== false) || [];
         setBoutiqueBanners(bans);
+        mergePageCache("boutique_page", { banners: bans });
       }).catch(() => {});
 
     // Charger les catégories dynamiques depuis admin
@@ -138,29 +142,17 @@ export default function Boutique() {
             img: CAT_IMAGES[c.id] || "",
             subs: ["Tout", ...c.subs],
           }));
-          setMainCategories([{ id: "tout", label: "Tout", img: CAT_IMAGES.tout || SUB_IMAGES.Tout, subs: ["Tout"] }, ...cats.filter(c => c.id !== "tout")]);
+          const allCats = [{ id: "tout", label: "Tout", img: CAT_IMAGES.tout || SUB_IMAGES.Tout, subs: ["Tout"] }, ...cats.filter(c => c.id !== "tout")];
+          setMainCategories(allCats);
+          mergePageCache("boutique_page", { categories: allCats });
         }
       }).catch(() => {});
   }, []);
 
-  const CACHE_KEY = "bb_boutique_products_cache_v4";
-  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
   useEffect(() => {
-    // Supprimer l'ancien cache (sans version)
-    try { localStorage.removeItem("bb_boutique_products_cache"); } catch {}
+    try { localStorage.removeItem("bb_boutique_products_cache"); localStorage.removeItem("bb_boutique_products_cache_v4"); } catch {}
 
-    setLoadingProducts(true);
     setLoadError(null);
-
-    // Afficher le cache immédiatement si disponible
-    try {
-      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-      if (cached && Date.now() - cached.ts < CACHE_TTL && cached.products?.length > 0) {
-        setShopifyProducts(cached.products.filter(p => !p._shopify));
-        setLoadingProducts(false);
-      }
-    } catch {}
 
     // Charger uniquement les produits publiés dans la base BeautyBook.
     Promise.allSettled([
@@ -187,14 +179,11 @@ export default function Boutique() {
       if (db.length > 0) {
         setShopifyProducts(db);
         // Mettre en cache les nouveaux produits
-        try {
-          localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), products: db }));
-        } catch {}
+        mergePageCache("boutique_page", { products: db });
         setLoadError(null);
       } else {
         // Si l'API échoue, garder le cache affiché
-        const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-        if (!cached?.products?.length) setLoadError("Aucun produit disponible.");
+        if (!readPageCache("boutique_page")?.products?.length) setLoadError("Aucun produit disponible.");
       }
       setLoadingProducts(false);
     });
@@ -489,7 +478,7 @@ export default function Boutique() {
 
           {/* Product Grid */}
           <div className="grid grid-cols-2 gap-3">
-            {loadingProducts
+            {loadingProducts && displayedProducts.length === 0
               ? Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="bg-gray-100 rounded-3xl overflow-hidden animate-pulse">
                     <div className="aspect-square bg-gray-200" />

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useCartSync } from "@/hooks/useCartSync";
 import { useLikedProducts } from "@/hooks/useLikedProducts";
+import { readPageCache, writePageCache, mergePageCache } from "@/hooks/usePageCache";
 
 // ── Scroll to Top Button ─────────────────────────────────────────────────────
 function ScrollToTopButton() {
@@ -184,21 +185,37 @@ export default function ProduitDetail() {
   const productId = searchParams.get("id");
   const scrollRef = useRef(null);
 
-  const [product, setProduct] = useState(null);
-  const [isDbProduct, setIsDbProduct] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache du produit : jamais de skeleton vide,
+  // le rafraîchissement se fait en arrière-plan sans vider l'affichage.
+  const [initialCache] = useState(() => readPageCache(productId ? `produit_${productId}` : null) || {});
+  const [product, setProduct] = useState(initialCache.product || null);
+  const [isDbProduct, setIsDbProduct] = useState(!!initialCache.isDbProduct);
+  const [loading, setLoading] = useState(() => !initialCache.product);
   const [error, setError] = useState(null);
   const [selectedOptions, setSelectedOptions] = useState({});
   const { toggle: toggleLike, isLiked } = useLikedProducts();
   const [addedToCart, setAddedToCart] = useState(false);
 
   const { addToCart, error: cartError } = useCartSync();
-  const [vendorProducts, setVendorProducts] = useState([]);
-  const [productReviews, setProductReviews] = useState([]);
+  const [vendorProducts, setVendorProducts] = useState(initialCache.vendorProducts || []);
+  const [productReviews, setProductReviews] = useState(initialCache.productReviews || []);
 
   useEffect(() => {
     if (!productId) { setError("Produit introuvable"); setLoading(false); return; }
-    setProduct(null); setError(null); setLoading(true); setSelectedOptions({}); setAddedToCart(false);
+    const cacheKey = `produit_${productId}`;
+    // Navigation d'un produit à l'autre : afficher le cache du nouveau produit
+    // immédiatement plutôt qu'un skeleton vide.
+    const cached = readPageCache(cacheKey);
+    if (cached?.product) {
+      setProduct(cached.product);
+      setIsDbProduct(!!cached.isDbProduct);
+      setVendorProducts(cached.vendorProducts || []);
+      setProductReviews(cached.productReviews || []);
+      setLoading(false);
+    } else {
+      setProduct(null); setLoading(true);
+    }
+    setError(null); setSelectedOptions({}); setAddedToCart(false);
 
     const isShopifyId = productId.startsWith("gid://shopify/");
     const loadShopifyProduct = (pid) => {
@@ -206,6 +223,7 @@ export default function ProduitDetail() {
         const p = res.data.product;
         if (!p) { setError("Produit introuvable"); setLoading(false); return; }
         setProduct(p);
+        writePageCache(cacheKey, { product: p, isDbProduct: false });
         const firstVariant = p?.variants?.find(v => v.availableForSale) || p?.variants?.[0];
         if (firstVariant?.options) {
           const initOpts = {};
@@ -221,14 +239,21 @@ export default function ProduitDetail() {
     entities.Produit.filter({}, "-created_at", 200).then(items => items.find(p => p.id === productId)).then(dbProduct => {
       if (dbProduct && !dbProduct.external_url) {
         const images = [dbProduct.image_url, ...(dbProduct.images || [])].filter(Boolean);
-        setProduct({ id: dbProduct.id, title: dbProduct.name, name: dbProduct.name, vendor: dbProduct.brand || "BeautyBook", price: dbProduct.price, oldPrice: dbProduct.old_price || null, description: dbProduct.description || "", images: images.map(url => ({ url })), image_url: dbProduct.image_url, tags: dbProduct.tags || [], stock: dbProduct.stock, category: dbProduct.category, created_by: dbProduct.created_by });
+        const normalized = { id: dbProduct.id, title: dbProduct.name, name: dbProduct.name, vendor: dbProduct.brand || "BeautyBook", price: dbProduct.price, oldPrice: dbProduct.old_price || null, description: dbProduct.description || "", images: images.map(url => ({ url })), image_url: dbProduct.image_url, tags: dbProduct.tags || [], stock: dbProduct.stock, category: dbProduct.category, created_by: dbProduct.created_by };
+        setProduct(normalized);
+        writePageCache(cacheKey, { product: normalized, isDbProduct: true });
         setIsDbProduct(true); setLoading(false);
         // Charger les produits du même vendeur
         entities.Produit.filter({ status: "actif", brand: dbProduct.brand }, "-created_at", 10).then(items => {
-          setVendorProducts(items.filter(p => p.id !== dbProduct.id).slice(0, 6));
+          const vp = items.filter(p => p.id !== dbProduct.id).slice(0, 6);
+          setVendorProducts(vp);
+          mergePageCache(cacheKey, { vendorProducts: vp });
         }).catch(() => {});
         // Charger les avis
-        entities.Avis.filter({ service_nom: dbProduct.name }, "-created_at", 20).then(setProductReviews).catch(() => {});
+        entities.Avis.filter({ service_nom: dbProduct.name }, "-created_at", 20).then(reviews => {
+          setProductReviews(reviews);
+          mergePageCache(cacheKey, { productReviews: reviews });
+        }).catch(() => {});
       } else { loadShopifyProduct(productId); }
     }).catch(() => { loadShopifyProduct(productId); });
   }, [productId]);

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Plus, Trash2, Camera, Video, X, Upload, Edit3 } from "lucide-react";
 import { uploadFile, entities } from '@/api/entities';
 import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 
 const CATEGORIES = ["Coiffure", "Maquillage", "Ongles", "Soin", "Barbe", "Massage"];
 
@@ -236,8 +237,11 @@ function StyleForm({ initial, onSave, onCancel }) {
 export default function GestionStyles() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [styles, setStyles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = user?.email ? `styles_${user.email}` : null;
+  // Affichage direct depuis le cache : pas d'écran « chargement » intermédiaire,
+  // le rafraîchissement réseau se fait en arrière-plan sans vider l'affichage.
+  const [styles, setStyles] = useCachedState(cacheKey, [], (c) => c?.styles || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [globalError, setGlobalError] = useState(null);
@@ -247,7 +251,6 @@ export default function GestionStyles() {
   }, [user]);
 
   const loadStyles = async () => {
-    setLoading(true);
     setGlobalError(null);
     try {
       const userEmail = user?.email;
@@ -262,7 +265,9 @@ export default function GestionStyles() {
       } else {
         data = await entities.Style.list("-created_at", 200);
       }
-      setStyles(data || []);
+      const list = data || [];
+      setStyles(list);
+      mergePageCache(cacheKey, { styles: list });
     } catch (e) {
       setGlobalError("Erreur de chargement: " + e.message);
     }
@@ -360,7 +365,8 @@ export default function GestionStyles() {
         </div>
       )}
 
-      {loading ? (
+      {/* Gate : aucun spinner si des styles en cache sont déjà affichés. */}
+      {loading && styles.length === 0 ? (
         <div className="flex items-center justify-center py-16">
           <div className="w-8 h-8 border-4 border-gray-200 border-t-primary rounded-full animate-spin" />
         </div>

@@ -11,6 +11,7 @@ import {
 } from "@/lib/annonces";
 import { supabase } from "@/api/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, mergePageCache } from "@/hooks/usePageCache";
 import "../Annonces.css";
 
 const money = (v) => Number(v || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
@@ -25,13 +26,20 @@ export default function AnnoncesDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const userEmail = getUserEmail(user?.email);
-  const [annonces, setAnnonces] = useState([]);
+  // Affichage direct depuis le cache : le rafraîchissement se fait en arrière-plan
+  // sans jamais vider l'affichage. La clé est stable au montage (fallback localStorage).
+  const cacheKey = `annonces_${userEmail}`;
+  const [annonces, setAnnonces] = useCachedState(cacheKey, [], (c) => c?.annonces || []);
   const [filter, setFilter] = useState("toutes");
   const [q, setQ] = useState("");
   const [access, setAccess] = useState({ loading: true, isSalon: false });
   const email = userEmail;
 
-  const refresh = () => setAnnonces(getMesAnnonces(email));
+  const refresh = () => {
+    const items = getMesAnnonces(email);
+    setAnnonces(items);
+    mergePageCache(cacheKey, { annonces: items });
+  };
   useEffect(refresh, []);
   useEffect(() => {
     checkSalonAccess(supabase, email).then(setAccess);

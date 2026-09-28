@@ -1,6 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { ArrowLeft, Package, Clock, CheckCircle, XCircle, MapPin, CreditCard, Truck, Calendar, User, Scissors, Crown, Sparkles, Smartphone } from "lucide-react";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
@@ -68,8 +69,10 @@ function LegacyDetail() {
   const urlParams = new URLSearchParams(window.location.search);
   const type = urlParams.get("type") || "boutique";
 
-  const [item, setItem] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache, rafraîchissement en arrière-plan.
+  const cacheKey = id ? `commande_${id}` : null;
+  const [item, setItem] = useCachedState(cacheKey, null, c => c?.item ?? null);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.item);
 
   useEffect(() => {
     if (!id) return;
@@ -80,9 +83,12 @@ function LegacyDetail() {
     entity.filter({}, "-created_at", 200)
       .then(list => {
         const found = list.find(i => i.id === id);
-        setItem(found || null);
+        if (found) {
+          setItem(found);
+          mergePageCache(cacheKey, { item: found });
+        }
       })
-      .catch(() => setItem(null))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [id, type]);
 
@@ -118,7 +124,7 @@ function LegacyDetail() {
         </div>
       </div>
 
-      {loading ? (
+      {(loading && !item) ? (
         <div className="flex items-center justify-center py-24">
           <div className="w-8 h-8 border-4 border-gray-200 border-t-primary rounded-full animate-spin" />
         </div>

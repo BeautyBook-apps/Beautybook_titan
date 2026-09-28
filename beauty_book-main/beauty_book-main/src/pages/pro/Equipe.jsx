@@ -1,5 +1,6 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect } from "react";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { useNavigate } from "react-router-dom";
 import { Search, Plus, Calendar, User, Loader2, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
@@ -16,8 +17,10 @@ const STATUS_CONFIG = {
 export default function Equipe() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Cache par pro : affichage direct des derniers membres, refresh en arrière-plan.
+  const eqKey = user?.email ? `equipe_${user.email}` : null;
+  const [members, setMembers] = useCachedState(eqKey, [], c => c?.members || []);
+  const [loading, setLoading] = useState(() => !readPageCache(eqKey)?.members?.length);
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
 
@@ -25,7 +28,7 @@ export default function Equipe() {
     if (!user?.email) return;
     setLoading(true);
     entities.MembreEquipe.filter({ pro_email: user.email }, "-created_at", 50)
-      .then(data => setMembers(data || []))
+      .then(data => { setMembers(data || []); mergePageCache(eqKey, { members: data || [] }); })
       .catch(() => setMembers([]))
       .finally(() => setLoading(false));
   };
@@ -107,7 +110,7 @@ export default function Equipe() {
           </div>
         )}
 
-        {loading ? (
+        {(loading && members.length === 0) ? (
           <div className="flex justify-center py-16">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
           </div>

@@ -7,6 +7,7 @@ import {
   TrendingUp, Users, CalendarCheck, MessageSquareHeart, Zap
 } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { reconcileClientPoints } from '@/lib/fideliteClient';
@@ -55,15 +56,18 @@ function getNextNiveau(pts) {
 export default function ProgrammeFidelite() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [record, setRecord] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const email = user?.email;
+  const cacheKey = email ? `fidelite_${email}` : null;
+  // Affichage direct depuis le cache : la première peinture montre les derniers
+  // points connus, le rafraîchissement réseau se fait en arrière-plan.
+  const [record, setRecord] = useCachedState(cacheKey, null, c => c?.record ?? null);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.record);
   const [activeCat, setActiveCat] = useState("Tout");
   const [copied, setCopied] = useState(false);
   const [redeeming, setRedeeming] = useState(null);
   const [toast, setToast] = useState(null);
   const [isPro, setIsPro] = useState(readIsProCache);
 
-  const email = user?.email;
   const role = user?.role;
   useEffect(() => {
     if (!email) return;
@@ -82,6 +86,11 @@ export default function ProgrammeFidelite() {
   }, [email, role]);
 
   const fullName = user?.full_name;
+  // Persiste chaque chargement réussi en cache (jamais de reset d'affichage).
+  const persistRecord = (r) => {
+    setRecord(r);
+    mergePageCache(cacheKey, { record: r });
+  };
   useEffect(() => {
     if (!email) { setLoading(false); return; }
     let cancelled = false;
@@ -89,7 +98,7 @@ export default function ProgrammeFidelite() {
       .then(results => {
         if (cancelled) return;
         if (results.length > 0) {
-          setRecord(results[0]);
+          persistRecord(results[0]);
         } else {
           const code = (fullName || "USER").split(" ")[0].toUpperCase().replace(/[^A-Z]/g, "") + Math.floor(1000 + Math.random() * 9000);
           const payload = {
@@ -100,8 +109,8 @@ export default function ProgrammeFidelite() {
             historique: [],
           };
           entities.PointsFidelite.create({ ...payload, code_parrainage: code })
-            .then(r => { if (!cancelled) setRecord(r); })
-            .catch(() => entities.PointsFidelite.create(payload).then(r => { if (!cancelled) setRecord(r); }));
+            .then(r => { if (!cancelled) persistRecord(r); })
+            .catch(() => entities.PointsFidelite.create(payload).then(r => { if (!cancelled) persistRecord(r); }));
         }
       })
       .finally(() => {
@@ -109,7 +118,7 @@ export default function ProgrammeFidelite() {
         reconcileClientPoints(email).then(() => {
           if (!cancelled) {
             entities.PointsFidelite.filter({ user_email: email }, null, 1).then(results => {
-              if (!cancelled && results.length > 0) setRecord(results[0]);
+              if (!cancelled && results.length > 0) persistRecord(results[0]);
             });
           }
         }).catch(() => {});
@@ -148,14 +157,14 @@ export default function ProgrammeFidelite() {
       niveau: updatedNiveau,
       historique: newHistorique,
     });
-    setRecord(r => ({ ...r, points_depenses: (r.points_depenses || 0) + reward.pts, niveau: updatedNiveau, historique: newHistorique }));
+    persistRecord({ ...record, points_depenses: (record.points_depenses || 0) + reward.pts, niveau: updatedNiveau, historique: newHistorique });
     setRedeeming(null);
     showToast(`${reward.label} échangé avec succès !`);
   };
 
   const LevelIcon = currentLevel.icon;
 
-  if (loading) {
+  if (loading && !record) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-8 h-8 border-4 border-gray-200 border-t-primary rounded-full animate-spin" />

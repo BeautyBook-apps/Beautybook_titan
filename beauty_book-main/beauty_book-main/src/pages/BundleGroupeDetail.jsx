@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { ArrowLeft, Clock, Star, Heart, Shield, Gift, ChevronRight, ChevronDown, Users, TrendingDown, Calendar, User, Package, Scissors, Sparkles } from "lucide-react";
 import { entities } from "@/api/entities";
+import { readPageCache, mergePageCache, useCachedState } from "@/hooks/usePageCache";
 
 function ServiceImageSlider({ images }) {
   const validImages = (images || []).filter(Boolean);
@@ -26,30 +27,49 @@ export default function BundleGroupeDetail() {
   const navigate = useNavigate();
   const { state } = useLocation();
   const { id } = useParams();
-  const [bundle, setBundle] = useState(state?.bundle || null);
-  const [services, setServices] = useState([]);
-  const [proProfile, setProProfile] = useState(null);
-  const [reviews, setReviews] = useState([]);
-  const [similarBundles, setSimilarBundles] = useState([]);
-  const [servicesMap, setServicesMap] = useState({});
-  const [loading, setLoading] = useState(true);
+  const cacheKey = id ? `bundle_groupe_${id}` : null;
+  // Affichage direct depuis le cache : la dernière fiche connue s'affiche
+  // immédiatement, le rafraîchissement réseau se fait en arrière-plan.
+  const [bundle, setBundle] = useCachedState(cacheKey, state?.bundle || null, c => c?.bundle ?? null);
+  const [services, setServices] = useCachedState(cacheKey, [], c => c?.services || []);
+  const [proProfile, setProProfile] = useCachedState(cacheKey, null, c => c?.proProfile ?? null);
+  const [reviews, setReviews] = useCachedState(cacheKey, [], c => c?.reviews || []);
+  const [similarBundles, setSimilarBundles] = useCachedState(cacheKey, [], c => c?.similarBundles || []);
+  const [servicesMap, setServicesMap] = useCachedState(cacheKey, {}, c => c?.servicesMap || {});
+  const [loading, setLoading] = useState(() => !(state?.bundle || readPageCache(cacheKey)?.bundle));
   const [expandedSvc, setExpandedSvc] = useState(null);
   const [nbPers, setNbPers] = useState(2);
   const [showAllReviews, setShowAllReviews] = useState(false);
 
   useEffect(() => {
-    if (bundle) {
-      loadDetails(bundle);
-    } else if (id) {
+    if (!id) { setLoading(false); return; }
+    const key = `bundle_groupe_${id}`;
+    // Navigation d'un bundle à l'autre : afficher le cache du nouveau bundle
+    // (ou le bundle passé en state de navigation) plutôt qu'un spinner vide.
+    const navBundle = state?.bundle?.id === id ? state.bundle : null;
+    const cached = readPageCache(key);
+    const shown = navBundle || cached?.bundle || null;
+    if (shown) {
+      setBundle(shown);
+      setServices(cached?.services || []);
+      setProProfile(cached?.proProfile ?? null);
+      setReviews(cached?.reviews || []);
+      setSimilarBundles(cached?.similarBundles || []);
+      setServicesMap(cached?.servicesMap || {});
+      setLoading(false);
+      refreshDetails(key, shown);
+    } else {
+      setBundle(null); setServices([]); setProProfile(null); setReviews([]); setSimilarBundles([]); setServicesMap({});
+      setLoading(true);
       entities.ServiceBundle.filter({ id }, "-created_at", 1).then(rows => {
-        if (rows[0]) { setBundle(rows[0]); loadDetails(rows[0]); }
+        if (rows[0]) { setBundle(rows[0]); refreshDetails(key, rows[0]); }
         else setLoading(false);
       }).catch(() => setLoading(false));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const loadDetails = async (b) => {
-    setLoading(true);
+  const refreshDetails = async (key, b) => {
     try {
       const [allSvcs, profils, avisData, allBundles] = await Promise.all([
         entities.Service.filter({}, "-created_at", 500).catch(() => []),
@@ -68,16 +88,27 @@ export default function BundleGroupeDetail() {
 
       const matched = (allSvcs || []).filter(s => b.service_ids?.includes(s.id));
       setServices(matched);
-      setProProfile(profils[0] || null);
-      setReviews(avisData || []);
-      setSimilarBundles((allBundles || []).filter(x => x.id !== b.id).slice(0, 4));
+      const profil = profils[0] || null;
+      setProProfile(profil);
+      const avis = avisData || [];
+      setReviews(avis);
+      const sim = (allBundles || []).filter(x => x.id !== b.id).slice(0, 4);
+      setSimilarBundles(sim);
+      mergePageCache(key, { bundle: b, services: matched, proProfile: profil, reviews: avis, similarBundles: sim, servicesMap: map });
     } catch {}
     setLoading(false);
   };
 
-  if (loading || !bundle) return (
+  if (loading && !bundle) return (
     <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="w-7 h-7 border-2 border-[#E8732A] border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+
+  if (!bundle) return (
+    <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-4 px-6">
+      <p className="text-gray-400 font-medium">Bundle introuvable</p>
+      <button onClick={() => navigate(-1)} className="text-primary font-black text-[14px]">← Retour</button>
     </div>
   );
 

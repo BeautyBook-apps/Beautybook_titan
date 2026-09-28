@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import {
@@ -23,15 +24,21 @@ export default function Analytics() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [period, setPeriod] = useState("30J");
-  const [loading, setLoading] = useState(true);
-  const [reservations, setReservations] = useState([]);
+  const cacheKey = user?.email ? `analytics_${user.email}` : null;
+  // Affichage direct depuis le cache : pas d'écran « chargement » intermédiaire,
+  // le rafraîchissement réseau se fait en arrière-plan sans vider l'affichage.
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.reservations?.length);
+  const [reservations, setReservations] = useCachedState(cacheKey, [], c => c?.reservations || []);
 
   useEffect(() => {
     if (!user?.email) return;
-    setLoading(true);
     entities.Reservation.filter({ pro_email: user.email }, "-date", 1000)
-      .then(data => setReservations(data || []))
-      .catch(() => setReservations([]))
+      .then(data => {
+        const list = data || [];
+        setReservations(list);
+        mergePageCache(cacheKey, { reservations: list });
+      })
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [user]);
 
@@ -108,7 +115,7 @@ export default function Analytics() {
     .slice(0, 5)
     .map(([name, total]) => ({ name, total, count: serviceTipsCount[name] || 0, avg: Math.round(total / (serviceTipsCount[name] || 1)) }));
 
-  if (loading) {
+  if (loading && reservations.length === 0) {
     return (
       <div className="font-display min-h-full bg-gradient-to-b from-gray-50 to-white flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -131,7 +138,7 @@ export default function Analytics() {
             <h1 className="text-[20px] font-black text-white">Analytics</h1>
             <p className="text-[11px] text-primary font-bold uppercase tracking-widest">Donnees & Analyses</p>
           </div>
-          <button onClick={() => { setLoading(true); entities.Reservation.filter({ pro_email: user?.email }, "-date", 1000).then(d => setReservations(d || [])).finally(() => setLoading(false)); }} className="w-9 h-9 bg-white/10 rounded-full flex items-center justify-center active:scale-95 transition-all">
+          <button onClick={() => { setLoading(true); entities.Reservation.filter({ pro_email: user?.email }, "-date", 1000).then(d => { const list = d || []; setReservations(list); mergePageCache(cacheKey, { reservations: list }); }).finally(() => setLoading(false)); }} className="w-9 h-9 bg-white/10 rounded-full flex items-center justify-center active:scale-95 transition-all">
             <RefreshCw className="w-4 h-4 text-white" />
           </button>
         </div>

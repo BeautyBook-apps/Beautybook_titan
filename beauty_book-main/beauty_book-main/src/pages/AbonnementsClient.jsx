@@ -4,6 +4,7 @@ import { ArrowLeft, Star, CheckCircle, Crown, Car, MapPin, Calendar, Zap, Loader
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, mergePageCache } from "@/hooks/usePageCache";
 import { useAuthGate } from "@/hooks/useAuthGate";
 import AuthModal from "@/components/ui/AuthModal";
 
@@ -70,7 +71,17 @@ export default function AbonnementsClient() {
   const { user } = useAuth();
   const { showAuthModal, authMessage, requireAuth, closeAuthModal } = useAuthGate();
   const [loadingId, setLoadingId] = useState(null);
-  const [plans, setPlans] = useState(FALLBACK_PLANS);
+  // Affichage direct depuis le cache : les icônes (composants) ne sont pas
+  // sérialisables → retirées avant persistance, réhydratées via FEATURE_ICONS.
+  const cacheKey = user?.email ? `abonnements_${user.email}` : null;
+  const [plans, setPlans] = useCachedState(cacheKey, FALLBACK_PLANS, c => {
+    const cached = c?.plans;
+    if (!cached?.length) return FALLBACK_PLANS;
+    return cached.map(p => ({
+      ...p,
+      features: (p.features || []).map(f => ({ ...f, icon: FEATURE_ICONS[f.label] || CheckCircle })),
+    }));
+  });
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -145,7 +156,15 @@ export default function AbonnementsClient() {
               })),
             });
           }
-          if (dynamicPlans.length > 0) setPlans(dynamicPlans);
+          if (dynamicPlans.length > 0) {
+            setPlans(dynamicPlans);
+            mergePageCache(cacheKey, {
+              plans: dynamicPlans.map(p => ({
+                ...p,
+                features: (p.features || []).map(({ icon, ...f }) => f),
+              })),
+            });
+          }
         }
       })
       .catch(() => {});

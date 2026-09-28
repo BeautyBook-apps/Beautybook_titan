@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight, Clock, User, Scissors, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import { entities } from '@/api/entities';
@@ -27,11 +28,13 @@ export default function PlanningMembre() {
   const memberName = searchParams.get("name") || "Membre";
   const memberId = searchParams.get("id");
   const { user } = useAuth();
+  // Cache par pro + membre : affichage direct des dernières données, refresh en arrière-plan.
+  const pmKey = user?.email && memberId ? `planningmembre_${user.email}_${memberId}` : null;
 
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [reservations, setReservations] = useState([]);
-  const [memberInfo, setMemberInfo] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [reservations, setReservations] = useCachedState(pmKey, [], c => c?.reservations || []);
+  const [memberInfo, setMemberInfo] = useCachedState(pmKey, null, c => c?.memberInfo ?? null);
+  const [loading, setLoading] = useState(() => !readPageCache(pmKey)?.reservations?.length);
   const [selectedDay, setSelectedDay] = useState(new Date());
 
   const weekDays = buildWeek(currentDate);
@@ -61,6 +64,7 @@ export default function PlanningMembre() {
         _statusColor: STATUS_COLORS[r.status] || STATUS_COLORS.en_attente,
       }));
       setReservations(weekRdvs);
+      mergePageCache(pmKey, { memberInfo: memberData, reservations: weekRdvs });
     } catch (e) {
       console.error("[PlanningMembre] Error:", e);
     }
@@ -147,7 +151,7 @@ export default function PlanningMembre() {
           {format(selectedDay, "EEEE d MMMM", { locale: fr })}
         </h3>
 
-        {loading ? (
+        {(loading && reservations.length === 0) ? (
           <div className="flex items-center justify-center py-16">
             <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>

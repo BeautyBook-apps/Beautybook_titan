@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { useThemeBg } from "@/hooks/useTheme";
 import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { entities } from "@/api/entities";
 
 const getCardBrand = (num) => {
@@ -25,31 +26,35 @@ export default function PaiementFacturation() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const themeBg = useThemeBg();
-  const [cards, setCards] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache : première peinture avec les dernières
+  // données connues, rafraîchissement réseau en arrière-plan sans vider l'affichage.
+  const cacheKey = user?.email ? `facturation_${user.email}` : null;
+  const [cards, setCards] = useCachedState(cacheKey, [], c => c?.cards || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
   const [showAdd, setShowAdd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [newCard, setNewCard] = useState({ number: "", holder: "", expiry: "", cvv: "" });
   const [successMsg, setSuccessMsg] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [deleting, setDeleting] = useState(null);
-  const [transactions, setTransactions] = useState([]);
-  const [soldeRecord, setSoldeRecord] = useState(null);
+  const [transactions, setTransactions] = useCachedState(cacheKey, [], c => c?.transactions || []);
+  const [soldeRecord, setSoldeRecord] = useCachedState(cacheKey, null, c => c?.soldeRecord ?? null);
 
   useEffect(() => {
     if (!user?.email) return;
+    if (readPageCache(cacheKey)) setLoading(false);
     loadCards();
     loadTransactions();
   }, [user]);
 
   const loadCards = async () => {
-    setLoading(true);
     try {
       const data = await entities.ProPaymentMethod.filter(
         { user_email: user.email },
         "-created_at"
       );
       setCards(data || []);
+      mergePageCache(cacheKey, { cards: data || [] });
     } catch (e) {
       console.error("[PaiementFacturation] load error", e);
     }
@@ -64,8 +69,11 @@ export default function PaiementFacturation() {
         1
       );
       if (data?.length > 0) {
-        setSoldeRecord(data[0]);
-        setTransactions(data[0].transactions || []);
+        const solde = data[0];
+        const txs = solde.transactions || [];
+        setSoldeRecord(solde);
+        setTransactions(txs);
+        mergePageCache(cacheKey, { soldeRecord: solde, transactions: txs });
       }
     } catch (e) {
       console.error("[PaiementFacturation] load tx error", e);
@@ -88,7 +96,9 @@ export default function PaiementFacturation() {
         is_default: cards.length === 0,
       };
       const result = await entities.ProPaymentMethod.create(payload);
-      setCards(prev => [result, ...prev]);
+      const nextCards = [result, ...cards];
+      setCards(nextCards);
+      mergePageCache(cacheKey, { cards: nextCards });
       setNewCard({ number: "", holder: "", expiry: "", cvv: "" });
       setShowAdd(false);
       showSuccess("Carte enregistrée avec succès");
@@ -103,7 +113,9 @@ export default function PaiementFacturation() {
     setDeleting(cardId);
     try {
       await entities.ProPaymentMethod.delete(cardId);
-      setCards(prev => prev.filter(c => c.id !== cardId));
+      const nextCards = cards.filter(c => c.id !== cardId);
+      setCards(nextCards);
+      mergePageCache(cacheKey, { cards: nextCards });
       showSuccess("Carte supprimée");
     } catch (e) {
       setErrorMsg("Erreur lors de la suppression");
@@ -118,7 +130,9 @@ export default function PaiementFacturation() {
           entities.ProPaymentMethod.update(c.id, { is_default: c.id === cardId })
         )
       );
-      setCards(prev => prev.map(c => ({ ...c, is_default: c.id === cardId })));
+      const nextCards = cards.map(c => ({ ...c, is_default: c.id === cardId }));
+      setCards(nextCards);
+      mergePageCache(cacheKey, { cards: nextCards });
     } catch (e) {
       console.error(e);
     }
@@ -181,7 +195,7 @@ export default function PaiementFacturation() {
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 px-1">
             Mes cartes enregistrées {cards.length > 0 && `(${cards.length})`}
           </p>
-          {loading ? (
+          {loading && cards.length === 0 ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-[#E8732A]" />
             </div>

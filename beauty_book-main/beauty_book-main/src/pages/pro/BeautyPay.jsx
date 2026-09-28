@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { entities } from '@/api/entities';
 import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { format, startOfMonth } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -16,18 +17,24 @@ export default function BeautyPay() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache : première peinture avec les dernières
+  // données connues, rafraîchissement réseau en arrière-plan sans vider l'affichage.
+  const cacheKey = user?.email ? `beautypay_${user.email}` : null;
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
   const [activeTab, setActiveTab] = useState("TOUTES");
-  const [soldeRecord, setSoldeRecord] = useState(null);
+  const [soldeRecord, setSoldeRecord] = useCachedState(cacheKey, null, c => c?.soldeRecord ?? null);
   const [rechargeLoading, setRechargeLoading] = useState(false);
   const [retraitLoading, setRetraitLoading] = useState(false);
   const [showRechargeModal, setShowRechargeModal] = useState(false);
   const [customAmount, setCustomAmount] = useState("");
-  const [reservations, setReservations] = useState([]);
+  const [reservations, setReservations] = useCachedState(cacheKey, [], c => c?.reservations || []);
   const [actionSuccess, setActionSuccess] = useState(null);
 
   useEffect(() => {
     if (!user?.email) return;
+    // Si l'utilisateur arrive après le montage, le cache peut déjà exister :
+    // pas d'écran de chargement dans ce cas.
+    if (readPageCache(cacheKey)) setLoading(false);
     loadData();
 
     if (searchParams.get("payment") === "success") {
@@ -37,25 +44,28 @@ export default function BeautyPay() {
   }, [user, searchParams]);
 
   const loadData = async () => {
-    setLoading(true);
     try {
       const [soldeData, resData] = await Promise.all([
         entities.SoldeBeautyPay.filter({ user_email: user.email }, "-created_at", 1).catch(() => []),
         entities.Reservation.filter({ pro_email: user.email }, "-created_at", 200).catch(() => [])
       ]);
 
+      let solde;
       if (soldeData.length > 0) {
-        setSoldeRecord(soldeData[0]);
+        solde = soldeData[0];
       } else {
         const newRecord = await entities.SoldeBeautyPay.create({
           user_email: user.email,
           solde: 0,
           transactions: [],
         }).catch(() => null);
-        setSoldeRecord(newRecord || { solde: 0, transactions: [] });
+        solde = newRecord || { solde: 0, transactions: [] };
       }
+      setSoldeRecord(solde);
 
-      setReservations(resData || []);
+      const resas = resData || [];
+      setReservations(resas);
+      mergePageCache(cacheKey, { soldeRecord: solde, reservations: resas });
     } catch (e) {
       console.error("[BeautyPay] load error", e);
     }
@@ -118,7 +128,9 @@ export default function BeautyPay() {
       transactions: [newTx, ...(soldeRecord.transactions || [])],
     };
     await entities.SoldeBeautyPay.update(soldeRecord.id, updated);
-    setSoldeRecord(prev => ({ ...prev, ...updated }));
+    const nextSolde = { ...soldeRecord, ...updated };
+    setSoldeRecord(nextSolde);
+    mergePageCache(cacheKey, { soldeRecord: nextSolde });
     setRetraitLoading(false);
     showSuccess(`${solde.toFixed(2)}€ retirés avec succès`);
   };
@@ -203,7 +215,7 @@ export default function BeautyPay() {
             <Wallet className="w-5 h-5 text-white/60" />
             <p className="text-[10px] font-black text-white/50 uppercase tracking-widest">Solde portefeuille</p>
           </div>
-          {loading ? (
+          {loading && !soldeRecord ? (
             <Loader2 className="w-8 h-8 animate-spin text-white mt-1" />
           ) : (
             <p className="text-[42px] font-black text-white leading-none mb-1">{solde.toFixed(2)} €</p>
@@ -268,7 +280,7 @@ export default function BeautyPay() {
             ))}
           </div>
 
-          {loading ? (
+          {loading && reservations.length === 0 ? (
             <div className="flex justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-[#1a2035]" />
             </div>

@@ -11,6 +11,7 @@ import { useParams } from "react-router-dom";
 import { Send, Bot, Calendar, RotateCcw } from "lucide-react";
 import { supabase } from "@/api/supabaseClient";
 import { WidgetBookingForm } from "@/components/AssistantChatWidget";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import "./MariaSite.css";
 
 const FN_URL = `${supabase.supabaseUrl}/functions/v1/maria-widget`;
@@ -29,8 +30,12 @@ async function fn(path, { method = "GET", body } = {}) {
 
 export default function MariaSite() {
   const { code } = useParams();
-  const [status, setStatus] = useState("loading"); // loading | ready | error
-  const [knowledge, setKnowledge] = useState(null);
+  // Page publique (pas d'utilisateur) : clé par salon via le :code de l'URL.
+  // La fiche salon (knowledge) s'affiche dès la première peinture depuis le
+  // cache, le rafraîchissement réseau se fait en arrière-plan.
+  const cacheKey = `maria_site_${code || "default"}`;
+  const [status, setStatus] = useState(() => (readPageCache(cacheKey)?.knowledge ? "ready" : "loading")); // loading | ready | error
+  const [knowledge, setKnowledge] = useCachedState(cacheKey, null, c => c?.knowledge ?? null);
   const [msgs, setMsgs] = useState([]);
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState("");
@@ -52,6 +57,7 @@ export default function MariaSite() {
       try {
         const k = await fn(`/knowledge?code=${encodeURIComponent(code || "")}`);
         setKnowledge(k);
+        mergePageCache(cacheKey, { knowledge: k });
         setStatus("ready");
         setTyping(true);
         await new Promise((r) => setTimeout(r, 700));
@@ -149,7 +155,7 @@ export default function MariaSite() {
       </header>
 
       <div className="msite-chat" ref={scrollRef}>
-        {status === "loading" && (
+        {status === "loading" && !knowledge && (
           <div className="msite-loading">
             <div className="msite-bubble bot msite-typing"><span /><span /><span /></div>
           </div>

@@ -4,6 +4,7 @@ import { ArrowLeft, Star, ShieldCheck, MessageSquare, Loader2, Send, Quote, Mess
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import PageHeader from "@/components/layout/PageHeader";
 import NoterClientModal from "@/components/avis/NoterClientModal";
 
@@ -26,11 +27,14 @@ function StarDisplay({ value, size = "w-3 h-3" }) {
 export default function AvisClients() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const cacheKey = user?.email ? `avisclients_${user.email}` : null;
+  // Affichage direct depuis le cache : pas d'écran « chargement » intermédiaire,
+  // le rafraîchissement réseau se fait en arrière-plan sans vider l'affichage.
   const [tab, setTab] = useState("recus");
-  const [avisRecus, setAvisRecus] = useState([]);
-  const [reservationsTerminees, setReservationsTerminees] = useState([]);
-  const [avisEnvoyes, setAvisEnvoyes] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [avisRecus, setAvisRecus] = useCachedState(cacheKey, [], (c) => c?.avisRecus || []);
+  const [reservationsTerminees, setReservationsTerminees] = useCachedState(cacheKey, [], (c) => c?.reservationsTerminees || []);
+  const [avisEnvoyes, setAvisEnvoyes] = useCachedState(cacheKey, [], (c) => c?.avisEnvoyes || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
   const [replyingId, setReplyingId] = useState(null);
   const [replyText, setReplyText] = useState("");
   const [savingReply, setSavingReply] = useState(false);
@@ -42,7 +46,6 @@ export default function AvisClients() {
   }, [user]);
 
   const loadData = async () => {
-    setLoading(true);
     try {
       const [recus, envoyesPro, reservations] = await Promise.all([
         entities.Avis.filter({ type: "client_to_pro", cible_email: user.email }, "-created_at", 50),
@@ -52,7 +55,9 @@ export default function AvisClients() {
       setAvisRecus(recus);
       setAvisEnvoyes(envoyesPro);
       const reservationsNotees = new Set(envoyesPro.map((a) => a.reservation_id));
-      setReservationsTerminees(reservations.filter((r) => !reservationsNotees.has(r.id)));
+      const aNoter = reservations.filter((r) => !reservationsNotees.has(r.id));
+      setReservationsTerminees(aNoter);
+      mergePageCache(cacheKey, { avisRecus: recus, avisEnvoyes: envoyesPro, reservationsTerminees: aNoter });
     } catch (e) {
       console.error(e);
     }
@@ -64,7 +69,11 @@ export default function AvisClients() {
     setSavingReply(true);
     try {
       await entities.Avis.update(avisId, { reponse_pro: replyText });
-      setAvisRecus((prev) => prev.map((a) => (a.id === avisId ? { ...a, reponse_pro: replyText } : a)));
+      setAvisRecus((prev) => {
+        const next = prev.map((a) => (a.id === avisId ? { ...a, reponse_pro: replyText } : a));
+        mergePageCache(cacheKey, { avisRecus: next });
+        return next;
+      });
       setReplyingId(null);
       setReplyText("");
     } catch (e) {
@@ -80,6 +89,8 @@ export default function AvisClients() {
 
   const reviewsWithComment = avisRecus.filter(a => a.commentaire && a.commentaire.trim());
   const commentCount = reviewsWithComment.length;
+  // Gate : aucun spinner plein écran si des données en cache sont déjà affichées.
+  const hasData = avisRecus.length > 0 || avisEnvoyes.length > 0 || reservationsTerminees.length > 0;
 
   return (
     <div className="font-display min-h-full bg-[#f5f5f5]">
@@ -99,7 +110,7 @@ export default function AvisClients() {
       </div>
 
       <div className="px-5 pt-4 pb-8 space-y-4">
-        {loading ? (
+        {loading && !hasData ? (
           <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
         ) : tab === "recus" ? (
           <>

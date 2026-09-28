@@ -1,6 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { fetchShopifyProducts } from "@/api/shopifyClient";
 import { useState, useEffect, useRef } from "react";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
@@ -177,8 +178,10 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
   const [activeImageIdx, setActiveImageIdx] = useState(0); // image active dans le slider du studio
   const [previewIdx, setPreviewIdx] = useState(0); // index slider dans la prévisualisation step 2
   const [uploading, setUploading] = useState(false);
-  const [produits, setProduits] = useState([]);
-  const [services, setServices] = useState([]);
+  // Listes en lecture seule : affichage direct depuis le cache (clé globale,
+  // ces listes ne dépendent pas de l'utilisateur), rafraîchissement en arrière-plan.
+  const [produits, setProduits] = useCachedState("publication_options", [], c => c?.produits || []);
+  const [services, setServices] = useCachedState("publication_options", [], c => c?.services || []);
   const [linkedType, setLinkedType] = useState(null);
   const [showProductList, setShowProductList] = useState(false);
   const [showServiceList, setShowServiceList] = useState(false);
@@ -229,9 +232,14 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
     ]).then(([dbRes, shopifyRes]) => {
       const db = dbRes.status === "fulfilled" ? dbRes.value : [];
       const shopify = shopifyRes.status === "fulfilled" ? shopifyRes.value : [];
-      setProduits([...db, ...shopify]);
+      const merged = [...db, ...shopify];
+      setProduits(merged);
+      mergePageCache("publication_options", { produits: merged });
     });
-    entities.Service.list("-created_at", 20).then(setServices).catch(() => {});
+    entities.Service.list("-created_at", 20).then(data => {
+      setServices(data || []);
+      mergePageCache("publication_options", { services: data || [] });
+    }).catch(() => {});
   }, []);
 
   // Sauvegarde automatique dans localStorage à chaque changement du form
@@ -640,7 +648,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
     setCaptureMode(mode);
   };
   const [showSoundPanel, setShowSoundPanel] = useState(false);
-  const [sounds, setSounds] = useState([]);
+  const [sounds, setSounds] = useCachedState("publication_options", [], c => c?.sounds || []);
   const [soundSearch, setSoundSearch] = useState("");
   const [loadingSounds, setLoadingSounds] = useState(false);
   const [playingSound, setPlayingSound] = useState(null);
@@ -698,6 +706,8 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
         popularite: 'Trending',
       }));
       setSounds(mapped);
+      // Ne mettre en cache que la liste par défaut ("beauty…"), pas les recherches utilisateur.
+      if (/^beauty/i.test(query)) mergePageCache("publication_options", { sounds: mapped });
     } catch {
       setSounds([]);
     }
@@ -2395,9 +2405,12 @@ export default function Publication() {
   const { theme } = useTheme();
   const isDark = theme === "dark" || theme === "night";
   const [activeFilter, setActiveFilter] = useState("Tous");
-  const [publications, setPublications] = useState([]);
+  // Affichage direct depuis le cache : première peinture avec les dernières
+  // publications connues, rafraîchissement réseau en arrière-plan sans vider l'affichage.
+  const cacheKey = user?.email ? `publication_${user.email}` : null;
+  const [publications, setPublications] = useCachedState(cacheKey, [], c => c?.publications || []);
   const [showWizard, setShowWizard] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
   const [publishing, setPublishing] = useState(false);
   const [mainTab, setMainTab] = useState("publier"); // "live" | "publier" | "creer"
   const [activeTool, setActiveTool] = useState(null); // "editeur" | "autocut" | "legendes" | "detourage"
@@ -2435,6 +2448,7 @@ export default function Publication() {
           .limit(50);
         if (error) throw error;
         setPublications(data || []);
+        mergePageCache(cacheKey, { publications: data || [] });
       } catch { /* ignore */ }
       setLoading(false);
     })();
@@ -2509,9 +2523,17 @@ export default function Publication() {
       }
 
       if (editId) {
-        setPublications(prev => prev.map(p => p.id === editId ? { ...p, ...reel } : p));
+        setPublications(prev => {
+          const next = prev.map(p => p.id === editId ? { ...p, ...reel } : p);
+          mergePageCache(cacheKey, { publications: next });
+          return next;
+        });
       } else {
-        setPublications(prev => [reel, ...prev]);
+        setPublications(prev => {
+          const next = [reel, ...prev];
+          mergePageCache(cacheKey, { publications: next });
+          return next;
+        });
       }
       setEditingPub(null);
       setShowWizard(false);
@@ -2555,9 +2577,17 @@ export default function Publication() {
       }
 
       if (editId) {
-        setPublications(prev => prev.map(p => p.id === editId ? { ...p, ...reel } : p));
+        setPublications(prev => {
+          const next = prev.map(p => p.id === editId ? { ...p, ...reel } : p);
+          mergePageCache(cacheKey, { publications: next });
+          return next;
+        });
       } else {
-        setPublications(prev => [reel, ...prev]);
+        setPublications(prev => {
+          const next = [reel, ...prev];
+          mergePageCache(cacheKey, { publications: next });
+          return next;
+        });
       }
       setEditingPub(null);
       setShowWizard(false);
@@ -2568,7 +2598,11 @@ export default function Publication() {
 
   const deletePub = async (id) => {
     await entities.Reel.delete(id);
-    setPublications(prev => prev.filter(p => p.id !== id));
+    setPublications(prev => {
+      const next = prev.filter(p => p.id !== id);
+      mergePageCache(cacheKey, { publications: next });
+      return next;
+    });
   };
 
   const catToFilter = { "Réels": "Tous", "Tutos": "Tutos", "Conseils": "Conseils" };
@@ -2845,7 +2879,7 @@ export default function Publication() {
           </div>
 
           {/* Grid */}
-          {loading ? (
+          {loading && publications.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <div className={`w-8 h-8 border-4 rounded-full animate-spin ${isDark ? "border-white/20 border-t-primary" : "border-gray-200 border-t-primary"}`} />
             </div>

@@ -4,6 +4,7 @@ import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { ArrowLeft, Heart, MessageSquare, Phone, MapPin, Maximize2, Armchair, Zap, TrendingUp, X, Send, CheckCircle, Box, Users, User, Sparkles, Check } from "lucide-react";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
+import { readPageCache, writePageCache } from "@/hooks/usePageCache";
 
 const FALLBACK = {
   images: [""],
@@ -143,21 +144,39 @@ export default function ImmobilierDetail() {
   const { id } = useParams();
   const { state } = useLocation();
 
-  const [listing, setListing] = useState(state || null);
+  // Affichage direct : le state de navigation d'abord (le plus frais),
+  // sinon le cache de cette annonce — jamais un affichage vide.
+  const [listing, setListing] = useState(() => state || readPageCache(id ? `immobilier_${id}` : null)?.listing || null);
   const [imgIdx, setImgIdx] = useState(0);
   const [liked, setLiked] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
   const [showMsgModal, setShowMsgModal] = useState(false);
 
-  // Charger le listing depuis la BDD si on a un ID
+  // Charger le listing depuis la BDD si on a un ID.
+  // Navigation d'une annonce à l'autre : afficher le cache de la nouvelle annonce
+  // immédiatement plutôt que de vider l'affichage ; le refresh suit en arrière-plan.
   useEffect(() => {
     if (!id) return;
+    const cacheKey = `immobilier_${id}`;
+    if (state) {
+      // Navigation depuis la liste : l'objet transmis est le plus frais.
+      setListing(state);
+    } else {
+      const cached = readPageCache(cacheKey);
+      if (cached?.listing) setListing(cached.listing);
+      // Sinon on garde l'affichage actuel (jamais de reset à vide).
+    }
+    setImgIdx(0);
     entities.ImmobilierListing.filter({ status: "actif" }, "-created_at", 100)
       .then(all => {
         const found = all.find(l => l.id === id);
-        if (found) setListing(found);
+        if (found) {
+          setListing(found);
+          writePageCache(cacheKey, { listing: found });
+        }
       })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const data = listing || FALLBACK;

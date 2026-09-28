@@ -1,5 +1,6 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect, useRef } from "react";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { entities, uploadFile, fetchProduits } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import {
@@ -38,8 +39,11 @@ function StatCard({ icon: Icon, label, value, subtitle, color }) {
 
 // ── Products Tab ─────────────────────────────────────────────────────────────
 function ProductsTab({ vendeurEmail }) {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache : première peinture avec les derniers
+  // produits connus, rafraîchissement réseau en arrière-plan sans vider l'affichage.
+  const cacheKey = vendeurEmail ? `vendeur_${vendeurEmail}` : null;
+  const [products, setProducts] = useCachedState(cacheKey, [], c => c?.productsDetail || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({ ...EMPTY_PRODUCT });
@@ -50,11 +54,12 @@ function ProductsTab({ vendeurEmail }) {
   useEffect(() => { loadProducts(); }, []);
 
   const loadProducts = async () => {
-    setLoading(true);
     const items = await fetchProduits({});
-    setProducts(items.filter(p =>
+    const filtered = items.filter(p =>
       p.pro_email === vendeurEmail || p.tags?.includes(`vendeur_${vendeurEmail}`)
-    ));
+    );
+    setProducts(filtered);
+    mergePageCache(cacheKey, { productsDetail: filtered });
     setLoading(false);
   };
 
@@ -107,13 +112,17 @@ function ProductsTab({ vendeurEmail }) {
   const toggleStatus = async (p) => {
     const s = p.status === "actif" ? "inactif" : "actif";
     await entities.Produit.update(p.id, { status: s });
-    setProducts(prev => prev.map(x => x.id === p.id ? { ...x, status: s } : x));
+    const next = products.map(x => x.id === p.id ? { ...x, status: s } : x);
+    setProducts(next);
+    mergePageCache(cacheKey, { productsDetail: next });
   };
 
   const deleteProduct = async (id) => {
     if (!confirm("Archiver ce produit ?")) return;
     await entities.Produit.update(id, { status: "inactif" });
-    setProducts(prev => prev.filter(p => p.id !== id));
+    const next = products.filter(p => p.id !== id);
+    setProducts(next);
+    mergePageCache(cacheKey, { productsDetail: next });
   };
 
   return (
@@ -228,7 +237,7 @@ function ProductsTab({ vendeurEmail }) {
         </div>
       )}
 
-      {loading ? <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
+      {loading && products.length === 0 ? <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
         : products.length === 0 ? <div className="flex flex-col items-center py-16 gap-3"><Package className="w-12 h-12 text-gray-200" /><p className="text-gray-400 text-[14px]">Aucun produit</p></div>
         : (
           <div className="space-y-3">
@@ -263,8 +272,11 @@ function ProductsTab({ vendeurEmail }) {
 
 // ── Orders Tab ───────────────────────────────────────────────────────────────
 function OrdersTab() {
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // L'email vendeur vient de la session (pas de prop ici) : clé de cache stable.
+  const sessEmail = sessionStorage.getItem("bb_vendeur_email");
+  const cacheKey = sessEmail ? `vendeur_${sessEmail}` : null;
+  const [orders, setOrders] = useCachedState(cacheKey, [], c => c?.orders || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
   const [selected, setSelected] = useState(null);
   const [trackingInput, setTrackingInput] = useState("");
   const [photo, setPhoto] = useState("");
@@ -272,7 +284,10 @@ function OrdersTab() {
   const photoRef = useRef(null);
 
   useEffect(() => {
-    entities.Commande.list("-created_at", 100).then(setOrders).catch(() => {}).finally(() => setLoading(false));
+    entities.Commande.list("-created_at", 100).then(data => {
+      setOrders(data);
+      mergePageCache(cacheKey, { orders: data || [] });
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const updateStatus = async (id, status, trackingNumber = "", delivery_photo = "") => {
@@ -280,7 +295,9 @@ function OrdersTab() {
     if (trackingNumber) data.tracking_number = trackingNumber;
     if (delivery_photo) data.notes = `[LIVRAISON_PHOTO]:${delivery_photo}`;
     await entities.Commande.update(id, data);
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, status, tracking_number: trackingNumber || o.tracking_number } : o));
+    const next = orders.map(o => o.id === id ? { ...o, status, tracking_number: trackingNumber || o.tracking_number } : o);
+    setOrders(next);
+    mergePageCache(cacheKey, { orders: next });
     setSelected(null);
   };
 
@@ -302,7 +319,7 @@ function OrdersTab() {
     annule: "bg-red-100 text-red-700",
   };
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>;
+  if (loading && orders.length === 0) return <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-4">
@@ -469,20 +486,24 @@ function StatsTab({ products, orders }) {
 
 // ── Paiements Tab (Stripe Connect) ───────────────────────────────────────────
 function PaiementsTab({ vendeurEmail }) {
-  const [stripeId, setStripeId] = useState("");
+  const cacheKey = vendeurEmail ? `vendeur_${vendeurEmail}` : null;
+  // stripeId : valeur enregistrée (cache) ; input : champ du formulaire pré-rempli depuis le cache.
+  const [stripeId, setStripeId] = useCachedState(cacheKey, "", c => c?.stripeId || "");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [input, setInput] = useState("");
-  const [configId, setConfigId] = useState(null);
+  const [input, setInput] = useState(() => readPageCache(cacheKey)?.stripeId || "");
+  const [configId, setConfigId] = useCachedState(cacheKey, null, c => c?.stripeConfigId ?? null);
 
   useEffect(() => {
     const key = `vendeur_stripe_${vendeurEmail}`;
     entities.AppConfig.filter({ key }, "-created_at", 50)
       .then(rows => {
         if (rows[0]?.value?.stripeId) {
-          setStripeId(rows[0].value.stripeId);
-          setInput(rows[0].value.stripeId);
+          const sid = rows[0].value.stripeId;
+          setStripeId(sid);
+          setInput(sid);
           setConfigId(rows[0].id);
+          mergePageCache(cacheKey, { stripeId: sid, stripeConfigId: rows[0].id });
         }
       }).catch(() => {});
   }, [vendeurEmail]);
@@ -496,8 +517,10 @@ function PaiementsTab({ vendeurEmail }) {
     } else {
       const created = await entities.AppConfig.create({ key, value: { stripeId: input } });
       setConfigId(created.id);
+      mergePageCache(cacheKey, { stripeConfigId: created.id });
     }
     setStripeId(input);
+    mergePageCache(cacheKey, { stripeId: input });
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
@@ -589,8 +612,9 @@ function PaiementsTab({ vendeurEmail }) {
 
 // ── Grossiste Tab ─────────────────────────────────────────────────────────────
 function GrossisteTab({ vendeurEmail }) {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = vendeurEmail ? `vendeur_${vendeurEmail}` : null;
+  const [products, setProducts] = useCachedState(cacheKey, [], c => c?.productsGrossiste || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({ ...EMPTY_PRODUCT, vente_type: "grossiste", category: "Grossiste" });
@@ -601,12 +625,13 @@ function GrossisteTab({ vendeurEmail }) {
   useEffect(() => { loadProducts(); }, []);
 
   const loadProducts = async () => {
-    setLoading(true);
     const items = await fetchProduits({});
-    setProducts(items.filter(p =>
+    const filtered = items.filter(p =>
       (p.pro_email === vendeurEmail && (p.category === 'Grossiste' || p.tags?.includes('grossiste'))) ||
       (p.tags?.includes('grossiste') && p.tags?.includes(`vendeur_${vendeurEmail}`))
-    ));
+    );
+    setProducts(filtered);
+    mergePageCache(cacheKey, { productsGrossiste: filtered });
     setLoading(false);
   };
 
@@ -653,7 +678,9 @@ function GrossisteTab({ vendeurEmail }) {
   const deleteProduct = async (id) => {
     if (!confirm("Archiver ce produit grossiste ?")) return;
     await entities.Produit.update(id, { status: "inactif" });
-    setProducts(prev => prev.filter(p => p.id !== id));
+    const next = products.filter(p => p.id !== id);
+    setProducts(next);
+    mergePageCache(cacheKey, { productsGrossiste: next });
   };
 
   return (
@@ -738,7 +765,7 @@ function GrossisteTab({ vendeurEmail }) {
         </div>
       )}
 
-      {loading ? <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 animate-spin text-blue-500" /></div>
+      {loading && products.length === 0 ? <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 animate-spin text-blue-500" /></div>
         : products.length === 0
         ? <div className="flex flex-col items-center py-16 gap-3"><Package className="w-12 h-12 text-gray-200" /><p className="text-gray-400 text-[14px]">Aucun produit grossiste</p><p className="text-gray-300 text-[12px] text-center">Ajoutez des produits qui apparaîtront dans la section Grossiste de la boutique</p></div>
         : (
@@ -771,16 +798,21 @@ function GrossisteTab({ vendeurEmail }) {
 
 // ── Reclamations Tab ─────────────────────────────────────────────────────────
 function ReclamationsTab() {
-  const [avis, setAvis] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const sessEmail = sessionStorage.getItem("bb_vendeur_email");
+  const cacheKey = sessEmail ? `vendeur_${sessEmail}` : null;
+  const [avis, setAvis] = useCachedState(cacheKey, [], c => c?.avis || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
 
   useEffect(() => {
-    entities.Avis.list("-created_at", 50).then(setAvis).catch(() => {}).finally(() => setLoading(false));
+    entities.Avis.list("-created_at", 50).then(data => {
+      setAvis(data);
+      mergePageCache(cacheKey, { avis: data || [] });
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const negativeAvis = avis.filter(a => a.note <= 3);
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>;
+  if (loading && avis.length === 0) return <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-4">
@@ -814,18 +846,25 @@ export default function VendeurDashboard() {
   const navigate = useNavigate();
   const [auth, setAuth] = useState(sessionStorage.getItem("bb_vendeur_email") || null);
   const [activeTab, setActiveTab] = useState("stats");
-  const [products, setProducts] = useState([]);
-  const [orders, setOrders] = useState([]);
+  // Stats du dashboard : affichage direct depuis le cache, refresh en arrière-plan.
+  const cacheKey = auth ? `vendeur_${auth}` : null;
+  const [products, setProducts] = useCachedState(cacheKey, [], c => c?.statsProducts || []);
+  const [orders, setOrders] = useCachedState(cacheKey, [], c => c?.statsOrders || []);
 
   useEffect(() => {
     if (!auth) {
       navigate("/vendeur/login");
       return;
     }
-    fetchProduits({}).then(items =>
-      setProducts(items.filter(p => p.tags?.includes(`vendeur_${auth}`)))
-    ).catch(() => {});
-    entities.Commande.list("-created_at", 100).then(setOrders).catch(() => {});
+    fetchProduits({}).then(items => {
+      const filtered = items.filter(p => p.tags?.includes(`vendeur_${auth}`));
+      setProducts(filtered);
+      mergePageCache(cacheKey, { statsProducts: filtered });
+    }).catch(() => {});
+    entities.Commande.list("-created_at", 100).then(data => {
+      setOrders(data);
+      mergePageCache(cacheKey, { statsOrders: data || [] });
+    }).catch(() => {});
   }, [auth, navigate]);
 
   if (!auth) return null;

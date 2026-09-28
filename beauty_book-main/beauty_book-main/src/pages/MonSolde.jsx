@@ -5,6 +5,7 @@ import {
   Loader2, Plus, X, Check, ChevronRight, CreditCard, Gift
 } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { entities } from '@/api/entities';
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -15,8 +16,11 @@ export default function MonSolde() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [soldeRecord, setSoldeRecord] = useState(null);
+  // Affichage direct depuis le cache : le solde et l'historique s'affichent
+  // immédiatement, le rafraîchissement réseau se fait en arrière-plan.
+  const cacheKey = user?.email ? `solde_${user.email}` : null;
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.soldeRecord);
+  const [soldeRecord, setSoldeRecord] = useCachedState(cacheKey, null, c => c?.soldeRecord ?? null);
   const [rechargeLoading, setRechargeLoading] = useState(false);
   const [retraitLoading, setRetraitLoading] = useState(false);
   const [showRechargeModal, setShowRechargeModal] = useState(false);
@@ -39,13 +43,16 @@ export default function MonSolde() {
     const records = await entities.SoldeBeautyPay.filter({ user_email: user.email }, "-created_at", 1).catch(() => []);
     if (records.length > 0) {
       setSoldeRecord(records[0]);
+      mergePageCache(cacheKey, { soldeRecord: records[0] });
     } else {
       const newRecord = await entities.SoldeBeautyPay.create({
         user_email: user.email,
         solde: 0,
         transactions: [],
       }).catch(() => null);
-      setSoldeRecord(newRecord || { solde: 0, transactions: [] });
+      const record = newRecord || { solde: 0, transactions: [] };
+      setSoldeRecord(record);
+      mergePageCache(cacheKey, { soldeRecord: record });
     }
     setLoading(false);
   };
@@ -107,7 +114,9 @@ export default function MonSolde() {
       transactions: [newTx, ...(soldeRecord.transactions || [])],
     };
     await entities.SoldeBeautyPay.update(soldeRecord.id, updated);
-    setSoldeRecord(prev => ({ ...prev, ...updated }));
+    const nextRecord = { ...soldeRecord, ...updated };
+    setSoldeRecord(nextRecord);
+    mergePageCache(cacheKey, { soldeRecord: nextRecord });
     setRetraitLoading(false);
     showSuccess(`${solde.toFixed(2)}€ retirés avec succès`);
   };
@@ -152,7 +161,7 @@ export default function MonSolde() {
           </div>
         )}
 
-        {loading ? (
+        {(loading && !soldeRecord) ? (
           <div className="flex items-center justify-center py-24">
             <div className="w-8 h-8 border-4 border-gray-200 border-t-primary rounded-full animate-spin" />
           </div>

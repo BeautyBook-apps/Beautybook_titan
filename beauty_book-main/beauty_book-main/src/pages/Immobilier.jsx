@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, SlidersHorizontal, Heart, Maximize, X, Map, RotateCcw, MapPin, Zap, Users, ArrowUpDown, Sofa, SearchX } from "lucide-react";
 import MapWithPricePins from "@/components/map/MapWithPricePins";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 
 const PRICE_RANGES = [
   { id: "tous", label: "Tous les prix", min: 0, max: Infinity },
@@ -169,8 +170,10 @@ function ListingCard({ listing, onPress }) {
 export default function Immobilier() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("location");
-  const [listings, setListings] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache : la dernière liste connue s'affiche
+  // immédiatement, le rafraîchissement se fait en arrière-plan sans vider l'affichage.
+  const [listings, setListings] = useCachedState("immobilier_page", [], c => c?.listings || []);
+  const [loading, setLoading] = useState(() => !readPageCache("immobilier_page")?.listings?.length);
   const [search, setSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [showMap, setShowMap] = useState(false);
@@ -183,11 +186,14 @@ export default function Immobilier() {
   const [filterDpe, setFilterDpe] = useState("Tous");
   const [filterQuartier, setFilterQuartier] = useState("Tous");
 
+  // Refresh en arrière-plan : jamais de reset, les données en cache restent affichées.
   useEffect(() => {
     setLoading(true);
     (async () => ({ data: { success: true } }))("getImmobilier", { type: activeTab })
       .then(res => {
-        setListings(res.data?.listings || []);
+        const items = res.data?.listings || [];
+        setListings(items);
+        mergePageCache("immobilier_page", { listings: items });
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -413,7 +419,7 @@ export default function Immobilier() {
 
       {/* Listings */}
       <div data-tour="immobilier-listings" className="px-4 space-y-4">
-        {loading ? (
+        {(loading && listings.length === 0) ? (
           Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="bg-white rounded-3xl overflow-hidden animate-pulse">
               <div className="h-52 bg-gray-100" />

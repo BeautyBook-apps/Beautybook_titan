@@ -1,6 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { apiClient } from '@/lib/apiClient';
@@ -120,10 +121,11 @@ function TrackingTimeline({ stepIndex }) {
 
 export default function OrderTracking() {
   const navigate = useNavigate();
-  const [orderNumber, setOrderNumber] = useState("");
-  const [email, setEmail] = useState("");
+  // Dernière recherche restaurée depuis le cache : affichage immédiat, sans écran vide.
+  const [orderNumber, setOrderNumber] = useCachedState("suivi_commande", "", c => c?.orderNumber || "");
+  const [email, setEmail] = useCachedState("suivi_commande", "", c => c?.email || "");
   const [loading, setLoading] = useState(false);
-  const [order, setOrder] = useState(null);
+  const [order, setOrder] = useCachedState("suivi_commande", null, c => c?.order ?? null);
   const [error, setError] = useState(null);
   const [searched, setSearched] = useState(false);
 
@@ -131,7 +133,8 @@ export default function OrderTracking() {
     if (!orderNumber.trim()) return;
     setLoading(true);
     setError(null);
-    setOrder(null);
+    // Ne jamais vider l'affichage pendant une nouvelle recherche : l'ancien
+    // résultat reste visible jusqu'à l'arrivée du nouveau.
     setSearched(true);
 
     try {
@@ -141,6 +144,7 @@ export default function OrderTracking() {
       });
       if (res.data?.order) {
         setOrder(res.data.order);
+        mergePageCache("suivi_commande", { orderNumber: orderNumber.trim(), email: email.trim(), order: res.data.order });
       } else {
         setError("Commande introuvable. Vérifiez votre numéro et votre email.");
       }

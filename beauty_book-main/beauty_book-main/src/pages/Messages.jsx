@@ -8,6 +8,7 @@ import { supabase } from '@/api/supabaseClient';
 import { useAuth } from "@/lib/AuthContext";
 import usePullToRefresh from "@/hooks/usePullToRefresh";
 import { useIsPro } from "@/hooks/useIsPro";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { useCall } from "@/components/call/CallManager";
 import { notifyMessageReceived } from '@/lib/notificationService';
 
@@ -80,7 +81,7 @@ function MariaAIToggle({ active, onChange }) {
 function ConversationList({ conversations, loading, onSelect, onDelete }) {
   const [confirmId, setConfirmId] = useState(null);
 
-  if (loading) {
+  if (loading && conversations.length === 0) {
     return (
       <div className="space-y-3 px-4 pt-4">
         {Array.from({ length: 5 }).map((_, i) => (
@@ -230,9 +231,15 @@ function timeAgo(dateStr) {
 // ── ChatView ──────────────────────────────────────────────────────────────────
 function ChatView({ conversation, currentUser, onBack, onStartCall }) {
   const navigate = useNavigate();
-  const [messages, setMessages] = useState([]);
+  // Affichage direct depuis le cache (par conversation) : les derniers messages
+  // connus s'affichent immédiatement, le rafraîchissement se fait en arrière-plan.
+  // Le cache ne sert qu'à l'init — le temps réel continue d'appeler setMessages normalement.
+  const chatCacheKey = currentUser?.email && conversation?.conversation_id
+    ? `messages_${currentUser.email}_${conversation.conversation_id}`
+    : null;
+  const [messages, setMessages] = useCachedState(chatCacheKey, [], c => c?.messages || []);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !readPageCache(chatCacheKey)?.messages?.length);
   const [sending, setSending] = useState(false);
   const [serviceCardSent, setServiceCardSent] = useState(false);
   const [otherTyping, setOtherTyping] = useState(false);
@@ -282,6 +289,12 @@ function ChatView({ conversation, currentUser, onBack, onStartCall }) {
       const filtered = Object.values(allById).sort((a, b) => new Date(a.created_at || a.created_date) - new Date(b.created_at || b.created_date));
       msgIdsRef.current = new Set(filtered.map(m => m.id));
       setMessages(filtered);
+      // Persister en cache (clé de CETTE conversation : le composant peut
+      // changer de conversation sans se démonter)
+      const k = currentUser?.email && conversation?.conversation_id
+        ? `messages_${currentUser.email}_${conversation.conversation_id}`
+        : null;
+      mergePageCache(k, { messages: filtered });
       // Mark as read — await all updates so conversations list reflects changes
       const markPromises = filtered
         .filter(m => !m.read && !m.is_read && m.receiver_email === currentUser.email)
@@ -291,7 +304,7 @@ function ChatView({ conversation, currentUser, onBack, onStartCall }) {
       }
     } catch (e) { console.error("[Chat] loadMessages:", e); }
     setLoading(false);
-  }, [conversation.other_email, currentUser.email]);
+  }, [conversation.other_email, conversation.conversation_id, currentUser.email]);
 
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
@@ -518,7 +531,7 @@ function ChatView({ conversation, currentUser, onBack, onStartCall }) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3" style={{ minHeight: 0 }}>
-        {loading ? (
+        {loading && messages.length === 0 ? (
           <div className="flex justify-center pt-20"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-4 py-12">
@@ -961,8 +974,11 @@ export default function Messages() {
   const location = useLocation();
   const { user } = useAuth();
   const { startCall } = useCall() || {};
-  const [conversations, setConversations] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache : la liste des conversations s'affiche
+  // immédiatement, le rafraîchissement réseau se fait en arrière-plan.
+  const cacheKey = user?.email ? `messages_${user.email}` : null;
+  const [conversations, setConversations] = useCachedState(cacheKey, [], c => c?.conversations || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.conversations?.length);
   const [activeConv, setActiveConv] = useState(null);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("messages");
@@ -1165,6 +1181,7 @@ export default function Messages() {
 
       convs.sort((a, b) => new Date(b.last_date) - new Date(a.last_date));
       setConversations(convs);
+      mergePageCache(cacheKey, { conversations: convs });
     } catch (e) { 
       console.error("[Messages] loadConversations error:", e); 
     }

@@ -10,6 +10,7 @@ import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useLocale } from "@/hooks/useLocale";
+import { readPageCache, writePageCache, mergePageCache } from "@/hooks/usePageCache";
 
 /* ── Media slider ──────────────────────────────────────────────────── */
 function MediaSlider({ media, onImageClick }) {
@@ -199,16 +200,20 @@ export default function ServiceDetail() {
   const navigate = useNavigate();
   const { state } = useLocation();
   const { id } = useParams();
+  const serviceId = id || state?.id;
 
-  const [service, setService] = useState(null);
-  const [proData, setProData] = useState(null);
-  const [conseils, setConseils] = useState([]);
-  const [styleRecord, setStyleRecord] = useState(null);
-  const [styleProducts, setStyleProducts] = useState([]);
-  const [similarStyles, setSimilarStyles] = useState([]);
-  const [serviceRating, setServiceRating] = useState(null);
-  const [avis, setAvis] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache du service : jamais de page vide,
+  // le rafraîchissement se fait en arrière-plan sans vider l'affichage.
+  const [initialCache] = useState(() => readPageCache(serviceId ? `service_${serviceId}` : null) || {});
+  const [service, setService] = useState(initialCache.service || null);
+  const [proData, setProData] = useState(initialCache.proData || null);
+  const [conseils, setConseils] = useState(initialCache.conseils || []);
+  const [styleRecord, setStyleRecord] = useState(initialCache.styleRecord || null);
+  const [styleProducts, setStyleProducts] = useState(initialCache.styleProducts || []);
+  const [similarStyles, setSimilarStyles] = useState(initialCache.similarStyles || []);
+  const [serviceRating, setServiceRating] = useState(initialCache.serviceRating || null);
+  const [avis, setAvis] = useState(initialCache.avis || []);
+  const [loading, setLoading] = useState(() => !initialCache.service);
   const [liked, setLiked] = useState(false);
   const [selectedAddons, setSelectedAddons] = useState([]);
   const [selectedPlat, setSelectedPlat] = useState(null);
@@ -216,7 +221,7 @@ export default function ServiceDetail() {
   const [reviewReservation, setReviewReservation] = useState(null);
   const [showFiltreAI, setShowFiltreAI] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState(null);
-  const [bundles, setBundles] = useState([]);
+  const [bundles, setBundles] = useState(initialCache.bundles || []);
   const [showAllAvis, setShowAllAvis] = useState(false);
   const scrollRef = useRef(null);
   const { formatPrice } = useLocale();
@@ -237,21 +242,45 @@ export default function ServiceDetail() {
   }, []);
 
   useEffect(() => {
-    const serviceId = id || state?.id;
     if (!serviceId) { setLoading(false); return; }
+    const cacheKey = `service_${serviceId}`;
+    // Navigation d'un service à l'autre : afficher le cache du nouveau service
+    // immédiatement plutôt qu'une page vide.
+    const cached = readPageCache(cacheKey);
+    if (cached?.service) {
+      setService(cached.service);
+      setProData(cached.proData || null);
+      setConseils(cached.conseils || []);
+      setStyleRecord(cached.styleRecord || null);
+      setStyleProducts(cached.styleProducts || []);
+      setSimilarStyles(cached.similarStyles || []);
+      setServiceRating(cached.serviceRating || null);
+      setAvis(cached.avis || []);
+      setBundles(cached.bundles || []);
+      setLoading(false);
+    } else {
+      setService(null); setProData(null); setConseils([]); setStyleRecord(null);
+      setStyleProducts([]); setSimilarStyles([]); setServiceRating(null); setAvis([]);
+      setBundles([]); setLoading(true);
+    }
 
     entities.Service.filter({ id: serviceId }, "-created_at", 1)
       .then(async (res) => {
         const svc = res[0];
         if (!svc) return;
         setService(svc);
+        writePageCache(cacheKey, { service: svc });
 
         const [pros, reels] = await Promise.all([
           svc.pro_email ? entities.ProfilPro.filter({ user_email: svc.pro_email }, "-created_at", 1).catch(() => []) : [],
           entities.Reel.filter({ category: "Conseils", status: "publie" }, "-created_at", 4).catch(() => []),
         ]);
-        if (pros[0]) setProData(pros[0]);
+        if (pros[0]) {
+          setProData(pros[0]);
+          mergePageCache(cacheKey, { proData: pros[0] });
+        }
         setConseils(reels);
+        mergePageCache(cacheKey, { conseils: reels });
 
         // Produits du style associé + styles similaires
         const styleCategory = svc.category;
@@ -276,8 +305,10 @@ export default function ServiceDetail() {
           });
           if (matched) {
             setStyleRecord(matched);
+            mergePageCache(cacheKey, { styleRecord: matched });
             if (matched.produits_utilises?.length > 0) {
               setStyleProducts(matched.produits_utilises);
+              mergePageCache(cacheKey, { styleProducts: matched.produits_utilises });
             }
           }
         }
@@ -301,14 +332,18 @@ export default function ServiceDetail() {
           similar = [...sameCategory, ...otherCategory].slice(0, 6);
         }
         setSimilarStyles(similar);
+        mergePageCache(cacheKey, { similarStyles: similar });
 
         // Note réelle depuis les avis
         if (avisRecords.length > 0) {
           const avg = avisRecords.reduce((sum, a) => sum + (a.note || 0), 0) / avisRecords.length;
-          setServiceRating({ rating: Math.round(avg * 10) / 10, count: avisRecords.length });
+          const rating = { rating: Math.round(avg * 10) / 10, count: avisRecords.length };
+          setServiceRating(rating);
           setAvis(avisRecords);
+          mergePageCache(cacheKey, { serviceRating: rating, avis: avisRecords });
         } else {
           setServiceRating({ rating: 0, count: 0 });
+          mergePageCache(cacheKey, { serviceRating: { rating: 0, count: 0 } });
         }
       })
       .catch(() => {})
@@ -325,6 +360,7 @@ export default function ServiceDetail() {
           return ids.includes(String(svc.id));
         });
         setBundles(matched);
+        if (serviceId) mergePageCache(`service_${serviceId}`, { bundles: matched });
       })
       .catch(() => {});
   }, [service, state]);
@@ -365,7 +401,9 @@ export default function ServiceDetail() {
     }
   };
 
-  if (loading) {
+  // Afficher le contenu dès que le service est connu (cache ou navigation) :
+  // jamais de spinner plein écran pendant le rafraîchissement en arrière-plan.
+  if (loading && !service) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-white">
         <div className="w-8 h-8 border-4 border-gray-200 border-t-primary rounded-full animate-spin" />

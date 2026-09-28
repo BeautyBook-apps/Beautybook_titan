@@ -7,6 +7,7 @@ import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from "@/lib/AuthContext";
 import { useThemeBg } from "@/hooks/useTheme";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import BundleFormModal from "@/components/pro/BundleFormModal";
 
 function ImageSlider({ images, onClick }) {
@@ -56,12 +57,15 @@ export default function CatalogueServices() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const themeBg = useThemeBg();
+  const cacheKey = user?.email ? `catalogue_${user.email}` : null;
+  // Affichage direct depuis le cache : pas d'écran « chargement » intermédiaire,
+  // le rafraîchissement réseau se fait en arrière-plan sans vider l'affichage.
   const [activeFilter, setActiveFilter] = useState("BUNDLES");
-  const [services, setServices] = useState([]);
-  const [bundles, setBundles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [proName, setProName] = useState("");
-  const [proAvatar, setProAvatar] = useState("");
+  const [services, setServices] = useCachedState(cacheKey, [], (c) => c?.services || []);
+  const [bundles, setBundles] = useCachedState(cacheKey, [], (c) => c?.bundles || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
+  const [proName, setProName] = useCachedState(cacheKey, "", (c) => c?.proName ?? "");
+  const [proAvatar, setProAvatar] = useCachedState(cacheKey, "", (c) => c?.proAvatar ?? "");
   const [confirmModal, setConfirmModal] = useState(null);
   const [bundleModal, setBundleModal] = useState({ open: false, editBundle: null });
 
@@ -73,21 +77,32 @@ export default function CatalogueServices() {
     supabase.from("ProfilPro").select("salon_name, avatar_url").eq("user_email", user.email).maybeSingle()
       .then(({ data }) => {
         if (data && !cancelled) {
-          setProName(data.salon_name || "");
-          setProAvatar(data.avatar_url || "");
+          const pn = data.salon_name || "";
+          const pa = data.avatar_url || "";
+          setProName(pn);
+          setProAvatar(pa);
+          mergePageCache(cacheKey, { proName: pn, proAvatar: pa });
         }
       });
 
     // Fetch services
     supabase.from("Service").select("*").eq("pro_email", user.email).order("created_at", { ascending: false }).limit(100)
       .then(({ data }) => {
-        if (!cancelled) setServices(data || []);
+        if (!cancelled) {
+          setServices(data || []);
+          mergePageCache(cacheKey, { services: data || [] });
+        }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     // Fetch bundles
     supabase.from("ServiceBundle").select("*").eq("pro_email", user.email).order("created_at", { ascending: false })
-      .then(({ data }) => { if (!cancelled) setBundles(data || []); });
+      .then(({ data }) => {
+        if (!cancelled) {
+          setBundles(data || []);
+          mergePageCache(cacheKey, { bundles: data || [] });
+        }
+      });
 
     return () => { cancelled = true; };
   }, [user?.email]);
@@ -156,7 +171,8 @@ export default function CatalogueServices() {
   const isPackTab = activeFilter === "BUNDLES";
 
   const renderContent = () => {
-    if (loading) {
+    // Gate : aucun spinner si des données en cache sont déjà affichées.
+    if (loading && services.length === 0 && bundles.length === 0) {
       return (
         <div className="flex justify-center py-16">
           <div className="w-8 h-8 border-3 border-[#ff6b35] border-t-transparent rounded-full animate-spin" />

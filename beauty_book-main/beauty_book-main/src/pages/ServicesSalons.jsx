@@ -15,6 +15,7 @@ import AdvancedFilterSheet from "@/components/filters/AdvancedFilterSheet";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import { useLocation } from '@/contexts/LocationContext';
 import { isOpenNow } from "@/lib/hours";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import './Recherche.css';
 import './ServicesSalons.css';
 
@@ -311,17 +312,24 @@ function StyleShareSheet({ style, onClose }) {
 function StylesTab({ activeCategory }) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [liked, setLiked] = useState([]);
-  const [likeCounts, setLikeCounts] = useState({});
+  // Affichage direct depuis le cache : pas d'écran « chargement » intermédiaire,
+  // le rafraîchissement réseau se fait en arrière-plan sans vider l'affichage.
+  const [liked, setLiked] = useCachedState("bb_liked_styles", []);
+  const [likeCounts, setLikeCounts] = useCachedState("services_salons", {}, c => c?.likeCounts || {});
   const [showImmobilier, setShowImmobilier] = useState(false);
-  const [styles, setStyles] = useState([]);
-  const [annonces, setAnnonces] = useState([]);
+  const [styles, setStyles] = useCachedState("services_salons", [], c => c?.styles || []);
+  const [annonces, setAnnonces] = useCachedState("services_salons", [], c => c?.annonces || []);
   const [hiddenAds, setHiddenAds] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !readPageCache("services_salons")?.styles?.length);
   const [showComments, setShowComments] = useState(null);
   const [showShare, setShowShare] = useState(null);
   const [showBook, setShowBook] = useState(null);
-  const [followed, setFollowed] = useState([]);
+  const [followed, setFollowed] = useState(() => {
+    try {
+      const k = user?.email ? `bb_followed_${user.email}` : null;
+      return k ? JSON.parse(localStorage.getItem(k) || "[]") : [];
+    } catch { return []; }
+  });
   const scrollRef = useRef(null);
 
   // ── Charger les follows ──
@@ -329,7 +337,13 @@ function StylesTab({ activeCategory }) {
     if (!user?.email) return;
     supabase.from('user_follow').select('followed_email')
       .eq('follower_email', user.email)
-      .then(({ data }) => { if (data) setFollowed(data.map(f => f.followed_email).filter(Boolean)); })
+      .then(({ data }) => {
+        if (data) {
+          const list = data.map(f => f.followed_email).filter(Boolean);
+          setFollowed(list);
+          try { localStorage.setItem(`bb_followed_${user.email}`, JSON.stringify(list)); } catch {}
+        }
+      })
       .catch(() => {});
   }, [user?.email]);
 
@@ -373,6 +387,7 @@ function StylesTab({ activeCategory }) {
         category: r.category, description: r.description,
       }));
       setStyles(mapped);
+      mergePageCache("services_salons", { styles: mapped });
 
       const styleIds = mapped.map(s => String(s.id));
       if (styleIds.length === 0) return;
@@ -390,13 +405,16 @@ function StylesTab({ activeCategory }) {
         const sid = String(c.reel_id);
         ccm[sid] = (ccm[sid] || 0) + 1;
       });
-      setStyles(prev => prev.map(s => ({
+      const enriched = mapped.map(s => ({
         ...s,
         comments: ccm[String(s.id)] ?? s.comments ?? 0,
-      })));
+      }));
+      setStyles(enriched);
+      mergePageCache("services_salons", { styles: enriched });
 
       const counts = await likesApi.getLikeCounts(styleIds, 'style');
       setLikeCounts(counts);
+      mergePageCache("services_salons", { likeCounts: counts });
     } catch {}
   }, []);
 
@@ -407,7 +425,9 @@ function StylesTab({ activeCategory }) {
           const pages = a.pages || (a.type ? [a.type] : []);
           return pages.includes('styles');
         });
-        setAnnonces(filtered.length > 0 ? filtered : (data || []));
+        const annoncesList = filtered.length > 0 ? filtered : (data || []);
+        setAnnonces(annoncesList);
+        mergePageCache("services_salons", { annonces: annoncesList });
       })
       .catch(() => {});
 

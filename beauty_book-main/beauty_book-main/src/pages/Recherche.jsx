@@ -11,6 +11,7 @@ import { supabase } from '@/api/supabaseClient';
 import { entities } from '@/api/entities';
 import { searchSalons, matchesCategory, normalizeSearch } from '@/lib/salonSearch.mjs';
 import { useTheme } from '@/hooks/useTheme';
+import { useCachedState, readPageCache, mergePageCache } from '@/hooks/usePageCache';
 import './Recherche.css';
 
 const entityTabs = [
@@ -220,10 +221,18 @@ export default function Recherche() {
   const filters = { city: params.get('city') || '', maxPrice: numericFilter('maxPrice'), minRating: numericFilter('minRating') };
   const sort = ['recent', 'price', 'rating'].includes(params.get('sort')) ? params.get('sort') : 'recent';
 
-  const [data, setData] = useState({ profiles: [], services: [], styles: [], bundles: [] });
-  const [loading, setLoading] = useState(true);
+  // Affichage direct depuis le cache : la première peinture montre les dernières
+  // données connues, jamais un écran vide ; le rafraîchissement réseau se fait
+  // en arrière-plan sans vider l'affichage.
+  const [data, setData] = useCachedState("recherche_page", { profiles: [], services: [], styles: [], bundles: [] }, c => ({
+    profiles: c?.profiles || [],
+    services: c?.services || [],
+    styles: c?.styles || [],
+    bundles: c?.bundles || [],
+  }));
+  const [loading, setLoading] = useState(() => !readPageCache("recherche_page"));
   const [error, setError] = useState('');
-  const [servicesAvailable, setServicesAvailable] = useState(true);
+  const [servicesAvailable, setServicesAvailable] = useCachedState("recherche_page", true, c => c?.servicesAvailable ?? true);
   const [retry, setRetry] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
   const [showMap, setShowMap] = useState(false);
@@ -283,6 +292,14 @@ export default function Recherche() {
         bundles: demoBundles
       });
       setServicesAvailable(services.status === 'fulfilled');
+      // Persister le chargement frais : le prochain affichage sera instantané.
+      mergePageCache("recherche_page", {
+        profiles: loadedProfiles,
+        services: loadedServices,
+        styles: loadedStyles,
+        bundles: demoBundles,
+        servicesAvailable: services.status === 'fulfilled',
+      });
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [retry]);
@@ -376,6 +393,10 @@ export default function Recherche() {
   function openMaria() { 
     navigate('/maria', { state: { autoMessage: 'Bonjour Maria, aide-moi à trouver une prestation beauté' + (q ? ' : ' + q : '') + (filters.city ? ' à ' + filters.city : '') + '.' } }); 
   }
+
+  // Afficher le contenu dès que des données en cache existent : jamais de
+  // skeleton plein écran pendant le rafraîchissement en arrière-plan.
+  const hasData = data.profiles.length > 0 || data.services.length > 0 || data.styles.length > 0 || data.bundles.length > 0;
 
   return (
     <div className="discovery-page font-display">
@@ -524,11 +545,11 @@ export default function Recherche() {
             </div>
           )}
 
-          {loading ? (
+          {(loading && !hasData) ? (
             <div className="discovery-grid" role="status" aria-label="Chargement des résultats">
               {[1, 2, 3, 4].map(id => <div key={id} className="discovery-skeleton"><div /><span /><span /></div>)}
             </div>
-          ) : error ? (
+          ) : (error && !hasData) ? (
             <div className="discovery-empty" role="alert">
               <RotateCcw size={30} />
               <h3>Une petite interruption</h3>
@@ -717,7 +738,7 @@ export default function Recherche() {
         </section>
 
         {/* Inspirations section */}
-        {!loading && !error && inspirations.length > 0 && (
+        {inspirations.length > 0 && (
           <section className="discovery-inspirations" aria-labelledby="inspirations-title">
             <div className="discovery-section-head">
               <div>

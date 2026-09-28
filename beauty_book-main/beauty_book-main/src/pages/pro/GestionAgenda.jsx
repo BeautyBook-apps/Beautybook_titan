@@ -16,6 +16,7 @@ function emailToDisplayName(email) {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 import { useState, useEffect, useRef } from "react";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import {
   Plus, X, Search, ChevronRight, Lightbulb, Rocket,
   Scissors, Users, Clock, Megaphone, TrendingUp, UserPlus,
@@ -498,8 +499,10 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
 // ── Nouveau RDV Modal ─────────────────────────────────────────────────────────
 function NouveauRdvModal({ onClose, proEmail, onCreated }) {
   const [step, setStep] = useState(1); // 1=client, 2=service, 3=datetime
-  const [clients, setClients] = useState([]);
-  const [services, setServices] = useState([]);
+  // Même clé de cache que la page parente (par pro).
+  const mKey = proEmail ? `agenda_${proEmail}` : null;
+  const [clients, setClients] = useCachedState(mKey, [], c => c?.clients || []);
+  const [services, setServices] = useCachedState(mKey, [], c => c?.services || []);
   const [searchClient, setSearchClient] = useState("");
   const [searchService, setSearchService] = useState("");
   const [loading, setLoading] = useState(false);
@@ -534,6 +537,7 @@ function NouveauRdvModal({ onClose, proEmail, onCreated }) {
               }
             });
             setClients(Object.values(seen));
+            mergePageCache(mKey, { clients: Object.values(seen) });
           })
           .catch(() => {
             const seen = {};
@@ -543,11 +547,12 @@ function NouveauRdvModal({ onClose, proEmail, onCreated }) {
               }
             });
             setClients(Object.values(seen));
+            mergePageCache(mKey, { clients: Object.values(seen) });
           });
       }).catch(e => console.error('[NouveauRdv] Error loading clients:', e));
     // Charger services du pro
     entities.Service.filter({ pro_email: proEmail, status: "actif" }, "title", 50)
-      .then(s => { console.log('[NouveauRdv] Loaded services:', s?.length); setServices(s || []); })
+      .then(s => { console.log('[NouveauRdv] Loaded services:', s?.length); setServices(s || []); mergePageCache(mKey, { services: s || [] }); })
       .catch(e => console.error('[NouveauRdv] Error loading services:', e));
   }, [proEmail]);
 
@@ -998,7 +1003,9 @@ function DemandesTab({ proEmail, reservations, setReservations, onSelectRdv, aut
   const [updating, setUpdating] = useState(null);
   const [filterStatus, setFilterStatus] = useState("en_attente");
   const [filterSource, setFilterSource] = useState("all");
-  const [clientScores, setClientScores] = useState({});
+  // Même clé de cache que la page parente (par pro) : affichage direct, refresh en arrière-plan.
+  const dKey = proEmail ? `agenda_${proEmail}` : null;
+  const [clientScores, setClientScores] = useCachedState(dKey, {}, c => c?.clientScores || {});
 
   // ── Format date long en français ──
   const formatLongDate = (dateStr) => {
@@ -1025,6 +1032,7 @@ function DemandesTab({ proEmail, reservations, setReservations, onSelectRdv, aut
       const map = {};
       results.forEach(r => { map[r.email] = r.score; });
       setClientScores(map);
+      mergePageCache(dKey, { clientScores: map });
     });
   }, [reservations]);
 
@@ -1241,8 +1249,10 @@ function CrmTab({ reservations, proEmail }) {
   const [selectedClient, setSelectedClient] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newClient, setNewClient] = useState({ name: "", email: "", phone: "" });
-  const [manualClients, setManualClients] = useState([]);
-  const [loadingClients, setLoadingClients] = useState(true);
+  // Même clé de cache que la page parente (par pro).
+  const crmKey = proEmail ? `agenda_${proEmail}` : null;
+  const [manualClients, setManualClients] = useCachedState(crmKey, [], c => c?.manualClients || []);
+  const [loadingClients, setLoadingClients] = useState(() => !readPageCache(crmKey)?.manualClients?.length);
 
   // Charger les clients depuis Supabase
   useEffect(() => {
@@ -1251,6 +1261,7 @@ function CrmTab({ reservations, proEmail }) {
     entities.Client.filter({ pro_email: proEmail }, "-created_at", 500)
       .then(clients => {
         setManualClients(clients || []);
+        mergePageCache(crmKey, { manualClients: clients || [] });
         setLoadingClients(false);
       })
       .catch(() => setLoadingClients(false));
@@ -1592,16 +1603,18 @@ function GestionTab({ onNavigate, travailNuit = false, onToggleNuit, horairesSum
 export default function GestionAgenda() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // Cache page : affichage direct des dernières données, rafraîchissement réseau en arrière-plan.
+  const cacheKey = user?.email ? `agenda_${user.email}` : null;
   const [activeTab, setActiveTab] = useState("planning");
   const [showModal, setShowModal] = useState(false);
-  const [reservations, setReservations] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [reservations, setReservations] = useCachedState(cacheKey, [], c => c?.reservations || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.reservations?.length);
   const [selectedRdv, setSelectedRdv] = useState(null);
-  const [travailNuit, setTravailNuit] = useState(false);
+  const [travailNuit, setTravailNuit] = useCachedState(cacheKey, false, c => c?.nuit ?? false);
   const [profilId, setProfilId] = useState(null);
   // Horaires réels du pro (section Horaires & Congés) — source de l'affichage,
   // pour ne plus jamais afficher un "09h – 19h" en dur désynchronisé.
-  const [proOuverture, setProOuverture] = useState(null);
+  const [proOuverture, setProOuverture] = useCachedState(cacheKey, null, c => c?.ouverture ?? null);
   const [autoAccept, setAutoAccept] = useState(() => {
     return localStorage.getItem(`bb_auto_accept_${user?.email}`) === "true";
   });
@@ -1629,6 +1642,7 @@ export default function GestionAgenda() {
       ]);
       console.log('[GestionAgenda] Loaded reservations:', data?.length, data);
       setReservations(data || []);
+      mergePageCache(cacheKey, { reservations: data || [] });
       if (profils.length > 0) {
         const dbNight = !!profils[0].travail_nuit;
         const localNight = localStorage.getItem("bb_night_mode") === "true";
@@ -1636,12 +1650,14 @@ export default function GestionAgenda() {
           localStorage.setItem("bb_night_mode", String(dbNight));
         }
         setTravailNuit(dbNight);
+        mergePageCache(cacheKey, { nuit: dbNight });
         setProfilId(profils[0].id);
         // Synchronise l'affichage avec la section Horaires & Congés
         const ouv = profils[0].ouverture && hasHoursData(profils[0].ouverture)
           ? profils[0].ouverture
           : (hasHoursData(profils[0].horaires) ? profils[0].horaires : null);
         setProOuverture(ouv);
+        mergePageCache(cacheKey, { ouverture: ouv });
       }
     } catch (e) {
       console.error('[GestionAgenda] loadReservations error:', e);
@@ -1839,7 +1855,7 @@ export default function GestionAgenda() {
       </div>
 
       <div className="px-4 pt-4 pb-10">
-        {loading ? (
+        {(loading && reservations.length === 0) ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
           </div>

@@ -4,6 +4,7 @@ import { ArrowLeft, Eye, BarChart2, ShieldCheck, Award, TrendingUp, Infinity, He
 import { useAuth } from "@/lib/AuthContext";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
+import { useCachedState, mergePageCache } from "@/hooks/usePageCache";
 
 const FALLBACK_PLANS = [
   {
@@ -85,11 +86,27 @@ const PAYMENT_METHODS = [
   { id: "paypal", label: "PayPal", icon: Wallet, desc: "Paiement sécurisé PayPal" },
 ];
 
+// ── Cache : les icônes sont des composants (non sérialisables) → retirées à
+// l'écriture, restaurées via FEATURE_ICONS à la lecture.
+const serializePlans = (list) => (list || []).map(p => ({
+  id: p.id, name: p.name, price: p.price, priceId: p.priceId,
+  current: p.current, popular: p.popular, btnLabel: p.btnLabel,
+  btnStyle: p.btnStyle, color: p.color,
+  features: (p.features || []).map(f => ({ label: f.label, highlight: f.highlight })),
+}));
+const hydratePlans = (list) => (list || []).map(p => ({
+  ...p,
+  features: (p.features || []).map(f => ({ ...f, icon: FEATURE_ICONS[f.label] || CheckCircle })),
+}));
+
 export default function Abonnements() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [loadingId, setLoadingId] = useState(null);
-  const [plans, setPlans] = useState(FALLBACK_PLANS);
+  const cacheKey = user?.email ? `abonnements_${user.email}` : null;
+  // Affichage direct depuis le cache (plans dynamiques déjà connus),
+  // rafraîchissement réseau en arrière-plan sans vider l'affichage.
+  const [plans, setPlans] = useCachedState(cacheKey, FALLBACK_PLANS, c => (c?.plans?.length ? hydratePlans(c.plans) : FALLBACK_PLANS));
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -149,7 +166,10 @@ export default function Abonnements() {
               })),
             });
           }
-          if (dynamicPlans.length > 0) setPlans(dynamicPlans);
+          if (dynamicPlans.length > 0) {
+            setPlans(dynamicPlans);
+            mergePageCache(cacheKey, { plans: serializePlans(dynamicPlans) });
+          }
         }
       })
       .catch(() => {});

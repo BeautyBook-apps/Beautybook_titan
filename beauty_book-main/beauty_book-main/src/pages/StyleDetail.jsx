@@ -7,6 +7,7 @@ import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from "@/lib/AuthContext";
+import { readPageCache, mergePageCache } from "@/hooks/usePageCache";
 
 
 
@@ -464,14 +465,21 @@ export default function StyleDetail() {
   const { id: paramId } = useParams();
   const s = state || {};
 
-  const [style, setStyle] = useState(s.id ? s : null);
-  const [loadingStyle, setLoadingStyle] = useState(!s.title);
-  const [produits, setProduits] = useState(s.produits_utilises || []);
-  const [providers, setProviders] = useState({ salons: [], particuliers: [] });
-  const [loadingProviders, setLoadingProviders] = useState(true);
-  const [similarStyles, setSimilarStyles] = useState([]);
+  // ── Cache de page par style : affichage direct depuis le cache, jamais d'écran
+  // vide — le rafraîchissement réseau se fait en arrière-plan (cf. ProduitDetail).
+  const styleId = paramId || s.id;
+  const styleCacheKey = styleId ? `style_${styleId}` : null;
+  const [initialCache] = useState(() => readPageCache(styleCacheKey) || {});
+  const initialStyle = s.title ? s : (initialCache.style || (s.id ? s : null));
+
+  const [style, setStyle] = useState(initialStyle);
+  const [loadingStyle, setLoadingStyle] = useState(() => !initialStyle?.title);
+  const [produits, setProduits] = useState(s.produits_utilises || initialCache.produits || []);
+  const [providers, setProviders] = useState(initialCache.providers || { salons: [], particuliers: [] });
+  const [loadingProviders, setLoadingProviders] = useState(() => !initialCache.providers);
+  const [similarStyles, setSimilarStyles] = useState(initialCache.similarStyles || []);
   const [liked, setLiked] = useState(false);
-  const [likesCount, setLikesCount] = useState(s.likes || 0);
+  const [likesCount, setLikesCount] = useState(s.likes || initialCache.likesCount || 0);
   const [showAIModal, setShowAIModal] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showShare, setShowShare] = useState(false);
@@ -482,16 +490,41 @@ export default function StyleDetail() {
   const aiRef = useRef(null);
 
   // 1. Charger le style réel depuis la DB si pas dans state
+  // Quand l'id change : afficher le cache du nouveau style (ou les données de
+  // navigation) immédiatement, jamais un écran vide — cf. ProduitDetail.
   useEffect(() => {
     const styleId = paramId || s.id;
     if (!styleId) { setLoadingStyle(false); return; }
+    const cacheKey = `style_${styleId}`;
+
+    const cached = readPageCache(cacheKey);
+    const navStyle = s.id === styleId && s.title ? s : null;
+    const display = navStyle || cached?.style || null;
+    if (display?.title) {
+      setStyle(display);
+      setProduits(display.produits_utilises || cached?.produits || []);
+      setLikesCount(display.likes || cached?.likesCount || 0);
+      if (cached?.providers) {
+        setProviders(cached.providers);
+        setLoadingProviders(false);
+      } else {
+        setLoadingProviders(true);
+      }
+      if (cached?.similarStyles) setSimilarStyles(cached.similarStyles);
+      setLoadingStyle(false);
+    } else {
+      setStyle(null);
+      setLoadingStyle(true);
+    }
 
     entities.Style.filter({ id: styleId }, "-created_at", 1)
       .then(res => {
         if (res[0]) {
           setStyle(res[0]);
-          setProduits(res[0].produits_utilises || []);
+          const prods = res[0].produits_utilises || [];
+          setProduits(prods);
           setLikesCount(res[0].likes || 0);
+          mergePageCache(cacheKey, { style: res[0], produits: prods, likesCount: res[0].likes || 0 });
         }
       })
       .catch(() => {})
@@ -499,10 +532,12 @@ export default function StyleDetail() {
   }, [paramId, s.id]);
 
   // 2. Charger les services proposant ce style + les ProfilPro associés + styles similaires
+  // Le rafraîchissement se fait en arrière-plan : on n'efface jamais les
+  // providers déjà affichés (issus du cache) pendant le chargement.
   useEffect(() => {
     if (!style?.title) return;
 
-    setLoadingProviders(true);
+    const cacheKey = style.id ? `style_${style.id}` : null;
 
     Promise.all([
       // Charger tous les services actifs + les filtrer côté client (insensible à la casse/espaces)
@@ -537,10 +572,12 @@ export default function StyleDetail() {
         .filter(st => st.id !== style.id && (!style.category || st.category === style.category))
         .slice(0, 8);
       setSimilarStyles(similar);
+      if (cacheKey) mergePageCache(cacheKey, { similarStyles: similar });
 
       if (services.length === 0) {
         setProviders({ salons: [], particuliers: [] });
         setLoadingProviders(false);
+        if (cacheKey) mergePageCache(cacheKey, { providers: { salons: [], particuliers: [] } });
         return;
       }
 
@@ -578,6 +615,7 @@ export default function StyleDetail() {
       const particuliers = providerItems.filter(p => p.type_activite === "Particulier");
       setProviders({ salons, particuliers });
       setLoadingProviders(false);
+      if (cacheKey) mergePageCache(cacheKey, { providers: { salons, particuliers } });
     });
   }, [style?.title, style?.id, style?.category]);
 

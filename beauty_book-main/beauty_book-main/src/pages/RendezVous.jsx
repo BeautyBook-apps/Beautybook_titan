@@ -10,6 +10,8 @@ import PostServiceReview from "@/components/reservation/PostServiceReview";
 import RoutineModal from "@/components/routine/RoutineModal";
 import RoutineDashboard from "@/components/routine/RoutineDashboard";
 import { useAuthGate } from "@/hooks/useAuthGate";
+import { useAuth } from "@/lib/AuthContext";
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import AuthModal from "@/components/ui/AuthModal";
 
 const DAYS_FR = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
@@ -329,8 +331,12 @@ export default function RendezVous() {
   const [reviewModal, setReviewModal] = useState(null);
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [selectedRoutine, setSelectedRoutine] = useState(null);
-  const [reservations, setReservations] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  // Affichage direct depuis le cache : les RDV s'affichent immédiatement,
+  // le rafraîchissement réseau se fait en arrière-plan sans vider l'affichage.
+  const cacheKey = user?.email ? `rdv_${user.email}` : null;
+  const [reservations, setReservations] = useCachedState(cacheKey, [], c => c?.reservations || []);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.reservations?.length);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showRoutineModal, setShowRoutineModal] = useState(false);
@@ -389,6 +395,7 @@ export default function RendezVous() {
         const reviewedIds = new Set(avisData.map(a => a.reservation_id).filter(Boolean));
         const enriched = resData.map(r => ({ ...r, review_done: reviewedIds.has(r.id) || !!r.review_done }));
         setReservations(enriched);
+        mergePageCache(cacheKey, { reservations: enriched });
         const seenCalendars = JSON.parse(localStorage.getItem("bb_calendars_seen") || "[]");
         const pendingCalendar = enriched.find(r => r.status === "confirme" && !seenCalendars.includes(r.id));
         if (pendingCalendar) {
@@ -648,7 +655,7 @@ export default function RendezVous() {
       {/* À venir */}
       {activeTab === 0 && (
         <div className="px-5 space-y-3">
-          {loading ? (
+          {loading && reservations.length === 0 ? (
             <div className="flex justify-center py-10"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
           ) : upcoming.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -708,7 +715,7 @@ export default function RendezVous() {
       {/* Passés */}
       {activeTab === 1 && (
         <div className="px-5 space-y-3">
-          {loading ? (
+          {loading && reservations.length === 0 ? (
             <div className="flex justify-center py-10"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
           ) : past.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">

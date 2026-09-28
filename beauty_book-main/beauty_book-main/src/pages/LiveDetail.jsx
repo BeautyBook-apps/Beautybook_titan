@@ -9,6 +9,7 @@ import {
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from "@/lib/AuthContext";
+import { readPageCache, mergePageCache, useCachedState } from "@/hooks/usePageCache";
 
 const PRIMARY = "#f97316";
 const PRIMARY_ALPHA = "rgba(249,115,22,";
@@ -140,12 +141,15 @@ export default function LiveDetail() {
   const { id } = useParams();
   const { user } = useAuth();
 
-  const [session, setSession] = useState(null);
-  const [comments, setComments] = useState([]);
+  const cacheKey = id ? `live_${id}` : null;
+  // Affichage direct depuis le cache : la dernière fiche connue s'affiche
+  // immédiatement, le rafraîchissement réseau se fait en arrière-plan.
+  const [session, setSession] = useCachedState(cacheKey, null, c => c?.session ?? null);
+  const [comments, setComments] = useCachedState(cacheKey, [], c => c?.comments || []);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.session);
   const [followed, setFollowed] = useState(false);
-  const [viewers, setViewers] = useState(0);
+  const [viewers, setViewers] = useState(() => readPageCache(cacheKey)?.session?.viewers || 0);
   const [muted, setMuted] = useState(false);
   const [connStatus, setConnStatus] = useState("connecting");
 
@@ -171,6 +175,20 @@ export default function LiveDetail() {
   // ── Load session ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!id) return;
+    const key = `live_${id}`;
+    // Changement de live : afficher le cache du nouveau live immédiatement
+    // plutôt qu'un écran vide. Les données temps réel (viewers, statut)
+    // sont ensuite rafraîchies en arrière-plan.
+    const cached = readPageCache(key);
+    if (cached?.session) {
+      setSession(cached.session);
+      setViewers(cached.session.viewers || 0);
+      setComments(cached.comments || []);
+      setLoading(false);
+    } else {
+      setSession(null);
+      setLoading(true);
+    }
     const load = async () => {
       let found = null;
       try {
@@ -188,6 +206,7 @@ export default function LiveDetail() {
       if (found && user?.email && found.host_email === user.email) {
         setIsHost(true);
       }
+      mergePageCache(key, { session: found });
       setLoading(false);
     };
     load();
@@ -201,7 +220,11 @@ export default function LiveDetail() {
       if (evId !== id) return;
       if (event.type === "delete" || event.data?.status === "ended") { navigate("/live"); return; }
       if (event.data) {
-        setSession(prev => prev ? { ...prev, ...event.data } : event.data);
+        setSession(prev => {
+          const next = prev ? { ...prev, ...event.data } : event.data;
+          mergePageCache(`live_${id}`, { session: next });
+          return next;
+        });
         setViewers(event.data.viewers || 0);
       }
     });
@@ -212,7 +235,13 @@ export default function LiveDetail() {
   useEffect(() => {
     if (!id) return;
     entities.LiveMessage.filter({ session_id: id }, "created_at", 60)
-      .then(items => setComments((items || []).filter(m => m.type === "text" || m.type === "system")))
+      .then(items => {
+        const list = (items || []).filter(m => m.type === "text" || m.type === "system");
+        setComments(list);
+        // Les derniers commentaires connus sont mis en cache au chargement ;
+        // les nouveaux messages temps réel arrivent via la subscription.
+        mergePageCache(`live_${id}`, { comments: list });
+      })
       .catch(() => {});
     const unsub = entities.LiveMessage.subscribe((event) => {
       if (event.data?.session_id !== id) return;

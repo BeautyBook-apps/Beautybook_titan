@@ -5,6 +5,7 @@ import { MapPin, Star, X, Search, SlidersHorizontal, Bell, Sparkles, XCircle, Sc
 import { entities } from '@/api/entities';
 import { useLocation } from '@/contexts/LocationContext';
 import MapWithPricePins from '@/components/map/MapWithPricePins';
+import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 
 const CATEGORIES = [
   { id: "Tous", label: "Tout", icon: "all", emoji: "✨" },
@@ -29,12 +30,15 @@ const FALLBACK_STYLES = [
 export default function Explorer() {
   const navigate = useNavigate();
   const { hasLocation, latitude, longitude } = useLocation();
-  const [profils, setProfils] = useState([]);
-  const [minPricesMap, setMinPricesMap] = useState({});
-  const [styles, setStyles] = useState([]);
+  // Affichage direct depuis le cache : la première peinture montre les dernières
+  // données connues, jamais un écran « Chargement... » ; le rafraîchissement
+  // réseau se fait en arrière-plan sans vider l'affichage.
+  const [profils, setProfils] = useCachedState("explorer_page", [], c => c?.profils || []);
+  const [minPricesMap, setMinPricesMap] = useCachedState("explorer_page", {}, c => c?.minPricesMap || {});
+  const [styles, setStyles] = useCachedState("explorer_page", [], c => c?.styles || []);
   const [activeCategory, setActiveCategory] = useState("Tous");
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !readPageCache("explorer_page"));
   const [showFilters, setShowFilters] = useState(false);
   const [showMap, setShowMap] = useState(true);
   const [userLocation, setUserLocation] = useState(null);
@@ -62,6 +66,12 @@ export default function Explorer() {
         if (cancelled) return;
         setProfils(allProfils);
         setStyles(allStyles.length > 0 ? allStyles : FALLBACK_STYLES);
+        // Persister le chargement frais (uniquement les vraies données, jamais
+        // les styles de secours) : le prochain affichage sera instantané.
+        mergePageCache("explorer_page", {
+          profils: allProfils,
+          ...(allStyles.length > 0 ? { styles: allStyles } : {}),
+        });
         const emails = allProfils.map(p => p.user_email).filter(Boolean);
         const servicesArr = await Promise.all(
           emails.map(e => entities.Service.filter({ pro_email: e, status: "actif" }, "price", 5).catch(() => []))
@@ -71,7 +81,10 @@ export default function Explorer() {
           const prices = servicesArr[i].map(s => s.price).filter(p => p > 0);
           if (prices.length > 0) pMap[e] = Math.min(...prices);
         });
-        if (!cancelled) setMinPricesMap(pMap);
+        if (!cancelled) {
+          setMinPricesMap(pMap);
+          mergePageCache("explorer_page", { minPricesMap: pMap });
+        }
       } catch {
         if (!cancelled) setStyles(FALLBACK_STYLES);
       } finally {
@@ -106,7 +119,11 @@ export default function Explorer() {
     if (pro) navigate("/pro/vue-client", { state: { proEmail: pro.user_email } });
   };
 
-  if (loading) {
+  // Afficher le contenu dès que des données en cache existent : jamais de
+  // spinner plein écran pendant le rafraîchissement en arrière-plan.
+  const hasData = profils.length > 0 || styles.length > 0;
+
+  if (loading && !hasData) {
     return (
       <div className="font-display h-full flex flex-col items-center justify-center" style={{ background: "linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%)" }}>
         <div className="relative mb-5">
