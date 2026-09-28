@@ -243,8 +243,8 @@ function StylesAd({ annonce, onClose }) {
         )}
       </div>
 
-      {/* Bas : titre + description + CTA */}
-      <div className="absolute bottom-0 inset-x-0 px-4" style={{ paddingBottom: "calc(20px + env(safe-area-inset-bottom, 0px))" }}>
+      {/* Bas : titre + description + CTA — remonté au-dessus de la barre de navigation */}
+      <div className="absolute bottom-0 inset-x-0 px-4" style={{ paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}>
         {annonce.title && (
           <h3 className="text-white text-[18px] font-black mb-1 drop-shadow-lg">{annonce.title}</h3>
         )}
