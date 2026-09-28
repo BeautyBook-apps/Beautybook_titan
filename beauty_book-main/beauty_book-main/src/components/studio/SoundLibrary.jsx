@@ -3,14 +3,12 @@ import {
   X, Play, Pause, Volume2, VolumeX, Plus, Music2, Search, Trash2, AudioLines,
 } from "lucide-react";
 
-const ACCENT = "#E8732A";
-const BG = "#0b0b10";
-const CARD = "#17171f";
-const BORDER = "rgba(255,255,255,0.08)";
-const TXT = "#f5f5f7";
-const MUTED = "#8e8e99";
+import { useStudioPalette, STUDIO_ACCENT } from "./studioTheme";
+
+const ACCENT = STUDIO_ACCENT;
 
 function Slider({ label, min, max, step = 1, value, fmtv, onChange }) {
+  const { TXT, MUTED, TRACK } = useStudioPalette();
   return (
     <div className="mb-3">
       <div className="flex items-center justify-between mb-1.5">
@@ -20,7 +18,7 @@ function Slider({ label, min, max, step = 1, value, fmtv, onChange }) {
       <input type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-        style={{ background: `linear-gradient(90deg, ${ACCENT} ${((value - min) / (max - min)) * 100}%, #2a2a35 ${((value - min) / (max - min)) * 100}%)` }} />
+        style={{ background: `linear-gradient(90deg, ${ACCENT} ${((value - min) / (max - min)) * 100}%, ${TRACK} ${((value - min) / (max - min)) * 100}%)` }} />
     </div>
   );
 }
@@ -29,6 +27,7 @@ function Slider({ label, min, max, step = 1, value, fmtv, onChange }) {
    track = { title, artist, artwork, previewUrl, durationMs } */
 
 export default function SoundLibrary({ onClose, onPick, onImport, current, musicVol, setMusicVol, onRemoveCurrent, origMuted, setOrigMuted, selectedKey }) {
+  const { BG, CARD, INPUT, TRACK, BORDER, TXT, MUTED } = useStudioPalette();
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
   const [trending, setTrending] = useState([]);
@@ -169,7 +168,7 @@ export default function SoundLibrary({ onClose, onPick, onImport, current, music
       style={isSel(tr)
         ? { background: "rgba(232,115,42,0.12)", border: "1px solid rgba(232,115,42,0.45)" }
         : { background: CARD, border: `1px solid ${BORDER}` }}>
-      <button onClick={() => togglePreview(tr)} aria-label="Écouter l'extrait" className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0" style={{ background: "#2a2a35" }}>
+      <button onClick={() => togglePreview(tr)} aria-label="Écouter l'extrait" className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0" style={{ background: TRACK }}>
         {tr.artwork && <img src={tr.artwork} alt="" className="w-full h-full object-cover" />}
         <span className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.35)" }}>
           {previewUrl === tr.previewUrl ? <Pause className="w-5 h-5 text-white" /> : <Play className="w-5 h-5 text-white ml-0.5" />}
@@ -212,13 +211,13 @@ export default function SoundLibrary({ onClose, onPick, onImport, current, music
           </div>
           {showSuggest && suggests.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1.5 rounded-2xl overflow-hidden z-30 max-h-64 overflow-y-auto"
-              style={{ background: "#1e1e26", border: `1px solid ${BORDER}`, boxShadow: "0 12px 32px rgba(0,0,0,0.5)" }}>
+              style={{ background: INPUT, border: `1px solid ${BORDER}`, boxShadow: "0 12px 32px rgba(0,0,0,0.5)" }}>
               {suggests.map((s) => (
                 <button key={s.id} onClick={() => search(`${s.title} ${s.artist}`)}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left active:bg-white/5">
                   {s.artwork
                     ? <img src={s.artwork} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
-                    : <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "#2a2a35" }}><Music2 className="w-4 h-4" style={{ color: MUTED }} /></span>}
+                    : <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: TRACK }}><Music2 className="w-4 h-4" style={{ color: MUTED }} /></span>}
                   <span className="flex-1 min-w-0">
                     <span className="block text-[13px] font-bold truncate">{s.title}</span>
                     <span className="block text-[11px] truncate" style={{ color: MUTED }}>{s.artist}</span>

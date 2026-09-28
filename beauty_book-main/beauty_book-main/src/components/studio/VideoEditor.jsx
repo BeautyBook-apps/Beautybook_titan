@@ -7,18 +7,15 @@ import {
 } from "lucide-react";
 import { uploadFile } from "@/api/entities";
 import SoundLibrary from "./SoundLibrary";
+import { useStudioPalette, STUDIO_ACCENT } from "./studioTheme";
 
 /* ═══════════════════════ Montage vidéo — style TikTok/CapCut ═══════════════════════
    Moteur de lecture réel : horloge maître (rAF), clips lus en séquence dans un
    seul <video>, calques texte, musique de fond synchronisée.
-   Export réel : rendu canvas 720x1280 + mixage audio WebAudio → MediaRecorder → upload. */
+   Export réel : rendu canvas 720x1280 + mixage audio WebAudio → MediaRecorder → upload.
+   L'interface suit le thème choisi dans l'app (clair/sombre/nuit). */
 
-const ACCENT = "#E8732A";
-const BG = "#0b0b10";
-const CARD = "#17171f";
-const BORDER = "rgba(255,255,255,0.08)";
-const TXT = "#f5f5f7";
-const MUTED = "#8e8e99";
+const ACCENT = STUDIO_ACCENT;
 
 const FILTERS = [
   { id: "none", label: "Normal", css: "" },
@@ -73,6 +70,8 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [tool, setTool] = useState(null);
+  // Palette adaptative au thème choisi (clair / sombre / nuit)
+  const { BG, CARD, BORDER, TXT, MUTED, TRACK, STAGE, CLIP, RING } = useStudioPalette();
   const [zoom, setZoom] = useState(1);
   const [origMuted, setOrigMuted] = useState(false);
   const [toast, setToast] = useState("");
@@ -131,6 +130,37 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
     if (v.getAttribute("src") !== first.url) { v.src = first.url; v.load(); }
   }, [clips]);
 
+  /* ── Les réglages visuels s'appliquent à l'aperçu même en pause ──
+     (le moteur ne tournait que pendant la lecture : filtres, retouche,
+     miroir, vitesse et rognage semblaient ne rien faire à l'arrêt) */
+  useEffect(() => {
+    const loc = locate(playhead);
+    if (!loc?.clip) return;
+    const { clip, off } = loc;
+    const v = videoRef.current;
+    const im = document.getElementById("ve-img");
+    const f = filterCSS(clip);
+    const tr = clip.flip ? "scaleX(-1)" : "";
+    if (clip.kind === "video") {
+      if (v) {
+        v.style.filter = f;
+        v.style.transform = tr;
+        if (v.playbackRate !== clip.speed) { try { v.playbackRate = clip.speed; } catch {} }
+        // Rognage visible en pause : recale l'aperçu sur la tête de lecture
+        if (!clockRef.current.playing && v.readyState >= 1) {
+          const want = clip.trimS + off * clip.speed;
+          if (Math.abs(v.currentTime - want) > 0.5) {
+            try { v.currentTime = Math.min(want, Math.max(0, (v.duration || 1) - 0.05)); } catch {}
+          }
+        }
+      }
+    } else if (im) {
+      im.style.filter = f;
+      im.style.transform = tr;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clips, playhead]);
+
   /* ── Moteur de lecture : horloge maître ── */
   const switchVideoTo = (clip, offSec) => {
     const v = videoRef.current; if (!v || !clip || clip.kind !== "video") return;
@@ -139,9 +169,10 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
       ck.curClipId = clip.id;
       ck.seekPending = true;
       v.src = clip.url;
-      v.playbackRate = clip.speed;
       v.load();
     }
+    // La vitesse s'applique immédiatement, même sans changer de clip
+    if (v.playbackRate !== clip.speed) { try { v.playbackRate = clip.speed; } catch {} }
     ck.pendingSeek = clip.trimS + offSec * clip.speed;
   };
 
@@ -576,7 +607,7 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
             </button>
           ) : (
             <>
-              <video ref={videoRef} playsInline preload="auto" className="absolute inset-0 w-full h-full" style={{ objectFit: "contain", background: "#000" }} />
+              <video ref={videoRef} playsInline preload="auto" className="absolute inset-0 w-full h-full" style={{ objectFit: "contain", background: STAGE }} />
               <img id="ve-img" alt="" className="absolute inset-0 w-full h-full" style={{ objectFit: "contain", display: "none" }} />
               {activeTexts.map((t) => (
                 <div key={t.id}
@@ -633,7 +664,7 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
       </div>
 
       {/* Timeline */}
-      <div className="mx-2 rounded-2xl overflow-hidden shrink-0" style={{ background: "#101016", border: `1px solid ${BORDER}` }}>
+      <div className="mx-2 rounded-2xl overflow-hidden shrink-0" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
         <div className="flex items-center justify-between px-3 py-1.5" style={{ borderBottom: `1px solid ${BORDER}` }}>
           <div className="flex items-center gap-1.5">
             <button onClick={() => setZoom((z) => clamp(z - 0.25, 0.5, 4))} aria-label="Zoom -" className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90" style={{ background: CARD }}>
@@ -699,7 +730,7 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
                         document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up);
                       }}
                       className="absolute top-1 bottom-1 rounded-lg flex items-center px-2 overflow-hidden cursor-grab"
-                      style={{ left: x, width: w, background: active ? "linear-gradient(135deg,#E8732A,#ff9a3c)" : "linear-gradient(135deg,#2a2a38,#3a3a4a)", border: active ? "2px solid #fff" : "1px solid rgba(255,255,255,0.12)", zIndex: active ? 5 : 1 }}>
+                      style={{ left: x, width: w, background: active ? "linear-gradient(135deg,#E8732A,#ff9a3c)" : CLIP, border: active ? `2px solid ${RING}` : `1px solid ${BORDER}`, zIndex: active ? 5 : 1 }}>
                       <span className="text-[9px] font-bold truncate" style={{ color: active ? "#fff" : MUTED }}>{c.kind === "image" ? "🖼 " : ""}{c.name}</span>
                       {active && c.kind === "video" && (
                         <>
@@ -730,7 +761,7 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
                 {music ? (
                   <div onClick={(e) => { e.stopPropagation(); setSel({ type: "music", id: "m" }); pauseAll(); setShowSoundPage(true); }}
                     className="absolute top-1 bottom-1 rounded-lg flex items-center gap-1.5 px-2 overflow-hidden cursor-pointer"
-                    style={{ left: 0, width: Math.max(40, Math.min(music.dur, totalDur) * PPS), background: "rgba(48,209,88,0.16)", border: sel?.type === "music" ? "2px solid #fff" : "1px solid rgba(48,209,88,0.4)" }}>
+                    style={{ left: 0, width: Math.max(40, Math.min(music.dur, totalDur) * PPS), background: "rgba(48,209,88,0.16)", border: sel?.type === "music" ? `2px solid ${RING}` : "1px solid rgba(48,209,88,0.4)" }}>
                     <AudioLines className="w-3 h-3 shrink-0" style={{ color: "#30d158" }} />
                     <span className="text-[9px] font-bold truncate" style={{ color: "#30d158" }}>{music.name}</span>
                   </div>
@@ -748,7 +779,7 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
                 {texts.map((t) => (
                   <div key={t.id} onClick={(e) => { e.stopPropagation(); setSel({ type: "text", id: t.id }); setTool("TEXTE"); }}
                     className="absolute top-1 bottom-1 rounded-lg flex items-center px-2 overflow-hidden cursor-pointer"
-                    style={{ left: t.start * PPS, width: Math.max(30, (t.end - t.start) * PPS), background: "rgba(191,90,242,0.16)", border: sel?.id === t.id ? "2px solid #fff" : "1px solid rgba(191,90,242,0.4)" }}>
+                    style={{ left: t.start * PPS, width: Math.max(30, (t.end - t.start) * PPS), background: "rgba(191,90,242,0.16)", border: sel?.id === t.id ? `2px solid ${RING}` : "1px solid rgba(191,90,242,0.4)" }}>
                     <span className="text-[9px] font-bold truncate" style={{ color: "#bf5af2" }}>{t.text || "Texte"}</span>
                   </div>
                 ))}
@@ -810,7 +841,7 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
 
       {/* Panneau d'outil */}
       {tool && (
-        <div className="shrink-0 rounded-t-3xl px-4 pt-3 pb-6 max-h-[34vh] overflow-y-auto" style={{ background: "#14141b", borderTop: `1px solid ${BORDER}`, paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
+        <div className="shrink-0 rounded-t-3xl px-4 pt-3 pb-6 max-h-[34vh] overflow-y-auto" style={{ background: CARD, borderTop: `1px solid ${BORDER}`, paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
           <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: BORDER }} />
           {tool === "ROGNER" && selClip && (
             <Panel title={`Rogner — ${selClip.name}`}>
@@ -930,7 +961,7 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
       {/* Modale d'export */}
       {exporting && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(6px)" }}>
-          <div className="w-full max-w-xs rounded-3xl p-6 text-center" style={{ background: "#14141b", border: `1px solid ${BORDER}` }}>
+          <div className="w-full max-w-xs rounded-3xl p-6 text-center" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
             {exporting.phase === "render" ? (
               <>
                 <Loader2 className="w-10 h-10 mx-auto animate-spin" style={{ color: ACCENT }} />
@@ -969,6 +1000,7 @@ function Panel({ title, children }) {
 }
 
 function Slider({ label, min, max, step = 1, value, fmtv, onChange }) {
+  const { TXT, MUTED, TRACK } = useStudioPalette();
   return (
     <div className="mb-3">
       <div className="flex items-center justify-between mb-1.5">
@@ -978,7 +1010,7 @@ function Slider({ label, min, max, step = 1, value, fmtv, onChange }) {
       <input type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-        style={{ background: `linear-gradient(90deg, ${ACCENT} ${((value - min) / (max - min)) * 100}%, #2a2a35 ${((value - min) / (max - min)) * 100}%)` }} />
+        style={{ background: `linear-gradient(90deg, ${ACCENT} ${((value - min) / (max - min)) * 100}%, ${TRACK} ${((value - min) / (max - min)) * 100}%)` }} />
     </div>
   );
 }
