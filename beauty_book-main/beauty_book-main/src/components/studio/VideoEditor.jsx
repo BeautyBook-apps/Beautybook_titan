@@ -96,6 +96,17 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clips, totalDur]);
 
+  // Clip actif pour les outils : le clip sélectionné, sinon celui sous la tête de
+  // lecture, sinon le premier. Les panneaux ne dépendent plus d'une sélection
+  // parfaite : ils s'ouvrent toujours dès qu'un clip existe.
+  const activeClip = selClip || locate(playhead)?.clip || clips[0] || null;
+  const panelRef = useRef(null);
+  useEffect(() => {
+    if (tool && panelRef.current) {
+      try { panelRef.current.scrollIntoView({ block: "nearest" }); } catch {}
+    }
+  }, [tool]);
+
   /* ── Clip initial ── */
   useEffect(() => {
     let dead = false;
@@ -588,15 +599,7 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
     { id: "SUPPR", label: "Suppr.", icon: Trash2 },
   ];
 
-  // Sélectionne automatiquement le clip sous la tête de lecture si aucun n'est sélectionné
-  const ensureClip = () => {
-    if (selClip) return selClip;
-    const loc = locate(playhead);
-    const c = loc?.clip || clips[0];
-    if (!c) { say("Ajoutez d'abord un clip"); setTool(null); return null; }
-    setSel({ type: "clip", id: c.id });
-    return c;
-  };
+  /* ── Barre d'outils : le clip actif est résolu via activeClip (pas de sélection forcée) ── */
 
   return (
     <div className="fixed inset-0 z-[90] flex flex-col select-none" style={{ background: BG, color: TXT }}>
@@ -841,19 +844,22 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
                   return;
                 }
                 if (t.id === "MIROIR") {
-                  const c = ensureClip(); if (!c) return;
+                  const c = activeClip;
+                  if (!c) { say("Ajoutez d'abord un clip"); return; }
                   patchClip(c.id, { flip: !c.flip });
                   say(c.flip ? "Miroir désactivé" : "Miroir activé");
                   return;
                 }
                 if (t.id === "COUPER") {
-                  if (!ensureClip()) return;
+                  if (!activeClip) { say("Ajoutez d'abord un clip"); return; }
                   splitAtPlayhead();
                   return;
                 }
                 if (t.id === "TEXTE" && tool !== "TEXTE") { addText(); return; }
                 if (t.id === "SON") { pauseAll(); setShowSoundPage(true); return; }
-                if (["ROGNER", "VITESSE", "FILTRES", "RETOUCHE", "VOLUME"].includes(t.id)) { if (!ensureClip()) return; }
+                if (["ROGNER", "VITESSE", "FILTRES", "RETOUCHE", "VOLUME"].includes(t.id)) {
+                  if (!activeClip) { say("Ajoutez d'abord un clip"); return; }
+                }
                 setTool(active ? null : t.id);
               }}
               className="flex flex-col items-center gap-1 w-[62px] shrink-0 py-1.5 rounded-xl active:scale-95">
@@ -868,63 +874,63 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
 
       {/* Panneau d'outil */}
       {tool && (
-        <div className="shrink-0 rounded-t-3xl px-4 pt-3 pb-6 max-h-[34vh] overflow-y-auto" style={{ background: CARD, borderTop: `1px solid ${BORDER}`, paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
+        <div ref={panelRef} className="shrink-0 rounded-t-3xl px-4 pt-3 pb-6 max-h-[34vh] overflow-y-auto" style={{ background: CARD, borderTop: `1px solid ${BORDER}`, paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
           <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: BORDER }} />
-          {tool === "ROGNER" && selClip && (
-            <Panel title={`Rogner — ${selClip.name}`}>
-              {selClip.kind === "video" ? (
+          {tool === "ROGNER" && activeClip && (
+            <Panel title={`Rogner — ${activeClip.name}`}>
+              {activeClip.kind === "video" ? (
                 <>
-                  <Slider label="Début" min={0} max={selClip.srcDur} step={0.1} value={selClip.trimS} fmtv={fmt} onChange={(v) => patchClip(selClip.id, { trimS: clamp(v, 0, selClip.trimE - 0.2) })} />
-                  <Slider label="Fin" min={0} max={selClip.srcDur} step={0.1} value={selClip.trimE} fmtv={fmt} onChange={(v) => patchClip(selClip.id, { trimE: clamp(v, selClip.trimS + 0.2, selClip.srcDur) })} />
-                  <p className="text-[11px] mt-1" style={{ color: MUTED }}>Durée montée : <b style={{ color: TXT }}>{fmt(tlDur(selClip))}</b></p>
+                  <Slider label="Début" min={0} max={activeClip.srcDur} step={0.1} value={activeClip.trimS} fmtv={fmt} onChange={(v) => patchClip(activeClip.id, { trimS: clamp(v, 0, activeClip.trimE - 0.2) })} />
+                  <Slider label="Fin" min={0} max={activeClip.srcDur} step={0.1} value={activeClip.trimE} fmtv={fmt} onChange={(v) => patchClip(activeClip.id, { trimE: clamp(v, activeClip.trimS + 0.2, activeClip.srcDur) })} />
+                  <p className="text-[11px] mt-1" style={{ color: MUTED }}>Durée montée : <b style={{ color: TXT }}>{fmt(tlDur(activeClip))}</b></p>
                 </>
               ) : (
-                <Slider label="Durée d'affichage" min={1} max={10} step={0.5} value={selClip.trimE - selClip.trimS} fmtv={(v) => `${v.toFixed(1)}s`} onChange={(v) => patchClip(selClip.id, { trimE: selClip.trimS + v })} />
+                <Slider label="Durée d'affichage" min={1} max={10} step={0.5} value={activeClip.trimE - activeClip.trimS} fmtv={(v) => `${v.toFixed(1)}s`} onChange={(v) => patchClip(activeClip.id, { trimE: activeClip.trimS + v })} />
               )}
             </Panel>
           )}
-          {tool === "VITESSE" && selClip && (
-            <Panel title={`Vitesse — ${selClip.name}`}>
+          {tool === "VITESSE" && activeClip && (
+            <Panel title={`Vitesse — ${activeClip.name}`}>
               <div className="flex gap-2 flex-wrap">
                 {SPEEDS.map((s) => (
-                  <button key={s} onClick={() => patchClip(selClip.id, { speed: s })}
+                  <button key={s} onClick={() => patchClip(activeClip.id, { speed: s })}
                     className="px-4 py-2.5 rounded-xl text-[13px] font-black active:scale-95"
-                    style={selClip.speed === s ? { background: ACCENT, color: "#fff" } : { background: CARD, color: MUTED, border: `1px solid ${BORDER}` }}>
+                    style={activeClip.speed === s ? { background: ACCENT, color: "#fff" } : { background: CARD, color: MUTED, border: `1px solid ${BORDER}` }}>
                     {s}x
                   </button>
                 ))}
               </div>
-              <p className="text-[11px] mt-2" style={{ color: MUTED }}>Durée montée : <b style={{ color: TXT }}>{fmt(tlDur(selClip))}</b></p>
+              <p className="text-[11px] mt-2" style={{ color: MUTED }}>Durée montée : <b style={{ color: TXT }}>{fmt(tlDur(activeClip))}</b></p>
             </Panel>
           )}
-          {tool === "FILTRES" && selClip && (
-            <Panel title={`Filtres — ${selClip.name}`}>
+          {tool === "FILTRES" && activeClip && (
+            <Panel title={`Filtres — ${activeClip.name}`}>
               <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
                 {FILTERS.map((f) => (
-                  <button key={f.id} onClick={() => patchClip(selClip.id, { filter: f.id })}
+                  <button key={f.id} onClick={() => patchClip(activeClip.id, { filter: f.id })}
                     className="shrink-0 px-4 py-2.5 rounded-xl text-[12px] font-black active:scale-95"
-                    style={selClip.filter === f.id ? { background: ACCENT, color: "#fff" } : { background: CARD, color: MUTED, border: `1px solid ${BORDER}` }}>
+                    style={activeClip.filter === f.id ? { background: ACCENT, color: "#fff" } : { background: CARD, color: MUTED, border: `1px solid ${BORDER}` }}>
                     {f.label}
                   </button>
                 ))}
               </div>
             </Panel>
           )}
-          {tool === "RETOUCHE" && selClip && (
-            <Panel title={`Retouche — ${selClip.name}`}>
-              <Slider label="Luminosité" min={40} max={180} value={selClip.b} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(selClip.id, { b: v })} />
-              <Slider label="Contraste" min={40} max={180} value={selClip.c} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(selClip.id, { c: v })} />
-              <Slider label="Saturation" min={0} max={220} value={selClip.s} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(selClip.id, { s: v })} />
-              <button onClick={() => patchClip(selClip.id, { b: 100, c: 100, s: 100, filter: "none" })} className="mt-1 text-[12px] font-bold" style={{ color: ACCENT }}>Réinitialiser</button>
+          {tool === "RETOUCHE" && activeClip && (
+            <Panel title={`Retouche — ${activeClip.name}`}>
+              <Slider label="Luminosité" min={40} max={180} value={activeClip.b} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(activeClip.id, { b: v })} />
+              <Slider label="Contraste" min={40} max={180} value={activeClip.c} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(activeClip.id, { c: v })} />
+              <Slider label="Saturation" min={0} max={220} value={activeClip.s} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(activeClip.id, { s: v })} />
+              <button onClick={() => patchClip(activeClip.id, { b: 100, c: 100, s: 100, filter: "none" })} className="mt-1 text-[12px] font-bold" style={{ color: ACCENT }}>Réinitialiser</button>
             </Panel>
           )}
-          {tool === "VOLUME" && selClip && (
-            <Panel title={`Volume — ${selClip.name}`}>
-              <Slider label="Volume du clip" min={0} max={100} value={selClip.vol} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(selClip.id, { vol: v })} />
-              <button onClick={() => patchClip(selClip.id, { muted: !selClip.muted })}
+          {tool === "VOLUME" && activeClip && (
+            <Panel title={`Volume — ${activeClip.name}`}>
+              <Slider label="Volume du clip" min={0} max={100} value={activeClip.vol} fmtv={(v) => `${v}%`} onChange={(v) => patchClip(activeClip.id, { vol: v })} />
+              <button onClick={() => patchClip(activeClip.id, { muted: !activeClip.muted })}
                 className="mt-2 w-full py-3 rounded-xl text-[13px] font-black active:scale-[0.98]"
-                style={selClip.muted ? { background: "rgba(255,44,85,0.15)", color: "#ff2c55" } : { background: CARD, color: MUTED, border: `1px solid ${BORDER}` }}>
-                {selClip.muted ? "Réactiver le son" : "Couper le son du clip"}
+                style={activeClip.muted ? { background: "rgba(255,44,85,0.15)", color: "#ff2c55" } : { background: CARD, color: MUTED, border: `1px solid ${BORDER}` }}>
+                {activeClip.muted ? "Réactiver le son" : "Couper le son du clip"}
               </button>
             </Panel>
           )}
@@ -964,8 +970,8 @@ export default function VideoEditor({ videoUrl, sound, soundUrl, onClose, onDone
               )}
             </Panel>
           )}
-          {(tool === "COUPER" || tool === "ROGNER" || tool === "VITESSE" || tool === "FILTRES" || tool === "RETOUCHE" || tool === "VOLUME") && !selClip && (
-            <p className="text-[13px] text-center py-4" style={{ color: MUTED }}>Sélectionnez d'abord un clip sur la timeline.</p>
+          {(tool === "COUPER" || tool === "ROGNER" || tool === "VITESSE" || tool === "FILTRES" || tool === "RETOUCHE" || tool === "VOLUME") && !activeClip && (
+            <p className="text-[13px] text-center py-4" style={{ color: MUTED }}>Ajoutez d'abord un clip.</p>
           )}
         </div>
       )}
