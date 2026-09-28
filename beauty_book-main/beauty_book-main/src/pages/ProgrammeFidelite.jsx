@@ -11,6 +11,7 @@ import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { reconcileClientPoints } from '@/lib/fideliteClient';
 import ProgrammeProCard from "@/components/fidelite/ProgrammeProCard";
+import { readIsProCache, writeIsProCache } from "@/hooks/useIsPro";
 
 const LEVELS = [
   { name: "Silver", pts: 0, icon: Crown, color: "from-gray-400 to-gray-500", bg: "bg-gray-100", text: "text-gray-600" },
@@ -60,19 +61,22 @@ export default function ProgrammeFidelite() {
   const [copied, setCopied] = useState(false);
   const [redeeming, setRedeeming] = useState(null);
   const [toast, setToast] = useState(null);
-  const [isPro, setIsPro] = useState(false);
+  const [isPro, setIsPro] = useState(readIsProCache);
 
   const email = user?.email;
   const role = user?.role;
   useEffect(() => {
     if (!email) return;
-    if (role === "vendeur" || role === "pro" || role === "admin") { setIsPro(true); return; }
+    if (role === "vendeur" || role === "pro" || role === "admin") { setIsPro(true); writeIsProCache(true); return; }
     let cancelled = false;
     Promise.all([
       entities.DemandeProV2.filter({ user_email: email, statut: "approuvee" }, null, 1),
       entities.PointsFidelitePro.filter({ pro_email: email }, null, 1),
     ]).then(([demandes, pointsPro]) => {
-      if (!cancelled && (demandes.length > 0 || pointsPro.length > 0)) setIsPro(true);
+      if (cancelled) return;
+      const pro = demandes.length > 0 || pointsPro.length > 0;
+      setIsPro(pro);
+      writeIsProCache(pro);
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [email, role]);

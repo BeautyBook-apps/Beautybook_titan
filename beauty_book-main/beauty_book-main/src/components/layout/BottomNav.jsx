@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/api/supabaseClient";
+import { useIsPro } from "@/hooks/useIsPro";
 // Note: /reseau-social also maps to Reels component
 
 // Pages où la nav ne doit PAS s'afficher (parcours internes)
@@ -56,7 +57,9 @@ export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
-  const isPro = !!localStorage.getItem("bb_is_pro");
+  // Détection pro centralisée (hooks/useIsPro.js) : `null` tant qu'inconnu.
+  // Test strict — "0" (client en cache) est truthy en JS, d'où le `=== true`.
+  const isPro = useIsPro() === true;
   const { theme } = useTheme();
   const { user } = useAuth();
   const [hasNewEvents, setHasNewEvents] = useState(false);

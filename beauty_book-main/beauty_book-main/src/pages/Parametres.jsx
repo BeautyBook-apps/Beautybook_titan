@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import DeleteAccountFlow from "@/components/account/DeleteAccountFlow";
+import { readIsProCache } from "@/hooks/useIsPro";
 import { useTheme, useThemeBg } from "@/hooks/useTheme";
 
 const DEFAULT_AVATAR = "";
@@ -155,8 +156,8 @@ export default function Parametres() {
           <SettingRow icon={Download} iconBg="bg-indigo-50" iconColor="text-indigo-500" label="Mes Données" sublabel="Exporter mes données (RGPD)" onClick={() => navigate("/parametres/mes-donnees")} />
         </div>
 
-        {/* COMPTE PRO */}
-        {localStorage.getItem("bb_is_pro") && (
+        {/* COMPTE PRO — test strict : "0" (client) est truthy en JS, d'où readIsProCache */}
+        {readIsProCache() === true && (
           <>
             <SectionLabel>Compte Professionnel</SectionLabel>
             <div className="space-y-2">

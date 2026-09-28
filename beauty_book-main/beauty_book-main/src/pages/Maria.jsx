@@ -20,6 +20,7 @@ import { NavigateCard, SearchProductsCard, OpenProFormCard } from "@/components/
 import RoutineSummaryCard from "@/components/maria/RoutineSummaryCard";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
+import { useIsPro } from "@/hooks/useIsPro";
 import { useVoiceAgent } from "@/lib/VoiceAgentContext";
 import { useAuthGate } from "@/hooks/useAuthGate";
 import AuthModal from "@/components/ui/AuthModal";
@@ -400,15 +401,10 @@ export default function Maria() {
   const homeBodyBg = isDark ? "bg-gray-950" : "bg-white";
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [view, setView] = useState("home");
-  // null = profil pas encore déterminé (ni client ni pro affichés entre-temps :
-  // évite le flash « version cliente » à l'ouverture d'un compte pro).
-  // La valeur est mémorisée en local pour un affichage instantané au retour.
-  const [isPro, setIsPro] = useState(() => {
-    try {
-      const v = localStorage.getItem("bb_is_pro");
-      return v === null ? null : v === "1";
-    } catch { return null; }
-  });
+  // null tant que le profil n'est pas déterminé : ni la version cliente ni la
+  // version pro ne s'affichent entre-temps (pas de flash). Mémorisé en local
+  // pour un affichage instantané au retour (voir hooks/useIsPro.js).
+  const isPro = useIsPro();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -462,20 +458,7 @@ export default function Maria() {
       .catch(() => setVoiceboxReady(false));
   }, []);
 
-  // ── Détecter si compte pro ──
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => data?.user).then(async (user) => {
-      if (!user) { setIsPro(false); return; }
-      let pro = user.role === "vendeur" || user.role === "pro" || user.role === "admin";
-      if (!pro) {
-        // Vérifier si profil pro actif
-        const profiles = await entities.ProfilPro.filter({ user_email: user.email }, "-created_at", 1).catch(() => []);
-        pro = profiles.length > 0;
-      }
-      try { localStorage.setItem("bb_is_pro", pro ? "1" : "0"); } catch { /* stockage indisponible */ }
-      setIsPro(pro);
-    }).catch(() => setIsPro(false));
-  }, []);
+  // ── Détection pro centralisée (hooks/useIsPro.js) ──
 
   // ── Charger historique + résumé ──
   useEffect(() => {

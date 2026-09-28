@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, X, Clock, Phone, Mail, Building2, Car, Moon, ImagePlus, CheckCircle, Store, AtSign, Plus, Trash2, AlertCircle, Camera, Upload, MapPin, Wifi, ParkingCircle, Wind, Baby, Coffee, CreditCard, Sofa, Music, UtensilsCrossed, Wine, Tv, Lightbulb, Thermometer, Star, Lock, Sun, GripVertical, Volume2, Accessibility, Shirt, ShowerHead, PawPrint, BookOpen, Sparkles, Zap } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { useAuth } from "@/lib/AuthContext";
+import { writeIsProCache } from "@/hooks/useIsPro";
 import { entities, uploadFile } from "@/api/entities";
 import { apiClient } from "@/lib/apiClient";
 import { supabase } from '@/api/supabaseClient';
@@ -1694,7 +1695,7 @@ export default function DevenirPro() {
         // Effacer le brouillon et rediriger
         localStorage.removeItem(DRAFT_KEY);
         localStorage.removeItem(DRAFT_KEY + "_step");
-        localStorage.setItem("bb_is_pro", "true");
+        writeIsProCache(true);
         navigate("/profil-pro");
       } catch (err) {
         alert("Erreur lors de la soumission : " + (err.message || err));

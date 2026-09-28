@@ -7,6 +7,7 @@ import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from "@/lib/AuthContext";
 import usePullToRefresh from "@/hooks/usePullToRefresh";
+import { useIsPro } from "@/hooks/useIsPro";
 import { useCall } from "@/components/call/CallManager";
 import { notifyMessageReceived } from '@/lib/notificationService';
 
@@ -966,7 +967,7 @@ export default function Messages() {
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("messages");
   const [mariaAIActive, setMariaAIActive] = useState(() => localStorage.getItem(MARIA_AI_KEY) === "1");
-  const [isPro, setIsPro] = useState(false);
+  const isPro = useIsPro();
   const mariaAIRef = useRef(mariaAIActive);
   const processedMsgIds = useRef(new Set());
   const deletedConvIds = useRef(new Set());
@@ -974,13 +975,7 @@ export default function Messages() {
   const handleRefresh = useCallback(() => loadConversations(), []);
   const { containerRef, pulling, pullDistance } = usePullToRefresh(handleRefresh);
 
-  // Vérifier si l'utilisateur est un professionnel
-  useEffect(() => {
-    if (!user) return;
-    entities.ProfilPro.filter({ user_email: user.email }, '-created_at', 1)
-      .then(res => setIsPro(res.length > 0))
-      .catch(() => setIsPro(false));
-  }, [user]);
+  // Détection pro centralisée (hooks/useIsPro.js) — remplace la vérification locale.
 
   // Sync mariaAIRef avec l'état
   useEffect(() => {

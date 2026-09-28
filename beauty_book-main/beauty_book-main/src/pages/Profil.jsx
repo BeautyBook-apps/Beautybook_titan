@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { likesApi } from '@/api/likes';
+import { readIsProCache, writeIsProCache } from "@/hooks/useIsPro";
 import { Share2, Settings, Star, ShoppingBag, Calendar, Award, CreditCard, Grid, Repeat2, Bookmark, Camera, Plus, Play, Heart, Video, BadgeCheck } from "lucide-react";
 import ShareSheet from "@/components/ui/ShareSheet";
 import ScoreFiabilite from "@/components/avis/ScoreFiabilite";
@@ -125,7 +126,9 @@ export default function Profil() {
   const [repubsList, setRepubsList] = useState([]);
   const [favorisList, setFavorisList] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [isPro, setIsPro] = useState(false);
+  // Initialisé depuis le cache : un pro qui revient voit directement la bonne
+  // version. `null` = statut pas encore connu (pas de flash, voir hooks/useIsPro.js).
+  const [isPro, setIsPro] = useState(readIsProCache);
   const [demandeStatus, setDemandeStatus] = useState(null); // null | 'en_attente' | 'approuvee' | 'refusee'
   const [shareOpen, setShareOpen] = useState(false);
   const [stats, setStats] = useState({ commandes: 0, rdv: 0, points: 0, solde: 0 });
@@ -148,9 +151,8 @@ export default function Profil() {
   const loadData = async () => {
     if (!user?.email) return;
     setLoading(true);
-    // Reset pro flag — loadData will re-determine from DB
-    localStorage.removeItem("bb_is_pro");
-    setIsPro(false);
+    // Note : on ne réinitialise PAS isPro ici — le cache affiche la bonne
+    // version immédiatement, loadData revalide en arrière-plan.
     setDemandeStatus(null);
     try {
     const today = new Date().toISOString().split("T")[0];
@@ -264,7 +266,7 @@ export default function Profil() {
 
     if (user?.role === 'vendeur' || user?.role === 'admin') {
       setIsPro(true);
-      localStorage.setItem("bb_is_pro", "true");
+      writeIsProCache(true);
     } else {
       // Check DemandeProV2 status + ProfilPro existence
       try {
@@ -279,7 +281,7 @@ export default function Profil() {
 
         if (statut === 'approuvee' && profil.length > 0 && profil[0].status === 'actif') {
           setIsPro(true);
-          localStorage.setItem("bb_is_pro", "true");
+          writeIsProCache(true);
         }
       } catch { setDemandeStatus(null); }
     }
@@ -378,7 +380,9 @@ export default function Profil() {
           className="flex-1 py-3.5 bg-gray-900 rounded-2xl text-white text-[13px] font-black uppercase tracking-widest active:scale-95 transition-all">
           MODIFIER
         </button>
-        {isPro ? (
+        {isPro === null ? (
+          <div className="flex-1 py-3.5 bg-gray-100 rounded-2xl animate-pulse" aria-hidden="true" />
+        ) : isPro ? (
           <button onClick={() => navigate("/pro/modifier-profil")}
             className="flex-1 py-3.5 bg-primary rounded-2xl text-white text-[13px] font-black uppercase tracking-widest shadow-md shadow-primary/30 active:scale-95 transition-all flex items-center justify-center gap-2">
             <BadgeCheck className="w-4 h-4" />
