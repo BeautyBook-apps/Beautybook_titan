@@ -556,6 +556,18 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
   const { startCall } = useCall() || {};
   // Priorité : prop → state de navigation → email user courant
   const proEmailFromState = location?.state?.proEmail || location?.state?.email;
+  // Priorité stricte : prop → state de navigation — JAMAIS user courant (évite d'ouvrir son propre profil)
+  const targetEmail = proEmailProp || proEmailFromState || null;
+  const isOwnProfile = user?.email === targetEmail;
+
+  // Cache « vue client » par salon : affichage direct des dernières données
+  // connues dès la première peinture, sans page « Chargement... » intermédiaire.
+  // Le cache est réécrit en arrière-plan à chaque chargement frais.
+  const [vueCacheInitial] = useState(() => {
+    if (!targetEmail) return {};
+    try { return JSON.parse(localStorage.getItem(`vueclient_cache_${targetEmail}`) || "null") || {}; }
+    catch { return {}; }
+  });
   const [activeTab, setActiveTab] = useState("profil");
   const [subscribed, setSubscribed] = useState(() => {
     try {
@@ -563,25 +575,44 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
       return localStorage.getItem(key) === "1";
     } catch { return false; }
   });
-  const [publications, setPublications] = useState([]);
-  const [services, setServices] = useState([]);
-  const [bundles, setBundles] = useState([]);
-  const [catalogueOptions, setCatalogueOptions] = useState([]);
-  const [proInfo, setProInfo] = useState(null);
-  const [proInfoId, setProInfoId] = useState(null);
+  const [publications, setPublications] = useState(vueCacheInitial.publications || []);
+  const [services, setServices] = useState(vueCacheInitial.services || []);
+  const [bundles, setBundles] = useState(vueCacheInitial.bundles || []);
+  const [catalogueOptions, setCatalogueOptions] = useState(vueCacheInitial.catalogueOptions || []);
+  const [proInfo, setProInfo] = useState(() => {
+    let p = vueCacheInitial.proInfo || null;
+    // Pour son propre profil, le cache pro (dernières modifications) prime,
+    // avec la même règle de fusion que le chargement frais (non-vide gagne).
+    if (isOwnProfile) {
+      try {
+        const cached = JSON.parse(localStorage.getItem('pro_profile_cache') || 'null');
+        if (cached && (!cached.user_email || cached.user_email === targetEmail)) {
+          p = {
+            ...(p || {}), user_email: targetEmail, id: p?.id || 'local',
+            avatar_url: cached.avatar_url || p?.avatar_url,
+            cover_url: cached.cover_url || p?.cover_url,
+            salon_name: cached.salon_name || p?.salon_name,
+            bio: cached.bio || p?.bio, city: cached.city || p?.city,
+            phone: cached.phone || p?.phone, address: cached.address || p?.address,
+          };
+        }
+      } catch {}
+    }
+    return p;
+  });
+  const [proInfoId, setProInfoId] = useState(vueCacheInitial.proInfo?.id || null);
   const [showMenuModal, setShowMenuModal] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showCall] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const [stats, setStats] = useState({ abonnes: 0, services: 0, avis: 0 });
-  const [demandeInfo, setDemandeInfo] = useState(null);
+  const [stats, setStats] = useState(vueCacheInitial.stats || { abonnes: 0, services: 0, avis: 0 });
+  const [demandeInfo, setDemandeInfo] = useState(vueCacheInitial.demandeInfo || null);
   const [selectedPlat, setSelectedPlat] = useState(null);
-  const [avis, setAvis] = useState([]);
+  const [avis, setAvis] = useState(vueCacheInitial.avis || []);
 
-  // Priorité stricte : prop → state de navigation — JAMAIS user courant (évite d'ouvrir son propre profil)
-  const targetEmail = proEmailProp || proEmailFromState || null;
-  const isOwnProfile = user?.email === targetEmail;
+  // (targetEmail et isOwnProfile sont définis plus haut, avant les states)
+
   const proAddress = proInfo?.address || proInfo?.city || null;
   const profileUrl = window.location.origin + "/profil-pro";
 
@@ -646,6 +677,24 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
         if (count !== null) followerCount = count;
       } catch (e) {}
       setStats({ abonnes: followerCount, services: svcs.length, avis: avis.length });
+      // Persiste la vue client en cache (fusion : un chargement partiel
+      // n'écrase jamais les sections déjà en cache).
+      try {
+        const key = `vueclient_cache_${targetEmail}`;
+        let prev = {};
+        try { prev = JSON.parse(localStorage.getItem(key) || 'null') || {}; } catch {}
+        localStorage.setItem(key, JSON.stringify({
+          ...prev,
+          ...(profile ? { proInfo: profile } : {}),
+          services: svcs,
+          bundles: bundleData,
+          catalogueOptions: catOpts,
+          publications: reels,
+          avis,
+          ...(demandes.length > 0 ? { demandeInfo: demandes[0] } : {}),
+          stats: { abonnes: followerCount, services: svcs.length, avis: avis.length },
+        }));
+      } catch {}
     };
     fetchData();
     const onUpdated = (e) => {
