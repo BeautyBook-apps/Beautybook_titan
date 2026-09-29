@@ -1040,11 +1040,14 @@ export default function Reels() {
 
     entities.Annonce.filter({ status: 'actif' }, '-created_at', 20)
       .then(data => {
-        const filtered = (data || []).filter(a => {
+        // Une annonce sans image ni vidéo ne peut pas s'afficher : on l'exclut
+        // de la rotation pour ne jamais montrer un emplacement vide/noir.
+        const withMedia = (data || []).filter(a => a.image_url || a.video_url);
+        const filtered = withMedia.filter(a => {
           const pages = a.pages || (a.type ? [a.type] : []);
           return pages.includes('reels');
         });
-        const list = filtered.length > 0 ? filtered : (data || []);
+        const list = filtered.length > 0 ? filtered : withMedia;
         setAnnonces(list);
         mergePageCache("reels_page", { annonces: list });
       })

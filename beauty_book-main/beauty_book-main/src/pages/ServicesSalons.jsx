@@ -421,11 +421,13 @@ function StylesTab({ activeCategory }) {
   useEffect(() => {
     entities.Annonce.filter({ status: 'actif' }, '-created_at', 20)
       .then(data => {
-        const filtered = (data || []).filter(a => {
+        // Une annonce sans image ni vidéo ne peut pas s'afficher : exclue de la rotation.
+        const withMedia = (data || []).filter(a => a.image_url || a.video_url);
+        const filtered = withMedia.filter(a => {
           const pages = a.pages || (a.type ? [a.type] : []);
           return pages.includes('styles');
         });
-        const annoncesList = filtered.length > 0 ? filtered : (data || []);
+        const annoncesList = filtered.length > 0 ? filtered : withMedia;
         setAnnonces(annoncesList);
         mergePageCache("services_salons", { annonces: annoncesList });
       })
