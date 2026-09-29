@@ -131,13 +131,20 @@ async function getProfil(proEmail) {
   // peuvent manquer si une migration n'a pas été exécutée — la requête est
   // relancée sans les colonnes fautives au lieu d'échouer en 400.
   // (Il n'y a pas de colonne `adresse` ni `telephone` sur cette table.)
+  // Repli ultime : si la lecture complète échoue pour une raison quelconque,
+  // on relit avec les seules colonnes de base garanties. Seul l'échec de
+  // CETTE lecture (ou l'absence de ligne) = vrai problème d'accès.
   const { data, error } = await lenientSelect(
     'ProfilPro',
     ['salon_name', 'address', 'phone', 'ouverture', 'horaires', 'seats_count', 'travail_nuit', 'se_deplace', 'produits'],
     (q) => q.eq('user_email', normEmail(proEmail)).maybeSingle()
   );
-  if (error) return { profil: null, error };
-  return { profil: data || null, error: null };
+  if (!error) return { profil: data || null, error: null };
+  const base = await qread(() =>
+    supabase.from('ProfilPro').select('salon_name,address,phone').eq('user_email', normEmail(proEmail)).maybeSingle()
+  );
+  if (!base.error && base.data) return { profil: base.data, error: null };
+  return { profil: null, error: base.error || error };
 }
 
 async function getService(proEmail, serviceId) {
@@ -783,7 +790,17 @@ function buildExecutors(proEmail) {
         ['produits'],
         (q) => q.eq('user_email', email).maybeSingle()
       );
-      if (error) return err("Je n'arrive pas à lire les produits du salon pour le moment.", 'NO_ACCESS');
+      if (error) {
+        // Colonne absente (migration non exécutée) ou vrai problème d'accès ?
+        // Sonde minimale : si elle passe, c'est juste la colonne qui manque.
+        const probe = await qread(() =>
+          supabase.from('ProfilPro').select('user_email').eq('user_email', email).maybeSingle()
+        );
+        if (!probe.error) {
+          return { status: 'success', products: [], message: "Le salon n'a renseigné aucun produit à commander : si le client ne fournit pas ses mèches, propose-lui d'en parler directement avec le salon." };
+        }
+        return err("Je n'arrive pas à lire les produits du salon pour le moment.", 'NO_ACCESS');
+      }
       const raw = data?.produits;
       const arr = Array.isArray(raw) ? raw : [];
       const list = arr
