@@ -7,6 +7,7 @@ import { supabase } from '@/api/supabaseClient';
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import PostServiceReview from "@/components/reservation/PostServiceReview";
+import AddBookingIdModal from "@/components/booking/AddBookingIdModal";
 import RoutineModal from "@/components/routine/RoutineModal";
 import RoutineDashboard from "@/components/routine/RoutineDashboard";
 import { useAuthGate } from "@/hooks/useAuthGate";
@@ -250,7 +251,8 @@ function CalendarView({ reservations, onEventClick }) {
           {allEvents.filter(e => e.dateObj >= today).length === 0 ? (
             <div className="bg-white rounded-2xl p-6 text-center border border-gray-100 shadow-sm">
               <p className="text-[13px] text-gray-400 font-medium">Aucun RDV à venir 🌸</p>
-              <Link to="/services" className="mt-3 inline-block bg-primary text-white text-[11px] font-black uppercase tracking-widest px-5 py-2.5 rounded-2xl shadow-md shadow-primary/30">Réserver</Link>
+              <p className="text-[11px] text-gray-400 font-medium mt-1">Réservé par téléphone ? Utilisez votre ID de réservation.</p>
+              <button onClick={() => setShowAddBooking(true)} className="mt-3 inline-block bg-primary text-white text-[11px] font-black uppercase tracking-widest px-5 py-2.5 rounded-2xl shadow-md shadow-primary/30 active:scale-95 transition-all">Ajouter un ID de réservation</button>
             </div>
           ) : (
             allEvents
@@ -330,6 +332,7 @@ export default function RendezVous() {
   const [activeTab, setActiveTab] = useState(0);
   const [reviewModal, setReviewModal] = useState(null);
   const [selectedReservation, setSelectedReservation] = useState(null);
+  const [showAddBooking, setShowAddBooking] = useState(false);
   const [selectedRoutine, setSelectedRoutine] = useState(null);
   const { user } = useAuth();
   // Affichage direct depuis le cache : les RDV s'affichent immédiatement,
@@ -365,9 +368,12 @@ export default function RendezVous() {
       const isFullRefund = hoursUntil >= 24;
       const refundAmount = isFullRefund ? rdv.total_price : Math.round((rdv.total_price || 0) * 0.5 * 100) / 100;
 
-      const result = await apiClient.put("/api/reservations/"+rdv.id,{status:"annule"});
-      const error = !result.reservation && new Error("Annulation non confirmée.");
-      if (error) throw error;
+      const result = await apiClient.put("/api/reservations/"+rdv.id,{status:"annule"}).catch(() => null);
+      if (!result?.reservation) {
+        // Repli : le backend local n'est pas déployé → mise à jour directe Supabase
+        const { error } = await supabase.from("Reservation").update({ status: "annule" }).eq("id", rdv.id);
+        if (error) throw new Error("Annulation non confirmée.");
+      }
       setReservations(prev => prev.map(r => r.id === rdv.id ? { ...r, status: "annule" } : r));
       setSelectedReservation(null);
       setShowCancelConfirm(null);
@@ -663,7 +669,8 @@ export default function RendezVous() {
                 <Calendar className="w-8 h-8 text-gray-300" />
               </div>
               <p className="text-[15px] font-black text-gray-400">Aucun RDV à venir</p>
-              <Link to="/services" className="mt-3 inline-block bg-primary text-white text-[11px] font-black uppercase tracking-widest px-5 py-2.5 rounded-2xl">Réserver</Link>
+              <p className="text-[12px] text-gray-400 font-medium mt-1 mb-1">Réservé par téléphone ? Retrouvez votre RDV avec votre ID.</p>
+              <button onClick={() => setShowAddBooking(true)} className="mt-3 inline-block bg-primary text-white text-[11px] font-black uppercase tracking-widest px-5 py-2.5 rounded-2xl active:scale-95 transition-all">Ajouter un ID de réservation</button>
             </div>
           ) : groupReservationsByDate(upcoming).map(({ date, rdvs }) => (
             <div key={date}>
@@ -1005,6 +1012,20 @@ export default function RendezVous() {
                 </div>
               )}
 
+              {/* QR code + ID de réservation */}
+              {(selectedReservation.qr_code_url || selectedReservation.booking_code) && (
+                <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex items-center gap-4">
+                  {selectedReservation.qr_code_url && (
+                    <img src={selectedReservation.qr_code_url} alt="QR code du rendez-vous" className="w-24 h-24 rounded-xl border border-gray-200 bg-white shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">ID de réservation</p>
+                    <p className="text-[17px] font-black text-gray-900 tracking-[0.15em]">{selectedReservation.booking_code || "—"}</p>
+                    <p className="text-[10px] text-gray-400 font-medium mt-1 leading-relaxed">Présentez ce QR code au professionnel ou communiquez votre ID.</p>
+                  </div>
+                </div>
+              )}
+
               {/* Notes */}
               {selectedReservation.notes && (
                 <div className="bg-blue-50 rounded-2xl p-3">
@@ -1225,6 +1246,12 @@ export default function RendezVous() {
       })()}
 
       {/* Modal confirmation annulation */}
+      {showAddBooking && (
+        <AddBookingIdModal
+          onFound={(r) => { setShowAddBooking(false); setSelectedReservation(r); }}
+          onClose={() => setShowAddBooking(false)}
+        />
+      )}
       {showCancelConfirm && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center px-5" onClick={() => setShowCancelConfirm(null)}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />

@@ -18,11 +18,20 @@ function emailToDisplayName(email) {
 import { useState, useEffect, useRef } from "react";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import {
+  ensureReservationQr,
+  sendReservationEmail,
+  generateBookingCode,
+  generateClientCode,
+  parseQrPayload,
+} from "@/lib/bookingCodes";
+import QrScannerModal from "@/components/booking/QrScannerModal";
+import {
   Plus, X, Search, ChevronRight, Lightbulb, Rocket,
   Scissors, Users, Clock, Megaphone, TrendingUp, UserPlus,
   MoreVertical, Calendar, CheckCircle, ArrowLeft, Phone,
   Mail, Download, ChevronLeft, ChevronDown, Star, MapPin,
-  AlertCircle, Loader2, KeyRound, Shield, XCircle, Pencil, Save
+  AlertCircle, Loader2, KeyRound, Shield, XCircle, Pencil, Save,
+  ScanLine
 } from "lucide-react";
 import { format, addDays, startOfWeek, isSameDay, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -61,6 +70,8 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [codeInput, setCodeInput] = useState(["", "", "", ""]);
+  const [showQrScanner, setShowQrScanner] = useState(false);
+  const [scanError, setScanError] = useState("");
   const [codeError, setCodeError] = useState(false);
   const [showReliability, setShowReliability] = useState(false);
   const [showShowcase, setShowShowcase] = useState(false);
@@ -134,14 +145,22 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
           serviceName, date, time,
           proName: proDisplayName,
         });
-        // Envoyer email confirmation
+        // Email de confirmation RÉEL (Edge Function + Resend) avec QR code.
+        // Le QR est généré à la volée s'il n'existe pas encore (ex : RDV
+        // créé par téléphone via l'agent vocal IA).
         try {
-          await apiClient.callFunction("sendReservationEmail", {
+          const qrCodeUrl = await ensureReservationQr(rdv);
+          await sendReservationEmail("confirmed", {
             to: rdv.client_email,
-            type: "confirmed",
             clientName: rdv.client_name,
             serviceName, date, time,
             proName: proDisplayName,
+            salonName: rdv.salon_name,
+            salonAddress: rdv.salon_address,
+            price: rdv.total_price ?? rdv.service_price,
+            bookingCode: rdv.booking_code,
+            clientCode: rdv.crg_code,
+            qrCodeUrl,
           });
         } catch (e) { console.error("Email confirmation error:", e); }
       } else if (status === "annule") {
@@ -149,14 +168,14 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
           clientEmail: rdv.client_email, serviceName, date,
           proName: proDisplayName,
         });
-        // Envoyer email annulation
+        // Email d'annulation RÉEL
         try {
-          await apiClient.callFunction("sendReservationEmail", {
+          await sendReservationEmail("cancelled", {
             to: rdv.client_email,
-            type: "cancelled",
             clientName: rdv.client_name,
             serviceName, date,
             proName: proDisplayName,
+            salonName: rdv.salon_name,
           });
         } catch (e) { console.error("Email cancellation error:", e); }
       }
@@ -199,7 +218,40 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
     await creditClientFidelite("reservation", `Prestation : ${rdv.service_name || "Service beauté"}`, rdv.client_email);
     await creditProFidelite("pro_reservation", `Réservation terminée : ${rdv.service_name || "Service beauté"}`, rdv.pro_email);
 
+    // Email de remerciement automatique : prestation terminée
+    try {
+      await sendReservationEmail("completed", {
+        to: rdv.client_email,
+        clientName: rdv.client_name,
+        serviceName: rdv.service_name || rdv.service,
+        proName: rdv.pro_name,
+        salonName: rdv.salon_name,
+      });
+    } catch (e) { console.error("Email remerciement error:", e); }
+
     setShowReliability(true);
+  };
+
+  // ── Scan du QR code client : pré-remplit le code à 4 chiffres ──
+  const handleQrScanned = (text) => {
+    const payload = parseQrPayload(text);
+    if (!payload) {
+      setScanError("QR code non reconnu — ce n'est pas un QR code BeautyBook.");
+      return;
+    }
+    if (payload.booking && rdv.booking_code && payload.booking !== rdv.booking_code) {
+      setScanError(`Ce QR code correspond à un autre RDV (${payload.booking}).`);
+      return;
+    }
+    const code = String(payload.code || "");
+    if (!/^\d{4}$/.test(code)) {
+      setScanError("QR code reconnu, mais code client illisible.");
+      return;
+    }
+    setCodeInput(code.split(""));
+    setCodeError(false);
+    setScanError("");
+    setShowQrScanner(false);
   };
 
   const handleSubmitReliability = async () => {
@@ -432,6 +484,14 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Valider"}
               </button>
             </div>
+            {/* Scanner le QR code du client : juste sous la section code client */}
+            <button
+              onClick={() => { setScanError(""); setShowQrScanner(true); }}
+              className="w-full py-3.5 rounded-2xl bg-white border-2 border-dashed border-gray-300 text-[12px] font-black text-gray-700 uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              <ScanLine className="w-4 h-4 text-primary" />
+              Scanner le QR code
+            </button>
             {/* Annuler */}
             <button
               onClick={() => handleStatus("annule")}
@@ -507,6 +567,15 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
           rdv={rdv}
           onDone={() => { setShowShowcase(false); onClose(); }}
           onSkip={() => { setShowShowcase(false); onClose(); }}
+        />
+      )}
+
+      {/* Scanner QR code client */}
+      {showQrScanner && (
+        <QrScannerModal
+          error={scanError}
+          onScan={handleQrScanned}
+          onClose={() => { setShowQrScanner(false); setScanError(""); }}
         />
       )}
 
@@ -602,6 +671,8 @@ function NouveauRdvModal({ onClose, proEmail, onCreated }) {
       status: "en_attente",
       payment_status: "non_paye",
       source: "receptionniste",
+      booking_code: generateBookingCode(),
+      crg_code: generateClientCode(),
     };
     const rdv = await entities.Reservation.create(payload);
     // Auto-create Client entry if not exists

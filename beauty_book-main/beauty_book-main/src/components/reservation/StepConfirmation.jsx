@@ -7,6 +7,7 @@ import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { apiClient } from '@/lib/apiClient';
 import { notifyPaymentConfirmed } from '@/lib/notificationService';
+import { generateBookingCode } from "@/lib/bookingCodes";
 import QRCode from "qrcode";
 
 // ── Formatage carte bancaire ──────────────────────────────────────────────────
@@ -471,7 +472,7 @@ function QRCodeDisplay({ value, size = 200 }) {
 }
 
 // ── Écran de confirmation avec QR Code ───────────────────────────────────────
-function ConfirmationSuccess({ totalPrice, icsData, crgCode, paymentMode, acompteAmount, payMethod }) {
+function ConfirmationSuccess({ totalPrice, icsData, crgCode, bookingCode, paymentMode, acompteAmount, payMethod }) {
   const [icsDownloaded, setIcsDownloaded] = useState(false);
 
   // Auto-download ICS on mount (iPhone/iOS will prompt "Ajouter à l'agenda")
@@ -550,6 +551,21 @@ function ConfirmationSuccess({ totalPrice, icsData, crgCode, paymentMode, acompt
           Communiquez ce code au professionnel à votre arrivée.<br />
           Il débloquera votre prestation et vos points fidélité.
         </p>
+
+        {bookingCode && (
+          <div className="w-full bg-white/5 border border-white/15 rounded-2xl px-4 py-3 flex items-center justify-between">
+            <div>
+              <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">ID de réservation</p>
+              <p className="text-[15px] font-black text-white tracking-widest">{bookingCode}</p>
+            </div>
+            <button
+              onClick={() => navigator.clipboard.writeText(bookingCode).catch(() => {})}
+              className="text-[10px] font-black text-white/70 uppercase tracking-widest underline underline-offset-2 active:scale-95"
+            >
+              Copier
+            </button>
+          </div>
+        )}
 
         <button
           onClick={shareCode}
@@ -670,6 +686,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
   const [paid, setPaid] = useState(false);
   const [icsData, setIcsData] = useState(null);
   const [crgCode] = useState(() => generateCRG());
+  const [bookingCode] = useState(() => generateBookingCode());
   const [editingLieu, setEditingLieu] = useState(false);
   const [customAddress, setCustomAddress] = useState("");
   const [customPostalCode, setCustomPostalCode] = useState("");
@@ -920,6 +937,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
       seat_number: booking.seat || null,
       payment_type: pType,
       crg_code: crgCode,
+      booking_code: bookingCode,
       notes: clientNotes || "",
       addons: booking.bundle ? { bundle_id: booking.bundle.id, bundle_name: booking.bundle.name, bundle_price: booking.bundle.bundle_price } : null,
       source: "app",
@@ -965,6 +983,8 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
           notes: payload.notes,
           salon_name: payload.salon_name,
           salon_address: payload.salon_address,
+          crg_code: payload.crg_code,
+          booking_code: payload.booking_code,
           created_by_id: user.id,
         }).select().single();
         if (reservationError) throw new Error(reservationError.message || apiError.message);
@@ -1060,6 +1080,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
         totalPrice={totalPrice}
         icsData={icsData}
         crgCode={crgCode}
+        bookingCode={bookingCode}
         paymentMode={paymentMode}
         acompteAmount={acompteAmount}
         payMethod={payMethod}

@@ -10,6 +10,7 @@ import { supabase } from "@/api/supabaseClient";
 import { entities } from "@/api/entities";
 import { getEffectiveOpening, formatOpeningHours, isOpenNow } from "@/lib/hours";
 import { formatAnswersSummary } from "@/lib/questionnaires";
+import { generateBookingCode, generateClientCode } from "@/lib/bookingCodes";
 
 /** Normalise pour le matching : minuscules + sans accents. */
 export function normText(s) {
@@ -376,6 +377,8 @@ export async function createAssistantReservation({
     notes: answersSummary ? `${baseNotes} Préférences : ${answersSummary}` : baseNotes,
     salon_name: salonName || "",
     source: "maria_assistant",
+    booking_code: generateBookingCode(),
+    crg_code: generateClientCode(),
   };
   const { data, error } = await supabase.from("Reservation").insert(payload).select().single();
   if (error) throw new Error(error.message || "Création de la réservation impossible.");

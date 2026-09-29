@@ -103,7 +103,9 @@ export class GrokVoiceSession {
           this.ws = ws;
           this.connected = true;
           this.mode = withAgent ? 'agent' : 'direct';
-          if (!withAgent) this._sendSessionUpdate();
+          // TOUJOURS configurer la session (VAD + transcription), même en
+          // mode agent_id — sinon le serveur ne répond jamais tout seul.
+          this._sendSessionUpdate();
           this.emit('state', { state: 'connected', mode: this.mode });
           this._startMic().catch((e) => {
             this.emit('error', { message: "Micro inaccessible : autorisez l'accès au micro." });
@@ -114,7 +116,8 @@ export class GrokVoiceSession {
         if (msg.type === 'error') {
           // En mode agent, une erreur précoce (ex: agent_id rejeté) déclenche le repli.
           if (!this.connected) { try { ws.close(); } catch {} done(false); return; }
-          this.emit('error', { message: msg.error?.message || 'Erreur de session vocale.' });
+          const code = msg.error?.code || msg.code || '';
+          this.emit('error', { message: (msg.error?.message || 'Erreur de session vocale.') + (code ? ` (${code})` : '') });
           return;
         }
         if (this.connected && ws === this.ws) this._handleEvent(msg);
@@ -136,17 +139,31 @@ export class GrokVoiceSession {
 
   _sendSessionUpdate() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({
-      type: 'session.update',
-      session: {
-        voice: this.voice,
-        instructions: this.instructions,
-        turn_detection: { type: 'server_vad', threshold: 0.5, silence_duration_ms: 700 },
-        input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
-        input_audio_transcription: { model: 'grok-transcribe', language: this.language },
-      },
-    }));
+    const isAgent = this.mode === 'agent';
+    // ── Point critique ──────────────────────────────────────────────────
+    // Sans turn_detection: server_vad, le serveur n'enclenche JAMAIS la
+    // réponse tout seul : l'audio s'accumule dans le buffer d'entrée et
+    // l'agent « n'écoute pas » (il parle mais ne répond pas). La console
+    // xAI envoie ce réglage, nous devons le faire aussi — Y COMPRIS en
+    // mode agent_id (avant, on ne l'envoyait qu'en mode direct).
+    const session = {
+      turn_detection: { type: 'server_vad', threshold: 0.5, silence_duration_ms: 700 },
+      input_audio_format: 'pcm16',
+      output_audio_format: 'pcm16',
+      // Forme documentée par xAI : audio.input.transcription. Sans elle,
+      // aucune transcription de l'utilisateur n'arrive.
+      audio: { input: { transcription: { model: 'grok-transcribe', language: this.language || 'fr' } } },
+    };
+    if (!isAgent) {
+      // Mode direct : pas d'agent console, on configure tout.
+      session.modalities = ['text', 'audio'];
+      session.voice = this.voice || 'ara';
+      if (this.instructions) session.instructions = this.instructions;
+    }
+    // En mode agent : on ne touche PAS à voice/instructions — ils viennent
+    // de la configuration de l'agent dans la console xAI. On active
+    // seulement la détection de parole et la transcription.
+    this.ws.send(JSON.stringify({ type: 'session.update', session }));
   }
 
   // ── Micro ────────────────────────────────────────────────────────────────
@@ -296,9 +313,25 @@ export class GrokVoiceSession {
   // ── Événements serveur ──────────────────────────────────────────────────
   _handleEvent(msg) {
     switch (msg.type) {
+      case 'session.updated':
+        // Confirmation que notre configuration (VAD…) est bien appliquée.
+        this.emit('pipeline', { stage: 'ready' });
+        break;
       case 'input_audio_buffer.speech_started':
         this._stopPlayback();
         this.emit('speaking', { who: 'user' });
+        // Le SERVEUR a détecté la parole : preuve qu'il nous entend.
+        this.emit('pipeline', { stage: 'listening' });
+        break;
+      case 'input_audio_buffer.speech_stopped':
+        // Fin de parole détectée : le serveur prépare la réponse.
+        this.emit('pipeline', { stage: 'thinking' });
+        break;
+      case 'input_audio_buffer.committed':
+        this.emit('pipeline', { stage: 'transcribing' });
+        break;
+      case 'response.created':
+        this.emit('pipeline', { stage: 'responding' });
         break;
       case 'conversation.item.input_audio_transcription.updated':
       case 'conversation.item.input_audio_transcription.completed': {

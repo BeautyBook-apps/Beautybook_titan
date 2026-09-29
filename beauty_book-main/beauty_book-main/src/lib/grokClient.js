@@ -8,6 +8,7 @@
 
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
+import { generateBookingCode, generateClientCode, ensureReservationQr } from '@/lib/bookingCodes';
 
 const GROK_API_KEY = "3cdf6cab-e492-42ef-b8d8-e680037d9da9";
 const GROK_API_URL = "https://api.xai.com/v1/chat/completions";
@@ -166,6 +167,8 @@ export async function executeServerTool(toolName, args, userEmail) {
     try {
       let createdBooking = null;
       if (userEmail) {
+        const bookingCode = generateBookingCode();
+        const clientCode = generateClientCode();
         createdBooking = await entities.Reservation.create({
           pro_email: userEmail,
           client_name: args.client_name || "Client Appel Vocal",
@@ -176,18 +179,27 @@ export async function executeServerTool(toolName, args, userEmail) {
           status: "confirme",
           total_price: args.service_name?.includes("Balayage") ? 95 : args.service_name?.includes("Soin") ? 80 : 55,
           source: "receptionniste_ia",
-          notes: args.notes || ""
+          notes: args.notes || "",
+          booking_code: bookingCode,
+          crg_code: clientCode,
         }).catch(() => null);
+        // QR code généré en arrière-plan (email de confirmation si un email est connu plus tard)
+        if (createdBooking?.id) {
+          ensureReservationQr({ ...createdBooking, booking_code: bookingCode, crg_code: clientCode }).catch(() => {});
+        }
       }
 
       return {
         status: "success",
         booking_id: createdBooking?.id || `rdv-ia-${Date.now()}`,
+        booking_code: createdBooking?.booking_code || null,
         client_name: args.client_name,
         service_name: args.service_name,
         date: args.date,
         time_slot: args.time_slot,
-        message: "Réservation enregistrée en BDD Supabase."
+        message: createdBooking?.booking_code
+          ? `Réservation enregistrée. COMMUNIQUEZ AU CLIENT son ID de réservation : ${createdBooking.booking_code} (à saisir dans l'application, rubrique Rendez-vous → Ajouter un ID de réservation).`
+          : "Réservation enregistrée en BDD Supabase."
       };
     } catch (err) {
       return {

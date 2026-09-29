@@ -83,6 +83,9 @@ export default function ReceptionnistIA() {
   // Session voix en direct
   const [voiceState, setVoiceState] = useState('idle'); // idle | connecting | live | error
   const [voiceError, setVoiceError] = useState('');
+  // Étape du pipeline vocal serveur : listening | thinking | responding | null.
+  // Affichée en direct pour prouver que le serveur entend et répond.
+  const [pipeStage, setPipeStage] = useState(null);
   const [speaking, setSpeaking] = useState(null); // 'user' | 'agent' | null
   const [muted, setMuted] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
@@ -179,6 +182,7 @@ export default function ReceptionnistIA() {
         setVoiceState('idle');
         setSpeaking(null);
         setMicLevel(0);
+        setPipeStage(null);
       } else if (p.state === 'error') {
         setVoiceState('error');
       }
@@ -187,6 +191,10 @@ export default function ReceptionnistIA() {
       setVoiceState((s) => (s === 'live' ? s : 'error'));
     } else if (type === 'mic-level') {
       setMicLevel(p.level || 0);
+    } else if (type === 'pipeline') {
+      // Étapes serveur : listening (il nous entend) → thinking →
+      // responding. 'ready' = config VAD acceptée par le serveur.
+      setPipeStage(p.stage === 'ready' ? null : p.stage);
     } else if (type === 'speaking') {
       setSpeaking(p.who);
       if (p.who === 'agent') {
@@ -226,6 +234,7 @@ export default function ReceptionnistIA() {
           return t;
         });
         setSpeaking(null);
+        setPipeStage(null); // réponse terminée → retour à « À vous… »
       }
     }
   }, []);
@@ -262,6 +271,7 @@ export default function ReceptionnistIA() {
     sessionRef.current = null;
     setMuted(false);
     setMicLevel(0);
+    setPipeStage(null);
   };
 
   const toggleMute = () => {
@@ -469,6 +479,16 @@ export default function ReceptionnistIA() {
                       {' · '}
                       {speaking === 'agent' ? 'Maria parle…' : speaking === 'user' ? 'Vous parlez…' : muted ? 'Micro coupé' : 'À vous…'}
                     </p>
+                    {/* Étape serveur en direct : prouve que Grok entend / réfléchit / répond */}
+                    {pipeStage && (
+                      <p className="rp-pipe-stage">
+                        {pipeStage === 'listening'
+                          ? '🎤 Je vous écoute…'
+                          : pipeStage === 'responding'
+                            ? '🗣️ Je vous réponds…'
+                            : '💭 Je réfléchis…'}
+                      </p>
+                    )}
                     {/* Niveau du micro : la barre bouge quand vous parlez = l'agent vous entend */}
                     <div className="rp-mic-meter" aria-hidden="true">
                       <div className="rp-mic-meter-fill" style={{ width: `${Math.round(micLevel * 100)}%` }} />
