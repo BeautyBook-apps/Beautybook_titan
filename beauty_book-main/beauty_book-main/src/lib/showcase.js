@@ -60,3 +60,33 @@ export function showcaseTargetFromRdv(rdv = {}) {
   if (bundleId) return { serviceId: String(bundleId), isBundle: true };
   return { serviceId: rdv.service_id ? String(rdv.service_id) : "", isBundle: false };
 }
+
+/**
+ * Résout la cible vitrine d'un RDV, avec repli par nom pour les anciennes
+ * réservations dont le service_id est vide (ex. créées avant le champ).
+ * Retourne { serviceId, isBundle } — serviceId peut rester vide si introuvable.
+ */
+export async function resolveShowcaseTarget(rdv = {}) {
+  const direct = showcaseTargetFromRdv(rdv);
+  if (direct.serviceId) return direct;
+  const proEmail = (rdv.pro_email || "").trim();
+  const name = (rdv.service_name || "").trim();
+  if (!proEmail || !name) return direct;
+  try {
+    // 1) Service du pro portant ce nom (insensible à la casse)
+    const { data: svc } = await supabase
+      .from("Service").select("id")
+      .eq("pro_email", proEmail)
+      .ilike("title", name)
+      .limit(1).maybeSingle();
+    if (svc?.id) return { serviceId: String(svc.id), isBundle: false };
+    // 2) Bundle du pro portant ce nom
+    const { data: bdl } = await supabase
+      .from("ServiceBundle").select("id")
+      .eq("pro_email", proEmail)
+      .ilike("name", name)
+      .limit(1).maybeSingle();
+    if (bdl?.id) return { serviceId: String(bdl.id), isBundle: true };
+  } catch { /* repli silencieux : on garde direct */ }
+  return direct;
+}

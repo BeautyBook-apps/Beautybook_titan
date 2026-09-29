@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Camera, ImagePlus, GripVertical, Trash2, Pencil, Check, X, ArrowRight, Loader2 } from "lucide-react";
 import { uploadFile } from "@/api/entities";
-import { addShowcasePhotos, showcaseTargetFromRdv } from "@/lib/showcase";
+import { addShowcasePhotos, resolveShowcaseTarget } from "@/lib/showcase";
 
 // ── Étape « Photos de la prestation » ─────────────────────────────────
 // Affichée après validation du code client. Le pro peut :
@@ -137,7 +137,7 @@ export default function ShowcasePhotoStep({ rdv = {}, onDone, onSkip }) {
         if (!url) throw new Error("URL manquante");
         uploaded.push({ url, caption: selected[i].caption || "" });
       }
-      const { serviceId, isBundle } = showcaseTargetFromRdv(rdv);
+      const { serviceId, isBundle } = await resolveShowcaseTarget(rdv);
       if (!serviceId) throw new Error("Service introuvable");
       setProgress("Publication…");
       await addShowcasePhotos({ serviceId, isBundle, proEmail: rdv.pro_email || "", photos: uploaded });

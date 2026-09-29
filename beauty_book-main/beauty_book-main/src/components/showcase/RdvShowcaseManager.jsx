@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Camera } from "lucide-react";
 import ShowcaseSection from "./ShowcaseSection";
 import ShowcasePhotoStep from "./ShowcasePhotoStep";
-import { showcaseTargetFromRdv } from "@/lib/showcase";
+import { resolveShowcaseTarget } from "@/lib/showcase";
 
 // ── Section « Photos de la prestation » dans le Détail du RDV ─────────
 // Pour un RDV terminé : affiche les photos déjà publiées dans
@@ -11,8 +11,15 @@ import { showcaseTargetFromRdv } from "@/lib/showcase";
 export default function RdvShowcaseManager({ rdv }) {
   const [showPicker, setShowPicker] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [target, setTarget] = useState(null);
 
-  const target = showcaseTargetFromRdv(rdv);
+  useEffect(() => {
+    let alive = true;
+    // Résolution asynchrone : repli par nom pour les anciens RDV sans service_id
+    resolveShowcaseTarget(rdv).then(t => { if (alive) setTarget(t?.serviceId ? t : null); });
+    return () => { alive = false; };
+  }, [rdv?.id]);
+
   if (!target) return null;
 
   const closeAndReload = () => {
