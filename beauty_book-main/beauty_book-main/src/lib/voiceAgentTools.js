@@ -1,12 +1,14 @@
 // ─── Outils de l'agent vocal (function calling temps réel) ─────────────────
 // Exécutés CÔTÉ CLIENT quand l'agent vocal (mode direct) appelle un outil.
 // Chaque outil lit/écrit les VRAIES données Supabase du salon :
-//   - check_availability : créneaux libres calculés depuis les horaires du
-//     salon + les réservations existantes (aucun créneau inventé) ;
+//   - check_availability : créneaux libres calculés EXACTEMENT comme dans
+//     l'application (durée du service + 15 min de nettoyage, sièges libres) ;
 //   - get_team           : vraie équipe du salon (choix du professionnel) ;
 //   - get_service_questions : questions de préparation du service (étape 2) ;
+//   - get_additional_services : vrais services supplémentaires du salon ;
 //   - create_booking     : crée la réservation dans `Reservation`
-//     (statut en_attente → visible dans la page Gestion agenda du pro) ;
+//     (statut confirme → section « Confirmés » de la Gestion agenda du pro,
+//     majoration nuit +50 % si 21h→7h, services supplémentaires inclus) ;
 //   - find_booking / reschedule_booking / cancel_booking : gestion des RDV ;
 //   - end_call           : l'agent demande la fin de l'appel.
 //
@@ -14,12 +16,16 @@
 // JAMAIS un faux succès. L'agent dira alors honnêtement qu'il ne peut pas
 // accéder au planning (cf. ses instructions).
 import { supabase } from '@/api/supabaseClient';
-import { getEffectiveOpening, DAY_KEYS, timeToMin } from './hours';
+import { getEffectiveOpening, applyNightMode, DAY_KEYS, timeToMin } from './hours';
 import { generateBookingCode, generateClientCode } from './bookingCodes';
 import { getQuestionnaireForService, detectCategory } from './questionnaires';
 import { getEffectiveQuestions, normalizeQuestion, dominantCategory } from './serviceQuestions';
 
-const SLOT_STEP = 30; // pas de génération des créneaux (minutes)
+// ─── Règle professionnelle des créneaux (identique à l'application) ──────────
+// Intervalle entre deux créneaux = durée du service + SLOT_BUFFER_MIN (15)
+// minutes de nettoyage/transition. Un créneau n'est proposé que s'il reste
+// au moins un siège libre (sièges occupés < seats_count du salon).
+const SLOT_BUFFER_MIN = 15;
 
 function normEmail(e) {
   return String(e || '').trim().toLowerCase();
@@ -73,10 +79,12 @@ async function getProfil(proEmail) {
   // requête (400) si une seule colonne du select n'existe pas — c'est ce qui
   // faisait dire à l'agent « je ne parviens pas à accéder au planning ».
   // (Il n'y a pas de colonne `adresse` ni `telephone` sur cette table.)
+  // seats_count + travail_nuit : lus par l'application (StepCalendar) pour le
+  // calcul des créneaux — indispensables pour ne rien inventer.
   const { data, error } = await qread(() =>
     supabase
       .from('ProfilPro')
-      .select('salon_name,address,phone,ouverture,horaires')
+      .select('salon_name,address,phone,ouverture,horaires,seats_count,travail_nuit')
       .eq('user_email', normEmail(proEmail))
       .maybeSingle()
   );
@@ -210,11 +218,62 @@ async function getServiceRowForQuestions(email, { service_id, service_name }) {
   return res.data || null;
 }
 
+// ─── Horaires effectifs du salon (même fusion que l'application) ─────────────
+// StepCalendar fusionne ouverture/horaires (+ variantes capitalisées) puis
+// applique le mode nuit (09:00 → 07:00 le lendemain) sans détruire les
+// horaires de jour stockés. L'agent vocal fait EXACTEMENT pareil.
+function mergedOpening(profil) {
+  let ouvRaw = profil?.ouverture;
+  let horRaw = profil?.horaires;
+  if (typeof ouvRaw === 'string') { try { ouvRaw = JSON.parse(ouvRaw); } catch { ouvRaw = null; } }
+  if (typeof horRaw === 'string') { try { horRaw = JSON.parse(horRaw); } catch { horRaw = null; } }
+  const DAY_NAMES = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+  const merged = {};
+  DAY_NAMES.forEach((dn) => {
+    const cap = dn.charAt(0).toUpperCase() + dn.slice(1);
+    merged[dn] =
+      (ouvRaw && ouvRaw[dn]) || (horRaw && horRaw[dn]) ||
+      (ouvRaw && ouvRaw[cap]) || (horRaw && horRaw[cap]) || null;
+  });
+  if (ouvRaw?.conges) merged.conges = ouvRaw.conges;
+  else if (horRaw?.conges) merged.conges = horRaw.conges;
+  const anyDay = DAY_NAMES.some((dn) => merged[dn] && typeof merged[dn] === 'object');
+  const base = anyDay ? merged : (ouvRaw || horRaw || null);
+  return applyNightMode(base, !!(profil && profil.travail_nuit));
+}
+
+function isInConges(date, ouverture) {
+  let raw = ouverture;
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { return false; } }
+  const conges = raw?.conges || [];
+  if (!conges.length) return false;
+  const ts = date.getTime();
+  return conges.some((c) => {
+    if (!c?.start || !c?.end) return false;
+    const s = new Date(`${c.start}T00:00:00`).getTime();
+    const e = new Date(`${c.end}T23:59:59`).getTime();
+    return ts >= s && ts <= e;
+  });
+}
+
+// Majoration nocturne : +50 % pour tout créneau entre 21h00 et 07h00
+// (même règle que le parcours de réservation de l'application).
+export function isNightTimeSlot(slot) {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(slot || '').trim());
+  if (!m) return false;
+  const h = Number(m[1]);
+  return h >= 21 || h < 7;
+}
+export function nightSurchargeFor(basePrice, slot) {
+  if (!isNightTimeSlot(slot) || basePrice == null) return 0;
+  return Math.round(Number(basePrice) * 0.5 * 100) / 100;
+}
+
 async function getBookings(proEmail, dateStr) {
   const { data, error } = await qread(() =>
     supabase
       .from('Reservation')
-      .select('time_slot,duration_min,end_time_slot,status')
+      .select('time_slot,duration_min,end_time_slot,persons,status')
       .eq('pro_email', normEmail(proEmail))
       .eq('date', dateStr)
   );
@@ -223,12 +282,18 @@ async function getBookings(proEmail, dateStr) {
 }
 
 /**
- * Calcule les créneaux libres pour une date et une durée de prestation.
- * Retourne { ok, slots, reason } — jamais de créneaux inventés.
+ * Calcule les créneaux libres pour une date et une durée de prestation —
+ * avec la MÉTHODE EXACTE de l'application (StepCalendar) :
+ *   - intervalle entre créneaux = durée du service + 15 min de nettoyage ;
+ *   - pauses du jour exclues ; congés exclus ; créneaux passés exclus ;
+ *   - mode nuit (21:00 → 07:00) quand le salon l'a activé ;
+ *   - un créneau n'est libre que si sièges occupés < seats_count du salon
+ *     (chevauchement calculé avec le buffer des deux côtés, en personnes).
+ * Retourne { ok, slots: [{ time, seats_left }], closed } — jamais de créneaux inventés.
  */
 async function findFreeSlots(proEmail, dateStr, durationMin) {
   const d = parseDate(dateStr);
-  if (!d) return { ok: false, reason: 'Date invalide (format attendu : AAAA-MM-JJ).' };
+  if (!d) return { ok: false, reason: 'INVALID_DATE' };
   // On distingue « erreur d'accès au profil » (réseau/RLS → réessayer plus
   // tard) de « horaires réellement non configurés » : les deux donnaient
   // avant le même message trompeur.
@@ -236,7 +301,7 @@ async function findFreeSlots(proEmail, dateStr, durationMin) {
   if (profilErr) {
     return { ok: false, reason: 'IMPOSSIBLE_DE_LIRE_LE_PLANNING' };
   }
-  const opening = getEffectiveOpening(profil, null);
+  const opening = mergedOpening(profil);
   if (!opening) {
     return { ok: false, reason: 'HORAIRES_NON_CONFIGURES' };
   }
@@ -245,37 +310,90 @@ async function findFreeSlots(proEmail, dateStr, durationMin) {
   if (!day || day.open !== true || !day.start || !day.end) {
     return { ok: true, slots: [], closed: true };
   }
-  const startMin = timeToMin(day.start);
-  let endMin = timeToMin(day.end);
-  if (endMin <= startMin) endMin += 1440; // plage de nuit
+  if (isInConges(d, opening)) {
+    return { ok: true, slots: [], closed: true };
+  }
+  const duration = Math.max(5, Number(durationMin) || 60);
+  const interval = duration + SLOT_BUFFER_MIN;
+  const openMin = timeToMin(day.start);
+  let closeMin = timeToMin(day.end);
+  if (openMin == null || closeMin == null) {
+    return { ok: false, reason: 'HORAIRES_NON_CONFIGURES' };
+  }
+  const overnightRange = closeMin <= openMin; // ex : 09:00 → 07:00 (mode nuit)
+  const endCursor = overnightRange ? closeMin + 1440 : closeMin;
   const pauseS = day.pause_start ? timeToMin(day.pause_start) : null;
   const pauseE = day.pause_end ? timeToMin(day.pause_end) : null;
-
-  const existing = await getBookings(proEmail, dateStr);
-  if (existing === null) {
-    return { ok: false, reason: 'IMPOSSIBLE_DE_LIRE_LE_PLANNING' };
-  }
-  const busy = existing.map((r) => {
-    const s = timeToMin(r.time_slot || '00:00');
-    const e = r.end_time_slot ? timeToMin(r.end_time_slot) : s + (r.duration_min || 60);
-    return [s, e];
-  });
 
   const now = new Date();
   const isToday =
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
-  const nowMin = now.getHours() * 60 + now.getMinutes() + 15; // marge 15 min
+  const minSlotMin = isToday ? now.getHours() * 60 + now.getMinutes() + 15 : null; // marge 15 min
+
+  const existing = await getBookings(proEmail, dateStr);
+  if (existing === null) {
+    return { ok: false, reason: 'IMPOSSIBLE_DE_LIRE_LE_PLANNING' };
+  }
+  const seatsTotal = Math.max(1, Number(profil?.seats_count) || 1);
+  const busy = existing.map((r) => {
+    const s = timeToMin(r.time_slot || '00:00') ?? 0;
+    let e = r.end_time_slot ? timeToMin(r.end_time_slot) : null;
+    if (e == null) e = s + (Number(r.duration_min) || 60);
+    if (e < s) e += 1440;
+    return { s, e, persons: Math.max(1, Number(r.persons) || 1) };
+  });
 
   const slots = [];
-  for (let t = startMin; t + durationMin <= endMin; t += SLOT_STEP) {
-    if (pauseS != null && pauseE != null && t < pauseE && t + durationMin > pauseS) continue;
-    if (isToday && t < nowMin) continue;
-    const overlap = busy.some(([s, e]) => t < e && t + durationMin > s);
-    if (!overlap) slots.push(fmtSlot(t));
+  const pushIfFree = (cursor) => {
+    const slotStr = fmtSlot(cursor);
+    const endStr = fmtSlot(cursor + duration);
+    // Pause du jour : le créneau [début, fin] ne doit pas la chevaucher
+    if (pauseS != null && pauseE != null && timeToMin(slotStr) < pauseE && timeToMin(endStr) > pauseS) return;
+    // Créneaux passés (le segment après minuit appartient au lendemain)
+    if (minSlotMin !== null) {
+      const past = cursor >= 1440
+        ? (minSlotMin < 720 ? (cursor - 1440) < minSlotMin : false)
+        : cursor < minSlotMin;
+      if (past) return;
+    }
+    // Sièges occupés : toute réservation active dont la plage (+ buffer)
+    // chevauche le créneau candidat (+ buffer), en nombre de personnes.
+    // Segment nuit (>= 24h) : les réservations du petit matin sont décalées
+    // de +1440 pour être comparées dans le même référentiel.
+    const slotEndBuf = cursor + duration + SLOT_BUFFER_MIN;
+    let occupied = 0;
+    for (const b of busy) {
+      let bs = b.s;
+      let be = b.e;
+      if (cursor >= 1440 && bs < 720) { bs += 1440; be += 1440; }
+      const beBuf = be + SLOT_BUFFER_MIN;
+      if (cursor < beBuf && slotEndBuf > bs) occupied += b.persons;
+    }
+    if (occupied < seatsTotal) slots.push({ time: slotStr, seats_left: seatsTotal - occupied });
+  };
+
+  let cursor = openMin;
+  while (cursor + duration <= endCursor) {
+    pushIfFree(cursor);
+    cursor += interval;
   }
-  return { ok: true, slots, closed: false };
+
+  // Plage nocturne supplémentaire si le mode nuit est actif mais que la
+  // plage du jour ne couvre pas déjà la nuit (21:00 → 07:00 le lendemain).
+  const travailNuit = !!(profil && profil.travail_nuit);
+  if (travailNuit && !overnightRange) {
+    const nightStart = 21 * 60;
+    const nightEnd = 31 * 60;
+    let nc = nightStart;
+    while (nc + duration <= nightEnd) {
+      pushIfFree(nc);
+      nc += interval;
+    }
+  }
+
+  return { ok: true, slots, closed: false, seats_total: seatsTotal };
 }
 
 // ─── Définitions des outils (envoyées dans session.update) ──────────────────
@@ -322,9 +440,20 @@ const DEFINITIONS = [
   },
   {
     type: 'function',
+    name: 'get_additional_services',
+    description:
+      "Retourne les VRAIS services supplémentaires du salon (options proposées par le professionnel : soins, massages, finitions… avec leurs prix réels). À appeler dès que le client a choisi sa prestation principale, pour lui proposer ces options AVANT le récapitulatif.",
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    type: 'function',
     name: 'create_booking',
     description:
-      "Crée la réservation dans le planning du salon (prestation OU offre pack). Le rendez-vous apparaît dans la page Gestion agenda du professionnel.",
+      "Crée la réservation dans le planning du salon (prestation OU offre pack). Le rendez-vous apparaît dans la section « Confirmés » de la page Gestion agenda du professionnel.",
     parameters: {
       type: 'object',
       properties: {
@@ -340,6 +469,11 @@ const DEFINITIONS = [
         payment_preference: { type: 'string', description: "Préférence de paiement exprimée par le client : 'onsite' (règlement au salon) ou 'card' (paiement par carte — le salon enverra un lien de paiement sécurisé)" },
         persons: { type: 'integer', description: 'Nombre de personnes pour ce rendez-vous (1 par défaut)' },
         collaborateur: { type: 'string', description: "Nom du/de la professionnel(le) choisi(e) par le client — doit figurer dans get_team, sinon laisser vide" },
+        additional_service_names: {
+          type: 'array',
+          items: { type: 'string' },
+          description: "Noms EXACTS des services supplémentaires acceptés par le client (tels que retournés par get_additional_services). Leurs prix réels sont repris du catalogue et ajoutés au total.",
+        },
       },
       required: ['date', 'time_slot', 'client_name'],
     },
@@ -493,6 +627,7 @@ function buildExecutors(proEmail) {
       }
       const serviceName = presta?.name || 'prestation';
       const duration = Number(presta?.duration || 60);
+      const price = presta?.price != null ? Number(presta.price) : null;
       const res = await findFreeSlots(email, dateStr, duration);
       if (!res.ok) {
         if (res.reason === 'HORAIRES_NON_CONFIGURES') {
@@ -506,16 +641,56 @@ function buildExecutors(proEmail) {
       if (res.closed) {
         return { status: 'success', available: false, date: dateStr, reason: 'closed', message: 'Le salon est fermé ce jour-là.' };
       }
+      // Règle tarifaire : créneau de nuit (21h00 → 07h00) = +50 % de majoration.
+      const withNight = res.slots.slice(0, 8).map((s) => ({
+        time: s.time,
+        seats_left: s.seats_left,
+        night: isNightTimeSlot(s.time),
+        night_surcharge: nightSurchargeFor(price, s.time),
+        total_with_night: price != null ? Math.round((price + nightSurchargeFor(price, s.time)) * 100) / 100 : null,
+      }));
       return {
         status: 'success',
         available: res.slots.length > 0,
         date: dateStr,
         service: serviceName,
         duration_min: duration,
-        free_slots: res.slots.slice(0, 8),
+        price: price,
+        currency: '€',
+        night_rule: 'Majoration nocturne de +50 % pour tout créneau entre 21h00 et 07h00 — à annoncer systématiquement au client.',
+        free_slots: withNight,
+        hint: "Ces créneaux sont calculés comme dans l'application (durée du service + 15 min de nettoyage, sièges réellement libres) : propose uniquement ceux-ci, 2 ou 3 maximum à la fois. Quand le client choisit sa prestation, annonce TOUJOURS son prix et sa durée.",
       };
     } catch (e) {
       return err("Je n'arrive pas à accéder au planning pour le moment. Propose de prendre un message.", 'NO_ACCESS');
+    }
+  }
+
+  // ── Services supplémentaires du salon (options du pro, prix réels) ────────
+  async function getAdditionalServices() {
+    try {
+      const { data, error } = await qread(() =>
+        supabase
+          .from('CatalogueOption')
+          .select('name,price,category,usage_count')
+          .eq('pro_email', email)
+          .order('usage_count', { ascending: false })
+          .limit(30)
+      );
+      if (error) return err("Je n'arrive pas à lire les services supplémentaires pour le moment.", 'NO_ACCESS');
+      const list = (data || [])
+        .filter((o) => String(o?.name || '').trim())
+        .map((o) => ({ name: String(o.name).trim(), price: o.price != null ? Number(o.price) : null }));
+      if (list.length === 0) {
+        return { status: 'success', services: [], message: "Le salon n'a renseigné aucun service supplémentaire : ne propose aucune option." };
+      }
+      return {
+        status: 'success',
+        services: list,
+        hint: "Propose naturellement 1 à 3 de ces options après le choix de la prestation principale (« Souhaitez-vous ajouter… ? »), avec leurs VRAIS prix. Ne les impose pas, ne les invente pas. Transmets les noms EXACTS acceptés à create_booking via additional_service_names.",
+      };
+    } catch {
+      return err("Je n'arrive pas à lire les services supplémentaires pour le moment.", 'NO_ACCESS');
     }
   }
 
@@ -543,12 +718,13 @@ function buildExecutors(proEmail) {
       const check = await findFreeSlots(email, dateStr, duration);
       if (!check.ok) return err("Je n'arrive pas à accéder au planning pour le moment.", 'NO_ACCESS');
       if (check.closed) return err('Le salon est fermé ce jour-là.', 'CLOSED');
-      if (!check.slots.includes(slot)) {
+      const slotInfo = check.slots.find((s) => s.time === slot);
+      if (!slotInfo) {
         return {
           status: 'error',
           code: 'SLOT_TAKEN',
-          message: `Le créneau ${slot} n'est plus disponible. Propose au client : ${check.slots.slice(0, 3).join(', ') || 'aucun autre créneau ce jour-là'}.`,
-          alternatives: check.slots.slice(0, 3),
+          message: `Le créneau ${slot} n'est plus disponible. Propose au client : ${check.slots.slice(0, 3).map((s) => s.time).join(', ') || 'aucun autre créneau ce jour-là'}.`,
+          alternatives: check.slots.slice(0, 3).map((s) => s.time),
         };
       }
 
@@ -557,6 +733,28 @@ function buildExecutors(proEmail) {
       const crg_code = generateClientCode();
       const [hh, mm] = slot.split(':').map(Number);
       const endMin = hh * 60 + mm + duration;
+
+      // ── Services supplémentaires acceptés : prix repris du catalogue ──────
+      // (jamais ceux dictés par l'agent — on ne fait confiance qu'au salon).
+      const wantedAddons = Array.isArray(args.additional_service_names)
+        ? args.additional_service_names.map((n) => String(n || '').trim().toLowerCase()).filter(Boolean)
+        : [];
+      let addons = [];
+      let addonsTotal = 0;
+      if (wantedAddons.length > 0) {
+        const { data: cat } = await qread(() =>
+          supabase.from('CatalogueOption').select('name,price').eq('pro_email', email).limit(100)
+        );
+        const byName = new Map((cat || []).map((o) => [String(o.name || '').trim().toLowerCase(), o]));
+        for (const w of wantedAddons) {
+          const o = byName.get(w);
+          if (o) {
+            const p = o.price != null ? Number(o.price) : 0;
+            addons.push({ name: String(o.name).trim(), price: p });
+            addonsTotal += p;
+          }
+        }
+      }
 
       // ── Questionnaire vocal + préférence de paiement (parcours vocal) ──
       // Rien n'est débité par l'agent vocal : payment_status reste 'non_paye',
@@ -568,10 +766,21 @@ function buildExecutors(proEmail) {
         : 'au salon';
       const persons = Math.max(1, Math.min(20, parseInt(args.persons, 10) || 1));
       const collaborateur = String(args.collaborateur || '').trim() || null;
+
+      // ── Tarification : base × personnes + majoration nuit (+50 % si 21h→7h)
+      // + services supplémentaires. Même règle que le parcours de l'application.
+      const baseTotal = price != null ? price * persons : null;
+      const nightSurcharge = nightSurchargeFor(baseTotal, slot);
+      const totalPrice = baseTotal != null
+        ? Math.round((baseTotal + nightSurcharge + addonsTotal) * 100) / 100
+        : null;
+
       const notesParts = [];
       if (qaText) notesParts.push(`[Questionnaire vocal] ${qaText}`);
       notesParts.push(`[Paiement] préférence du client : ${payLabel}`);
       if (persons > 1) notesParts.push(`[Personnes] ${persons}`);
+      if (addons.length > 0) notesParts.push(`[Services supplémentaires] ${addons.map((a) => `${a.name} (${a.price}€)`).join(' ; ')}`);
+      if (nightSurcharge > 0) notesParts.push(`[Majoration nuit +50%] ${nightSurcharge}€`);
       const extraNotes = String(args.notes || '').trim();
       if (extraNotes) notesParts.push(extraNotes);
 
@@ -583,14 +792,15 @@ function buildExecutors(proEmail) {
         service_id: presta?.id || args.service_id || null,
         service_name: serviceName,
         service_price: price,
-        total_price: price != null ? price * persons : null,
+        total_price: totalPrice,
+        night_surcharge: nightSurcharge,
         persons,
         collaborateur,
         date: dateStr,
         time_slot: slot,
         duration_min: duration,
         end_time_slot: fmtSlot(endMin),
-        status: 'en_attente',
+        status: 'confirme',
         source: 'agent_vocal',
         salon_name: profil?.salon_name || '',
         salon_address: profil?.address || profil?.adresse || '',
@@ -600,6 +810,12 @@ function buildExecutors(proEmail) {
         crg_code,
       };
       let insertRes = await supabase.from('Reservation').insert(payload).select().single();
+      if (insertRes.error && /night_surcharge/i.test(insertRes.error.message || '')) {
+        // Colonne `night_surcharge` pas encore migrée : on réessaie sans elle
+        // (la majoration reste notée dans les notes du RDV).
+        const { night_surcharge: _ns, ...retryPayload } = payload;
+        insertRes = await supabase.from('Reservation').insert(retryPayload).select().single();
+      }
       if (insertRes.error && /collaborateur/i.test(insertRes.error.message || '')) {
         // Colonne `collaborateur` pas encore migrée : on réessaie sans elle,
         // en conservant le professionnel souhaité dans les notes du RDV.
@@ -620,10 +836,19 @@ function buildExecutors(proEmail) {
         time_slot: slot,
         service_name: serviceName,
         service_price: price,
+        duration_min: duration,
         persons,
         collaborateur,
+        additional_services: addons,
+        night_surcharge: nightSurcharge,
+        total_price: totalPrice,
         client_name: clientName,
         payment_preference: payPref === 'card' ? 'card' : 'onsite',
+        announce:
+          `Annonce au client : « ${serviceName}, ${price != null ? `${price} €` : 'tarif sur demande'} pour ${duration} minutes »` +
+          (addons.length > 0 ? `, plus ${addons.map((a) => `${a.name} ${a.price} €`).join(', ')}` : '') +
+          (nightSurcharge > 0 ? ` — créneau de nuit : majoration de 50 % soit +${nightSurcharge} €, total ${totalPrice} €` : (totalPrice != null ? `, total ${totalPrice} €` : '')) +
+          `.`,
         dictate_to_client:
           `Réservation enregistrée avec succès. COMMUNIQUE au client son ID de réservation en l'épelant lettre par lettre : ${booking_code}. ` +
           `Dis-lui qu'il pourra le saisir dans l'application BeautyBook, rubrique Rendez-vous → « Ajouter un ID de réservation », pour retrouver son rendez-vous. ` +
@@ -696,12 +921,12 @@ function buildExecutors(proEmail) {
       const duration = Number(rdv.duration_min || 60);
       const check = await findFreeSlots(email, dateStr, duration);
       if (!check.ok) return err("Je n'arrive pas à accéder au planning pour le moment.", 'NO_ACCESS');
-      if (check.closed || !check.slots.includes(slot)) {
+      if (check.closed || !check.slots.some((s) => s.time === slot)) {
         return {
           status: 'error',
           code: 'SLOT_TAKEN',
-          message: `Le créneau ${slot} le ${dateStr} n'est pas disponible. Alternatives : ${check.slots.slice(0, 3).join(', ') || 'aucune'}.`,
-          alternatives: check.slots.slice(0, 3),
+          message: `Le créneau ${slot} le ${dateStr} n'est pas disponible. Alternatives : ${check.slots.slice(0, 3).map((s) => s.time).join(', ') || 'aucune'}.`,
+          alternatives: check.slots.slice(0, 3).map((s) => s.time),
         };
       }
       const [hh, mm] = slot.split(':').map(Number);
@@ -747,6 +972,7 @@ function buildExecutors(proEmail) {
       case 'check_availability': return checkAvailability(a);
       case 'get_team': return getTeam(a);
       case 'get_service_questions': return getServiceQuestions(a);
+      case 'get_additional_services': return getAdditionalServices(a);
       case 'create_booking': return createBooking(a);
       case 'find_booking': return findBooking(a);
       case 'reschedule_booking': return rescheduleBooking(a);
@@ -856,7 +1082,7 @@ export async function testVoiceDataAccess(proEmail) {
     `Créneaux libres demain (${dateStr})`,
     res.ok,
     res.ok
-      ? (res.closed ? 'salon fermé ce jour-là' : `${res.slots.length} créneau(x) libre(s)${res.slots.length ? ` — ex : ${res.slots.slice(0, 3).join(', ')}` : ''}`)
+      ? (res.closed ? 'salon fermé ce jour-là' : `${res.slots.length} créneau(x) libre(s)${res.slots.length ? ` — ex : ${res.slots.slice(0, 3).map((s) => s.time).join(', ')}` : ''} (${res.seats_total || 1} siège(s) par créneau)`)
       : `échec : ${res.reason === 'HORAIRES_NON_CONFIGURES' ? 'horaires non configurés' : res.reason}`
   );
 

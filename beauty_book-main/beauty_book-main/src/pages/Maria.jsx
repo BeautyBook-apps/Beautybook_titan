@@ -57,7 +57,14 @@ function MariaProfileSkeleton({ isDark }) {
 }
 
 // ─── Side Drawer ──────────────────────────────────────────────────────────────
-function SideDrawer({ open, onClose, onNewChat, recentChats, savedSimulations, onOpenSimulator, onScanCapillaire, onStylisteIA, isPro }) {  const navigate = useNavigate();
+function SideDrawer({ open, onClose, onNewChat, onOpenChat, recentChats, savedSimulations, onOpenSimulator, onScanCapillaire, onStylisteIA, isPro }) {  const navigate = useNavigate();
+  const [recentQuery, setRecentQuery] = useState("");
+  // Normalise l'historique (anciennes entrées = simples chaînes)
+  const normRecents = (recentChats || []).map((c, i) =>
+    typeof c === "string" ? { id: null, title: c, _k: `legacy-${i}` } : { id: c.id ?? null, title: c.title || "Conversation", _k: c.id || `noid-${i}` }
+  );
+  const q = recentQuery.trim().toLowerCase();
+  const visibleRecents = q ? normRecents.filter((c) => c.title.toLowerCase().includes(q)) : normRecents;
   return (
     <>
       {open && <div className="absolute inset-0 bg-black/30 z-40 backdrop-blur-sm" onClick={onClose} />}
@@ -166,19 +173,33 @@ function SideDrawer({ open, onClose, onNewChat, recentChats, savedSimulations, o
         <div className="px-4 mb-4">
           <div className="flex items-center gap-2 bg-gray-100 rounded-2xl px-4 py-3">
             <Search className="w-4 h-4 text-gray-400 shrink-0" />
-            <input placeholder="Rechercher un chat..." className="flex-1 bg-transparent text-[13px] text-gray-600 outline-none placeholder:text-gray-400 font-medium" />
+            <input
+              value={recentQuery}
+              onChange={(e) => setRecentQuery(e.target.value)}
+              placeholder="Rechercher un chat..."
+              className="flex-1 bg-transparent text-[13px] text-gray-600 outline-none placeholder:text-gray-400 font-medium"
+            />
+            {recentQuery && (
+              <button onClick={() => setRecentQuery("")} className="text-gray-400 active:scale-95" aria-label="Effacer la recherche">
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
         <div className="px-4 flex-1 overflow-y-auto">
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Récents</p>
-          {recentChats.length === 0 ? (
-            <p className="text-[13px] text-gray-400 font-medium text-center py-6">Aucun historique</p>
+          {visibleRecents.length === 0 ? (
+            <p className="text-[13px] text-gray-400 font-medium text-center py-6">{q ? "Aucun résultat" : "Aucun historique"}</p>
           ) : (
             <div className="space-y-1">
-              {recentChats.map((chat, i) => (
-                <button key={i} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 text-left">
+              {visibleRecents.map((chat) => (
+                <button
+                  key={chat._k}
+                  onClick={() => { onOpenChat(chat); onClose(); }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 active:bg-orange-50 text-left active:scale-[0.98] transition-all"
+                >
                   <Clock className="w-4 h-4 text-gray-400 shrink-0" />
-                  <span className="text-[13px] font-medium text-gray-700 truncate">{chat}</span>
+                  <span className="text-[13px] font-medium text-gray-700 truncate">{chat.title}</span>
                 </button>
               ))}
             </div>
@@ -562,13 +583,55 @@ export default function Maria() {
       const id = conversationIdRef.current;
       if (id) {
         await entities.MariaConversation.update(id, { messages: clean });
+        upsertRecent(id, clean, userEmail ? mariaCacheKey(userEmail) : null);
       } else if (userEmail) {
         const created = await entities.MariaConversation.create({ user_email: userEmail, messages: clean });
-        if (created?.id) { conversationIdRef.current = created.id; setConversationId(created.id); }
+        if (created?.id) {
+          conversationIdRef.current = created.id; setConversationId(created.id);
+          upsertRecent(created.id, clean, mariaCacheKey(userEmail));
+        }
       }
     } catch (e) {
       console.warn("[Maria] sauvegarde conversation:", e?.message);
     }
+  };
+
+  // ── Titre d'une conversation pour l'historique (1er message utilisateur) ──
+  const convTitle = (conv) => {
+    const firstUser = (conv?.messages || []).find((m) => m.role === "user");
+    const t = String(firstUser?.content || "").trim();
+    if (!t) return "Nouveau chat";
+    return t.length > 42 ? t.slice(0, 42) + "…" : t;
+  };
+
+  // ── Historique : entrées { id, title } liées aux vraies conversations ──────
+  const upsertRecent = (id, msgs, cacheKeyNow) => {
+    if (!id) return;
+    const title = convTitle({ messages: msgs });
+    setRecentChats((prev) => {
+      const norm = (prev || []).map((c) => (typeof c === "string" ? { id: null, title: c } : c));
+      const next = [{ id, title }, ...norm.filter((c) => c.id !== id)].slice(0, 5);
+      if (cacheKeyNow) mergePageCache(cacheKeyNow, { recentChats: next });
+      return next;
+    });
+  };
+
+  // ── Ouvrir une conversation depuis l'historique ────────────────────────────
+  const openRecentChat = async (item) => {
+    setDrawerOpen(false);
+    if (!item?.id) { setView("chat"); return; } // entrée historique : ouvre la conversation
+    try {
+      const conv = await entities.MariaConversation.get(item.id);
+      if (conv) {
+        conversationIdRef.current = conv.id;
+        setConversationId(conv.id);
+        const msgs = conv.messages || [];
+        setMessages(msgs);
+        const u = await supabase.auth.getUser().then(({ data }) => data?.user).catch(() => null);
+        if (u) mergePageCache(mariaCacheKey(u.email), { messages: sanitizeForCache(msgs), savedAt: Date.now() });
+      }
+    } catch {}
+    setView("chat");
   };
 
   useEffect(() => {
@@ -577,26 +640,29 @@ export default function Maria() {
         const user = await supabase.auth.getUser().then(({ data }) => data?.user).catch(() => null);
         if (!user) { setHistoryLoaded(true); return; }
 
-        const convs = await entities.MariaConversation.filter({ user_email: user.email }, "-updated_date", 1);
+        const convs = await entities.MariaConversation.filter({ user_email: user.email }, "-updated_date", 5);
+        const cacheKeyNow = mariaCacheKey(user.email);
+        // Historique : les 5 dernières conversations, avec leur vrai titre
+        const recents = convs.map((c) => ({ id: c.id, title: convTitle(c) }));
+        setRecentChats(recents);
         if (convs.length > 0) {
           const conv = convs[0];
           conversationIdRef.current = conv.id;
           setConversationId(conv.id);
           const msgs = conv.messages || [];
-          const cacheKeyNow = mariaCacheKey(user.email);
           const cached = readPageCache(cacheKeyNow);
           const cacheSavedAt = cached?.savedAt || 0;
           const serverAt = conv.updated_at ? new Date(conv.updated_at).getTime() : 0;
           if (msgs.length > 0 && serverAt >= cacheSavedAt) {
             setMessages(msgs);
             setView("chat");
-            const userMsgs = msgs.filter(m => m.role === "user").map(m => m.content).slice(0, 5);
-            setRecentChats(userMsgs);
-            mergePageCache(cacheKeyNow, { messages: sanitizeForCache(msgs), recentChats: userMsgs, savedAt: Date.now() });
+            mergePageCache(cacheKeyNow, { messages: sanitizeForCache(msgs), recentChats: recents, savedAt: Date.now() });
           } else if (cacheSavedAt > serverAt && (cached?.messages?.length || 0) > 0) {
             // Le cache local est plus récent (ex : messages envoyés hors-ligne) :
             // on le renvoie vers le serveur au lieu de l'écraser.
             saveConversationToServer(cached.messages, user.email);
+          } else {
+            mergePageCache(cacheKeyNow, { recentChats: recents });
           }
         }
       } catch {}
@@ -819,11 +885,8 @@ export default function Maria() {
       timestamp: new Date().toISOString(),
     };
 
-    if (content) {
-      const newRecent = [content, ...recentChats.filter(c => c !== content)].slice(0, 5);
-      setRecentChats(newRecent);
-      mergePageCache(persistKey, { recentChats: newRecent });
-    }
+    // L'historique (titre = 1er message) est mis à jour via upsertRecent
+    // dans saveConversationToServer après chaque échange.
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setAttachedFiles([]);
@@ -1063,7 +1126,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
     setAttachedFiles([]);
     setProFormData({});
     setServiceData({});
-    setView("home");
+    setView("chat"); // ouvre directement la page de conversation
     setConversationId(null);
     conversationIdRef.current = null;
     try {
@@ -1072,6 +1135,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
         const created = await entities.MariaConversation.create({ user_email: u.email, messages: [] });
         conversationIdRef.current = created.id;
         setConversationId(created.id);
+        upsertRecent(created.id, [], cacheKey);
       }
     } catch {}
   };
@@ -1173,7 +1237,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
   if (view === "chat") {
     return (
       <div className={`font-display flex flex-col h-full relative overflow-hidden ${isDark ? "bg-gray-950" : "bg-white"}`}>
-        <SideDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onNewChat={handleNewChat} recentChats={recentChats} savedSimulations={savedSimulations} onOpenSimulator={() => setShowSimulator(true)} onScanCapillaire={() => navigate("/scan-capillaire")} onStylisteIA={() => navigate("/sh-ai")} isPro={isPro} />
+        <SideDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onNewChat={handleNewChat} onOpenChat={openRecentChat} recentChats={recentChats} savedSimulations={savedSimulations} onOpenSimulator={() => setShowSimulator(true)} onScanCapillaire={() => navigate("/scan-capillaire")} onStylisteIA={() => navigate("/sh-ai")} isPro={isPro} />
         {showSimulator && <FiltreAIModal styleTitle="" onClose={() => setShowSimulator(false)} onResultSaved={handleSimulationSaved} />}
 
         <div className={`px-4 pt-5 pb-4 flex items-center justify-between border-b ${headerBorder}`} style={{ background: headerBg }}>
@@ -1406,7 +1470,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
   return (
     <div className={`font-display flex flex-col h-full relative overflow-hidden ${homeBodyBg}`}>
       <AuthModal open={showAuthModal} onClose={closeAuthModal} message={authMessage} />
-      <SideDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onNewChat={handleNewChat} recentChats={recentChats} savedSimulations={savedSimulations} onOpenSimulator={() => setShowSimulator(true)} onScanCapillaire={() => navigate("/scan-capillaire")} onStylisteIA={() => navigate("/sh-ai")} isPro={isPro} />
+      <SideDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onNewChat={handleNewChat} onOpenChat={openRecentChat} recentChats={recentChats} savedSimulations={savedSimulations} onOpenSimulator={() => setShowSimulator(true)} onScanCapillaire={() => navigate("/scan-capillaire")} onStylisteIA={() => navigate("/sh-ai")} isPro={isPro} />
       {showSimulator && <FiltreAIModal styleTitle="" onClose={() => setShowSimulator(false)} onResultSaved={handleSimulationSaved} />}
 
       <div className={`px-4 pt-5 pb-3 flex items-center justify-between border-b ${homeHeaderBg}`}>

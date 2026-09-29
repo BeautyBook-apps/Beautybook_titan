@@ -161,7 +161,11 @@ export class GrokVoiceSession {
     // xAI envoie ce réglage, nous devons le faire aussi — Y COMPRIS en
     // mode agent_id (avant, on ne l'envoyait qu'en mode direct).
     const session = {
-      turn_detection: { type: 'server_vad', threshold: 0.5, silence_duration_ms: 700 },
+      // VAD : seuil relevé (0.65) pour ne pas couper l'agent sur un simple
+      // bruit ambiant — c'est ce qui faisait « s'arrêter l'agent au bout de
+      // quelques mots » : un faux positif coupait sa lecture audio en plein
+      // milieu de phrase. Voir aussi le garde anti-coupure ci-dessous.
+      turn_detection: { type: 'server_vad', threshold: 0.65, silence_duration_ms: 800 },
       input_audio_format: 'pcm16',
       output_audio_format: 'pcm16',
       // Forme documentée par xAI : audio.input.transcription. Sans elle,
@@ -386,12 +390,33 @@ export class GrokVoiceSession {
         this._maybeGreet();
         break;
       case 'input_audio_buffer.speech_started':
-        this._stopPlayback();
-        this.emit('speaking', { who: 'user' });
-        // Le SERVEUR a détecté la parole : preuve qu'il nous entend.
+        // ── Garde anti-coupure ──────────────────────────────────────────
+        // Le VAD serveur envoie parfois speech_started sur un simple bruit
+        // ambiant (ou un retour du haut-parleur dans le micro) : couper la
+        // lecture audio immédiatement tronquait la phrase de l'agent « au
+        // bout de quelques mots ». On ne coupe la lecture que si la parole
+        // se CONFIRME (pas de speech_stopped dans les 600 ms suivantes).
+        // Une vraie interruption fonctionne toujours (le serveur a déjà
+        // annulé sa génération côté serveur à speech_started).
+        clearTimeout(this._speechGuardT);
+        this._speechGuardT = setTimeout(() => {
+          this._speechGuardT = null;
+          this._stopPlayback();
+          this.emit('speaking', { who: 'user' });
+        }, 600);
+        // Le SERVEUR a détecté de la parole : preuve qu'il nous entend.
         this.emit('pipeline', { stage: 'listening' });
         break;
       case 'input_audio_buffer.speech_stopped':
+        // Fin de parole détectée : si elle suit de très près speech_started,
+        // c'était un faux positif → on annule la coupure programmée et la
+        // lecture de l'agent continue sans interruption.
+        if (this._speechGuardT) {
+          clearTimeout(this._speechGuardT);
+          this._speechGuardT = null;
+        } else {
+          this.emit('speaking', { who: 'user' });
+        }
         // Fin de parole détectée : le serveur prépare la réponse.
         this.emit('pipeline', { stage: 'thinking' });
         break;
@@ -455,6 +480,8 @@ export class GrokVoiceSession {
 
   async disconnect() {
     this.connected = false;
+    try { clearTimeout(this._speechGuardT); } catch {}
+    this._speechGuardT = null;
     try { this.ws?.close(); } catch {}
     this.ws = null;
     this._stopMic();
