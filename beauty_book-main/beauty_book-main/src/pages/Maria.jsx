@@ -8,7 +8,7 @@ import {
   Wand2, History, Bot, Send, Mic,
   Scissors, Lightbulb, Heart, Clock, Star, Paperclip,
   FileText, Volume2, CheckCircle, MessageSquare, Calendar, ExternalLink,
-  Instagram, Facebook, Globe, TrendingUp
+  Instagram, Facebook, Globe, TrendingUp, Megaphone
 } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
@@ -27,6 +27,7 @@ import { useAuthGate } from "@/hooks/useAuthGate";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import AuthModal from "@/components/ui/AuthModal";
 import { grokChat } from "@/lib/grok";
+import { dictationErrorMessage, isDictationSupported } from "@/lib/dictation";
 
 const SCAN_IMG = "https://images.unsplash.com/photo-1620331311520-246422fd82f9?q=80&w=400";
 const STYLE_IMG = "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?q=80&w=400";
@@ -345,21 +346,52 @@ function ServiceCreatedCard({ service }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 // ─── DictateButton ────────────────────────────────────────────────────────────
-function DictateButton({ onDictate, isDark }) {
+// Robuste : avant, les erreurs (micro bloqué, réseau coupé, instance déjà
+// active) étaient avalées en silence → la dictée « ne faisait rien ».
+// Désormais la vraie cause est affichée en français via onError.
+function DictateButton({ onDictate, isDark, onError }) {
   const [dictating, setDictating] = useState(false);
   const recRef = useRef(null);
 
   const toggle = () => {
+    if (!isDictationSupported()) { onError?.("La dictée vocale n'est pas supportée par ce navigateur."); return; }
+    if (dictating) {
+      try { recRef.current?.abort(); } catch {}
+      recRef.current = null;
+      setDictating(false);
+      return;
+    }
+    try { recRef.current?.abort(); } catch {}
+    recRef.current = null;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert("Reconnaissance vocale non supportée."); return; }
-    if (dictating) { recRef.current?.stop(); setDictating(false); return; }
     const r = new SR();
-    r.lang = "fr-FR"; r.continuous = false; r.interimResults = false;
+    r.lang = "fr-FR"; r.continuous = false; r.interimResults = false; r.maxAlternatives = 1;
+    let gotResult = false;
     r.onstart = () => setDictating(true);
-    r.onresult = (e) => { onDictate(e.results[0][0].transcript); setDictating(false); };
-    r.onerror = () => setDictating(false);
+    r.onresult = (e) => {
+      gotResult = true;
+      const text = e.results?.[0]?.[0]?.transcript?.trim();
+      if (text) onDictate(text);
+      setDictating(false);
+    };
+    r.onerror = (e) => {
+      setDictating(false);
+      const err = e?.error;
+      if (err === "aborted") return;
+      if (err === "no-speech" && gotResult) return;
+      onError?.(dictationErrorMessage(err));
+    };
     r.onend = () => setDictating(false);
-    r.start(); recRef.current = r;
+    recRef.current = r;
+    try {
+      r.start();
+    } catch {
+      try { r.abort(); } catch {}
+      setTimeout(() => {
+        try { r.start(); }
+        catch { onError?.(dictationErrorMessage("unknown")); }
+      }, 250);
+    }
   };
 
   return (
@@ -436,6 +468,15 @@ export default function Maria() {
   const [loading, setLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [conversationId, setConversationId] = useState(null);
+  const conversationIdRef = useRef(null); // ref synchro (les closures async voient un state périmé)
+  // Toast d'erreur de dictée (micro bloqué, réseau coupé…) — affiché au lieu d'un silence
+  const [dictError, setDictError] = useState(null);
+  const dictErrorTimer = useRef(null);
+  const showDictError = (msg) => {
+    setDictError(msg);
+    clearTimeout(dictErrorTimer.current);
+    dictErrorTimer.current = setTimeout(() => setDictError(null), 4500);
+  };
   const [recentChats, setRecentChats] = useCachedState(cacheKey, [], c => c?.recentChats || []);
   const [showSimulator, setShowSimulator] = useState(false);
   const [savedSimulations, setSavedSimulations] = useState([]);
@@ -487,12 +528,37 @@ export default function Maria() {
   // ── Détection pro centralisée (hooks/useIsPro.js) ──
 
   // ── Charger historique + résumé ──
+  // Source de vérité : le serveur (MariaConversation), qui survit au
+  // rechargement et au changement d'appareil. Le cache local sert pour
+  // l'affichage instantané et de filet si le serveur est plus ancien
+  // (ex : messages envoyés hors-ligne jamais synchronisés).
   // Les URL blob des pièces jointes ne survivent pas au rechargement :
   // on les retire avant de persister l'historique en cache.
   const sanitizeForCache = (list) => (list || []).map(m => {
     if (!m.files?.length) return m;
     return { ...m, files: m.files.map(f => ({ name: f.name, type: f.type })) };
   });
+
+  // ── Persistance serveur : sauvegarde après chaque échange ──
+  // Avant, RIEN n'était jamais écrit dans MariaConversation (le commentaire
+  // prétendait que « le backend » s'en chargeait, mais le flux utilise
+  // grokChat directement) → la conversation ne survivait qu'au cache local,
+  // vidé par le navigateur → « disparue » après actualisation.
+  const saveConversationToServer = async (msgs, userEmail) => {
+    try {
+      const clean = sanitizeForCache(msgs).slice(-200);
+      const id = conversationIdRef.current;
+      if (id) {
+        await entities.MariaConversation.update(id, { messages: clean });
+      } else if (userEmail) {
+        const created = await entities.MariaConversation.create({ user_email: userEmail, messages: clean });
+        if (created?.id) { conversationIdRef.current = created.id; setConversationId(created.id); }
+      }
+    } catch (e) {
+      console.warn("[Maria] sauvegarde conversation:", e?.message);
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -502,14 +568,23 @@ export default function Maria() {
         const convs = await entities.MariaConversation.filter({ user_email: user.email }, "-updated_date", 1);
         if (convs.length > 0) {
           const conv = convs[0];
+          conversationIdRef.current = conv.id;
           setConversationId(conv.id);
           const msgs = conv.messages || [];
-          if (msgs.length > 0) {
+          const cacheKeyNow = mariaCacheKey(user.email);
+          const cached = readPageCache(cacheKeyNow);
+          const cacheSavedAt = cached?.savedAt || 0;
+          const serverAt = conv.updated_at ? new Date(conv.updated_at).getTime() : 0;
+          if (msgs.length > 0 && serverAt >= cacheSavedAt) {
             setMessages(msgs);
             setView("chat");
             const userMsgs = msgs.filter(m => m.role === "user").map(m => m.content).slice(0, 5);
             setRecentChats(userMsgs);
-            mergePageCache(mariaCacheKey(user?.email) || cacheKey, { messages: sanitizeForCache(msgs), recentChats: userMsgs });
+            mergePageCache(cacheKeyNow, { messages: sanitizeForCache(msgs), recentChats: userMsgs, savedAt: Date.now() });
+          } else if (cacheSavedAt > serverAt && (cached?.messages?.length || 0) > 0) {
+            // Le cache local est plus récent (ex : messages envoyés hors-ligne) :
+            // on le renvoie vers le serveur au lieu de l'écraser.
+            saveConversationToServer(cached.messages, user.email);
           }
         }
       } catch {}
@@ -906,7 +981,9 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
 
     const finalMessages = [...newMessages, assistantMsg];
     setMessages(finalMessages);
-    mergePageCache(persistKey, { messages: sanitizeForCache(finalMessages) });
+    mergePageCache(persistKey, { messages: sanitizeForCache(finalMessages), savedAt: Date.now() });
+    // Persistance serveur (fire-and-forget) : la conversation survit au rechargement
+    saveConversationToServer(finalMessages, data?.user?.email);
     setLoading(false);
 
     // Lire la réponse vocalement (typing uniquement en mode vocal)
@@ -924,16 +1001,18 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
 
   const handleNewChat = async () => {
     setMessages([]);
-    mergePageCache(cacheKey, { messages: [] });
+    mergePageCache(cacheKey, { messages: [], savedAt: Date.now() });
     setAttachedFiles([]);
     setProFormData({});
     setServiceData({});
     setView("home");
     setConversationId(null);
+    conversationIdRef.current = null;
     try {
       const u = await supabase.auth.getUser().then(({ data }) => data?.user).catch(() => null);
       if (u) {
         const created = await entities.MariaConversation.create({ user_email: u.email, messages: [] });
+        conversationIdRef.current = created.id;
         setConversationId(created.id);
       }
     } catch {}
@@ -952,7 +1031,8 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
     };
     const updated = [...messages, msg];
     setMessages(updated);
-    mergePageCache(cacheKey, { messages: sanitizeForCache(updated) });
+    mergePageCache(cacheKey, { messages: sanitizeForCache(updated), savedAt: Date.now() });
+    supabase.auth.getUser().then(({ data }) => saveConversationToServer(updated, data?.user?.email)).catch(() => {});
   };
 
   const headerBurger = (onOpen) => (
@@ -967,6 +1047,12 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
   const inputBar = () => (
     <div className={`backdrop-blur-md border-t ${inputBarBg}`} style={{ paddingBottom: "calc(65px + env(safe-area-inset-bottom, 16px))" }}>
       <FilePreview files={attachedFiles} onRemove={removeFile} />
+      {/* Erreur de dictée : la vraie cause affichée au lieu d'un micro muet */}
+      {dictError && (
+        <div className="mx-4 mt-2 mb-1 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-[11px] text-red-700 font-medium">
+          🎤 {dictError}
+        </div>
+      )}
       <input ref={fileInputRef} type="file" accept="image/*,video/*,.pdf,.doc,.docx,.txt" multiple className="hidden" onChange={handleFileChange} />
       <div className={`flex items-center gap-2 mx-4 mt-3 mb-2 rounded-[22px] px-3 py-2.5 border shadow-sm ${inputBorder}`} style={{ background: inputInnerBg }}>
         <button onClick={() => fileInputRef.current?.click()} className={`w-8 h-8 flex items-center justify-center active:scale-95 transition-all shrink-0 hover:text-primary ${isDark ? "text-gray-600" : "text-gray-300"}`}>
@@ -984,6 +1070,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
             <DictateButton
               onDictate={(text) => setInput(prev => prev ? prev + " " + text : text)}
               isDark={isDark}
+              onError={showDictError}
             />
             <button onClick={() => sendMessage()} disabled={loading} className="w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40 active:scale-95 transition-all shadow-md shrink-0" style={{ background: "linear-gradient(135deg, #E8732A, #f59540)" }}>
               <Send className="w-4 h-4 text-white" />
@@ -993,6 +1080,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
           <InlineVoice
             onTranscript={(text, isVocal) => handleVoiceTranscript(text, isVocal)}
             onDictate={(text) => setInput(prev => prev ? prev + " " + text : text)}
+            onDictationError={showDictError}
             speaking={speaking}
             onInterrupt={handleVoiceInterrupt}
             onActivateGlobalVoice={() => { voiceAgent.start(); }}
@@ -1015,7 +1103,12 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
       timestamp: new Date().toISOString(),
       action: { type: "SERVICE_CREATED", service },
     };
-    setMessages(prev => [...prev, msg]);
+    setMessages(prev => {
+      const updated = [...prev, msg];
+      mergePageCache(cacheKey, { messages: sanitizeForCache(updated), savedAt: Date.now() });
+      supabase.auth.getUser().then(({ data }) => saveConversationToServer(updated, data?.user?.email)).catch(() => {});
+      return updated;
+    });
   };
 
   // ── CHAT VIEW ──────────────────────────────────────────────────────────────
@@ -1425,19 +1518,27 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
             </p>
           </div>
 
-          {/* Quick actions — "Créer un service" uniquement pour les pros */}
+          {/* Quick actions — version pro : que des actions utiles au business,
+              navigation directe vers les vraies pages quand c'est possible */}
           <div className="grid grid-cols-2 gap-2 mb-4">
-            {[
+            {(isPro ? [
+              { icon: Calendar, label: "RDV du jour", to: "/pro/gestion-agenda" },
+              { icon: TrendingUp, label: "Mon activité", to: "/pro/analytics" },
+              { icon: Star, label: "Avis clients", to: "/pro/avis-clients" },
+              { icon: Megaphone, label: "Booster un service", to: "/pro/catalogue-services" },
+              { icon: Lightbulb, label: "Idée de post", q: "Propose-moi 3 idées de publications pour les réseaux sociaux de mon salon cette semaine : pour chacune, la légende prête à poster et les hashtags." },
+              { icon: Scissors, label: "Créer un service", q: "Je veux créer un nouveau service dans mon catalogue.", highlight: true },
+            ] : [
               { icon: Scissors, label: "Conseil coiffure", q: "Quelle coupe de cheveux me conseillerais-tu ?" },
               { icon: Star, label: "Tendances 2026", q: "Quelles sont les tendances beauté 2026 ?" },
-              ...(isPro ? [{ icon: Heart, label: "Créer un service", q: "Je veux créer un nouveau service dans mon catalogue.", highlight: true }] : [{ icon: Heart, label: "Soin visage", q: "Quel soin visage est idéal pour ma peau ?" }]),
-              { icon: MessageSquare, label: "Mes messages", q: "Affiche-moi mes derniers messages et aide-moi à y répondre." },
+              { icon: Heart, label: "Soin visage", q: "Quel soin visage est idéal pour ma peau ?" },
+              { icon: MessageSquare, label: "Aide aux réponses", q: "Aide-moi à rédiger des réponses chaleureuses et professionnelles à mes clientes." },
               { icon: Calendar, label: "Prendre RDV", q: "Je veux réserver une prestation beauté, guide-moi étape par étape." },
               { icon: Lightbulb, label: "Créer une routine", q: "Je veux créer une routine beauté personnalisée, propose-moi des idées adaptées à mon profil." },
-            ].map(({ icon: Icon, label, q, highlight }) => (
+            ]).map(({ icon: Icon, label, q, to, highlight }) => (
               <button
                 key={label}
-                onClick={() => sendMessage(q)}
+                onClick={() => (to ? navigate(to) : sendMessage(q))}
                 className={`flex items-center gap-2 rounded-2xl px-3 py-3 active:scale-[0.98] transition-all text-left border ${
                   highlight
                     ? "bg-orange-50 border-orange-200"

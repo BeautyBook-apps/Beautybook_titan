@@ -3,16 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, PhoneCall, Mic, MicOff, PhoneOff, BookOpen, Settings,
   Bot, CheckCircle2, AlertCircle, RefreshCw, Loader2, Sparkles,
-  Scissors, KeyRound, ExternalLink, Volume2,
+  Scissors, KeyRound, ExternalLink, Volume2, MessageCircle, Power,
 } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { entities } from '@/api/entities';
 import { useTheme } from '@/hooks/useTheme';
 import { GrokVoiceSession } from '@/lib/grokVoice';
-import { getGrokAgentId, setGrokAgentId, mintVoiceToken } from '@/lib/grok';
+import { mintVoiceToken, DEFAULT_AGENT_ID } from '@/lib/grok';
+import { getSalonAISettings, saveSalonAISettings } from '@/lib/salonAI';
 import './ReceptionnistIA.css';
 
-const LS_VOICE = 'bb_grok_voice';
 const GROK_VOICES = [
   { id: 'ara', label: 'Ara — voix féminine' },
   { id: 'eve', label: 'Eve — voix féminine' },
@@ -40,21 +40,41 @@ function buildInstructions(salonName, services) {
   ].join('\n');
 }
 
+/** Petit interrupteur on/off. */
+function Toggle({ checked, onChange, label }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={!!checked}
+      aria-label={label || 'Activer / désactiver'}
+      className={`rp-toggle${checked ? ' on' : ''}`}
+      onClick={(e) => { e.stopPropagation(); onChange(!checked); }}
+    >
+      <span className="rp-toggle-knob" />
+    </button>
+  );
+}
+
 export default function ReceptionnistIA() {
   useTheme();
   const navigate = useNavigate();
 
   const [tab, setTab] = useState('vocal');
   const [salonName, setSalonName] = useState('');
+  const [proEmail, setProEmail] = useState('');
   const [services, setServices] = useState([]);
   const [loadingServices, setLoadingServices] = useState(true);
 
-  // Configuration Grok
-  const [agentId, setAgentId] = useState(() => getGrokAgentId());
-  const [agentDraft, setAgentDraft] = useState(() => getGrokAgentId());
-  const [voice, setVoice] = useState(() => {
-    try { return localStorage.getItem(LS_VOICE) || 'ara'; } catch { return 'ara'; }
-  });
+  // Réglages IA du salon (agent vocal + chatbot propres à chaque salon)
+  const [vocalEnabled, setVocalEnabled] = useState(true);
+  const [chatbotEnabled, setChatbotEnabled] = useState(true);
+  const [aiReady, setAiReady] = useState(false);
+
+  // Configuration Grok du salon
+  const [agentId, setAgentId] = useState(DEFAULT_AGENT_ID);
+  const [agentDraft, setAgentDraft] = useState(DEFAULT_AGENT_ID);
+  const [voice, setVoice] = useState('ara');
 
   // État du service (test réel du endpoint de token)
   const [svcState, setSvcState] = useState('unknown'); // unknown | checking | ok | error
@@ -65,39 +85,11 @@ export default function ReceptionnistIA() {
   const [voiceError, setVoiceError] = useState('');
   const [speaking, setSpeaking] = useState(null); // 'user' | 'agent' | null
   const [muted, setMuted] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
   const [mode, setMode] = useState(null); // 'agent' | 'direct'
   const [transcript, setTranscript] = useState([]); // [{who, text, done}]
   const sessionRef = useRef(null);
   const transcriptEndRef = useRef(null);
-
-  // ─── Chargement initial : profil pro + vrais services ────────────────────
-  useEffect(() => {
-    (async () => {
-      try {
-        const { data: authData } = await supabase.auth.getUser();
-        const email = authData?.user?.email;
-        if (!email) { setLoadingServices(false); return; }
-        const profiles = await entities.ProfilPro.filter({ user_email: email }, '-created_at', 1).catch(() => []);
-        if (profiles.length > 0 && profiles[0].salon_name) setSalonName(profiles[0].salon_name);
-        const { data: svcs } = await supabase
-          .from('Service')
-          .select('id,title,name,price,duration,duration_min')
-          .eq('pro_email', email)
-          .order('created_at', { ascending: false })
-          .limit(100);
-        setServices(svcs || []);
-      } catch (e) {
-        console.warn('[Réceptionniste IA] chargement salon :', e);
-      } finally {
-        setLoadingServices(false);
-      }
-    })();
-    return () => { sessionRef.current?.disconnect(); };
-  }, []);
-
-  useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [transcript]);
 
   // ─── Test réel du service vocal (mint d'un token éphémère) ───────────────
   const checkService = useCallback(async () => {
@@ -112,6 +104,70 @@ export default function ReceptionnistIA() {
     }
   }, []);
 
+  // ─── Chargement initial : pro + réglages IA du salon + vrais services ────
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const email = authData?.user?.email || '';
+        if (alive) setProEmail(email);
+        // Réglages IA propres à ce salon (agent vocal + chatbot + agent_id + voix)
+        const ai = await getSalonAISettings(email);
+        if (!alive) return;
+        setVocalEnabled(ai.vocal_enabled !== false);
+        setChatbotEnabled(ai.chatbot_enabled !== false);
+        setAgentId(ai.agent_id || DEFAULT_AGENT_ID);
+        setAgentDraft(ai.agent_id || DEFAULT_AGENT_ID);
+        setVoice(ai.voice || 'ara');
+        setAiReady(true);
+        if (email) {
+          const profiles = await entities.ProfilPro.filter({ user_email: email }, '-created_at', 1).catch(() => []);
+          if (!alive) return;
+          if (profiles.length > 0 && profiles[0].salon_name) setSalonName(profiles[0].salon_name);
+          const { data: svcs } = await supabase
+            .from('Service')
+            .select('id,title,name,price,duration,duration_min')
+            .eq('pro_email', email)
+            .order('created_at', { ascending: false })
+            .limit(100);
+          if (alive) setServices(svcs || []);
+        }
+      } catch (e) {
+        console.warn('[Réceptionniste IA] chargement salon :', e);
+      } finally {
+        if (alive) {
+          setLoadingServices(false);
+          // Vérification automatique du service → le badge passe au vert si tout est OK
+          checkService();
+        }
+      }
+    })();
+    return () => { alive = false; sessionRef.current?.disconnect(); };
+  }, [checkService]);
+
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [transcript]);
+
+  // ─── Interrupteurs master (par salon) ────────────────────────────────────
+  const toggleVocal = useCallback(async (on) => {
+    setVocalEnabled(on);
+    if (!on && sessionRef.current) {
+      sessionRef.current.disconnect();
+      sessionRef.current = null;
+      setVoiceState('idle');
+      setSpeaking(null);
+      setMuted(false);
+    }
+    if (proEmail) await saveSalonAISettings(proEmail, { vocal_enabled: on });
+  }, [proEmail]);
+
+  const toggleChatbot = useCallback(async (on) => {
+    setChatbotEnabled(on);
+    if (proEmail) await saveSalonAISettings(proEmail, { chatbot_enabled: on });
+  }, [proEmail]);
+
   // ─── Session voix ────────────────────────────────────────────────────────
   const handleVoiceEvent = useCallback((type, p) => {
     if (type === 'state') {
@@ -122,12 +178,15 @@ export default function ReceptionnistIA() {
       } else if (p.state === 'disconnected') {
         setVoiceState('idle');
         setSpeaking(null);
+        setMicLevel(0);
       } else if (p.state === 'error') {
         setVoiceState('error');
       }
     } else if (type === 'error') {
       setVoiceError(p.message || 'Erreur de session vocale.');
       setVoiceState((s) => (s === 'live' ? s : 'error'));
+    } else if (type === 'mic-level') {
+      setMicLevel(p.level || 0);
     } else if (type === 'speaking') {
       setSpeaking(p.who);
       if (p.who === 'agent') {
@@ -172,11 +231,13 @@ export default function ReceptionnistIA() {
   }, []);
 
   const startCall = async () => {
+    if (!vocalEnabled) return;
     if (voiceState === 'connecting' || voiceState === 'live') return;
     setVoiceState('connecting');
     setVoiceError('');
     setTranscript([]);
     setSpeaking(null);
+    setMicLevel(0);
     setMode(null);
     try {
       const { token } = await mintVoiceToken();
@@ -200,6 +261,7 @@ export default function ReceptionnistIA() {
     sessionRef.current?.disconnect();
     sessionRef.current = null;
     setMuted(false);
+    setMicLevel(0);
   };
 
   const toggleMute = () => {
@@ -208,20 +270,22 @@ export default function ReceptionnistIA() {
     sessionRef.current?.setMuted(m);
   };
 
-  const saveAgentId = () => {
+  const saveAgentId = async () => {
     const v = agentDraft.trim();
     if (!v) return;
-    setGrokAgentId(v);
     setAgentId(v);
+    if (proEmail) await saveSalonAISettings(proEmail, { agent_id: v });
   };
 
-  const saveVoice = (v) => {
+  const saveVoice = async (v) => {
     setVoice(v);
-    try { localStorage.setItem(LS_VOICE, v); } catch { /* stockage indisponible */ }
+    if (proEmail) await saveSalonAISettings(proEmail, { voice: v });
   };
 
   const serviceReady = svcState === 'ok';
   const inCall = voiceState === 'live' || voiceState === 'connecting';
+  const badgeLabel = !vocalEnabled ? 'DÉSACTIVÉ' : serviceReady ? 'GROK PRÊT' : 'À CONFIGURER';
+  const badgeActive = vocalEnabled && serviceReady;
 
   return (
     <div className="receptionist-v2 min-h-screen pb-24">
@@ -232,13 +296,44 @@ export default function ReceptionnistIA() {
           <h1>Réceptionniste IA</h1>
           <p>{salonName || 'Votre salon'}</p>
         </div>
-        <div className={`rp-active-badge ${serviceReady ? '' : 'inactive'}`}>
+        <div className={`rp-active-badge ${badgeActive ? '' : 'inactive'}`}>
           <span className="rp-pulse-dot" />
-          {serviceReady ? 'GROK PRÊT' : 'À CONFIGURER'}
+          {badgeLabel}
         </div>
       </header>
 
       <div className="rp-container">
+        {/* ── INTERRUPTEURS MASTER (tout en haut) ── */}
+        <div className="rp-card rp-master-card">
+          <div className="rp-card-title-row">
+            <Power size={15} className="rp-card-icon" />
+            <h3>Activation des assistants</h3>
+          </div>
+          <div className="rp-master-row">
+            <div className="rp-master-info">
+              <div className="rp-master-ico"><PhoneCall size={16} /></div>
+              <div>
+                <strong>Agent vocal</strong>
+                <span>Maria répond à voix haute depuis cette page</span>
+              </div>
+            </div>
+            <Toggle checked={vocalEnabled} onChange={toggleVocal} label="Activer ou désactiver l'agent vocal" />
+          </div>
+          <div className="rp-master-row">
+            <div className="rp-master-info">
+              <div className="rp-master-ico"><MessageCircle size={16} /></div>
+              <div>
+                <strong>Chatbot IA</strong>
+                <span>« Discuter avec Maria » sur votre page salon</span>
+              </div>
+            </div>
+            <Toggle checked={chatbotEnabled} onChange={toggleChatbot} label="Activer ou désactiver le chatbot IA" />
+          </div>
+          {!aiReady && (
+            <p className="rp-card-sub" style={{ marginTop: 8 }}>Chargement des réglages du salon…</p>
+          )}
+        </div>
+
         {/* ── HERO ── */}
         <div className="rp-hero-card">
           <div className="rp-hero-deco"><div className="rp-hero-deco-circle c1" /><div className="rp-hero-deco-circle c2" /></div>
@@ -251,8 +346,12 @@ export default function ReceptionnistIA() {
                 Parlez directement à votre agent vocal Grok depuis cette page :
                 il vous répond à voix haute, en français, 24h/24.
               </p>
-              <button className="rp-hero-cta" onClick={() => { setTab('vocal'); setTimeout(startCall, 150); }}>
-                <PhoneCall size={14} /> Parler à l'agent
+              <button
+                className={`rp-hero-cta${!vocalEnabled ? ' disabled' : ''}`}
+                onClick={() => { if (!vocalEnabled) return; setTab('vocal'); setTimeout(startCall, 150); }}
+                disabled={!vocalEnabled}
+              >
+                <PhoneCall size={14} /> {vocalEnabled ? "Parler à l'agent" : 'Agent vocal désactivé'}
               </button>
             </div>
           </div>
@@ -286,7 +385,7 @@ export default function ReceptionnistIA() {
               {svcState === 'unknown' && (
                 <div className="rp-info-box">
                   <AlertCircle size={15} />
-                  <span>Appuyez sur « Vérifier » pour tester la connexion au service vocal Grok.</span>
+                  <span>Vérification de la connexion au service vocal Grok…</span>
                 </div>
               )}
               {svcState === 'checking' && (
@@ -306,8 +405,8 @@ export default function ReceptionnistIA() {
               )}
               <div className="rp-status-grid">
                 <div className="rp-status-row">
-                  <span className="rp-status-label">Agent</span>
-                  <span className="rp-status-val mono">{agentId.slice(0, 24)}…</span>
+                  <span className="rp-status-label">Agent (ce salon)</span>
+                  <span className="rp-status-val mono">{(agentId || '').slice(0, 24)}…</span>
                 </div>
                 <div className="rp-status-row">
                   <span className="rp-status-label">Voix (mode direct)</span>
@@ -327,7 +426,14 @@ export default function ReceptionnistIA() {
                 <h3>Conversation en direct</h3>
               </div>
 
-              {!inCall && voiceState !== 'error' && (
+              {!vocalEnabled && (
+                <div className="rp-voice-idle">
+                  <div className="rp-voice-start off"><MicOff size={26} /></div>
+                  <p>L'agent vocal est désactivé pour ce salon.<br />Réactivez-le avec l'interrupteur ci-dessus.</p>
+                </div>
+              )}
+
+              {vocalEnabled && !inCall && voiceState !== 'error' && (
                 <div className="rp-voice-idle">
                   <button className="rp-voice-start" onClick={startCall} aria-label="Parler à l'agent">
                     <Mic size={26} />
@@ -336,14 +442,14 @@ export default function ReceptionnistIA() {
                 </div>
               )}
 
-              {voiceState === 'connecting' && (
+              {vocalEnabled && voiceState === 'connecting' && (
                 <div className="rp-voice-idle">
                   <div className="rp-voice-start connecting"><Loader2 size={26} className="rp-spin" /></div>
                   <p>Connexion à l'agent Grok…</p>
                 </div>
               )}
 
-              {voiceState === 'error' && (
+              {vocalEnabled && voiceState === 'error' && (
                 <div className="rp-voice-idle">
                   <div className="rp-alert error"><AlertCircle size={15} /><span>{voiceError}</span></div>
                   <button className="rp-btn-primary" onClick={startCall} style={{ marginTop: 12 }}>
@@ -352,7 +458,7 @@ export default function ReceptionnistIA() {
                 </div>
               )}
 
-              {voiceState === 'live' && (
+              {vocalEnabled && voiceState === 'live' && (
                 <>
                   <div className="rp-voice-live">
                     <div className={`rp-orb${speaking === 'agent' ? ' speaking-agent' : speaking === 'user' ? ' speaking-user' : ''}`}>
@@ -362,6 +468,13 @@ export default function ReceptionnistIA() {
                       {mode === 'agent' ? 'Agent Grok connecté' : 'Mode direct Grok'}
                       {' · '}
                       {speaking === 'agent' ? 'Maria parle…' : speaking === 'user' ? 'Vous parlez…' : muted ? 'Micro coupé' : 'À vous…'}
+                    </p>
+                    {/* Niveau du micro : la barre bouge quand vous parlez = l'agent vous entend */}
+                    <div className="rp-mic-meter" aria-hidden="true">
+                      <div className="rp-mic-meter-fill" style={{ width: `${Math.round(micLevel * 100)}%` }} />
+                    </div>
+                    <p className="rp-mic-hint">
+                      {muted ? 'Micro coupé — réactivez-le pour parler.' : micLevel > 0.05 ? 'Micro actif : Maria vous entend.' : 'Parlez… la barre ci-dessus doit bouger.'}
                     </p>
                     <div className="rp-voice-controls">
                       <button className={`rp-voice-btn${muted ? ' active' : ''}`} onClick={toggleMute} aria-label={muted ? 'Réactiver le micro' : 'Couper le micro'}>
@@ -397,6 +510,7 @@ export default function ReceptionnistIA() {
               <p className="rp-card-sub">
                 La connexion utilise un <strong>token éphémère de 5 minutes</strong> : votre clé API xAI
                 reste sur le serveur et n'est jamais exposée dans l'application.
+                Chaque salon possède son propre agent et ses propres réglages.
                 Pour recevoir de vrais appels téléphoniques, attachez un numéro à votre agent
                 depuis la console xAI (page de l'agent → onglet Deployment).
               </p>
@@ -506,7 +620,7 @@ export default function ReceptionnistIA() {
             <div className="rp-card">
               <div className="rp-card-title-row">
                 <Bot size={15} className="rp-card-icon" />
-                <h3>Agent vocal Grok</h3>
+                <h3>Agent vocal de ce salon</h3>
               </div>
               <div className="rp-field">
                 <label className="rp-label">Identifiant de l'agent (console xAI)</label>
@@ -518,7 +632,7 @@ export default function ReceptionnistIA() {
                   placeholder="agent_…"
                   autoComplete="off"
                 />
-                <p className="rp-field-help">L'agent créé dans console.x.ai → Voice → Agents. Enregistré sur cet appareil.</p>
+                <p className="rp-field-help">L'agent créé dans console.x.ai → Voice → Agents. Propre à ce salon.</p>
               </div>
               <button className="rp-btn-ghost" onClick={saveAgentId}>
                 <CheckCircle2 size={13} /> Enregistrer l'agent

@@ -21,6 +21,7 @@ import VTCSection from "@/components/service/VTCSection";
 import SalonMap from "@/components/map/SalonMap";
 import { isOpenNow, getEffectiveOpening, formatOpeningHours, getOpeningStatus, applyNightMode } from "@/lib/hours";
 import AssistantChatWidget from "@/components/AssistantChatWidget";
+import { getSalonAISettings } from "@/lib/salonAI";
 
 function getBannerGradient(theme) {
   if (theme === "night") return "linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.55) 60%, #000000 100%)";
@@ -545,6 +546,16 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
     }
     return p;
   });
+  // Chatbot IA du salon : masqué pour les visiteurs si le pro l'a désactivé
+  const [chatbotEnabled, setChatbotEnabled] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    if (!targetEmail) return;
+    getSalonAISettings(targetEmail).then((s) => {
+      if (alive) setChatbotEnabled(s.chatbot_enabled !== false);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [targetEmail]);
   const [proInfoId, setProInfoId] = useState(vueCacheInitial.proInfo?.id || null);
   const [showMenuModal, setShowMenuModal] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -1479,8 +1490,9 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
         />
       )}
 
-      {/* Widget « Discuter avec Maria » — visiteurs uniquement (pas le/la propriétaire) */}
-      {!isOwnProfile && targetEmail && (
+      {/* Widget « Discuter avec Maria » — visiteurs uniquement (pas le/la propriétaire),
+          et seulement si le salon n'a pas désactivé le chatbot IA */}
+      {!isOwnProfile && targetEmail && chatbotEnabled && (
         <AssistantChatWidget proEmail={targetEmail} salonName={proInfo?.salon_name || ""} />
       )}
 

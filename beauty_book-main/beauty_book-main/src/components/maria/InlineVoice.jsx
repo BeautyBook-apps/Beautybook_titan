@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Mic, Globe } from "lucide-react";
+import { dictationErrorMessage, isDictationSupported } from "@/lib/dictation";
 
 /**
  * InlineVoice — mode conversationnel dans Maria.
@@ -28,6 +29,7 @@ function EqBars({ active }) {
 export default function InlineVoice({
   onTranscript,
   onDictate,
+  onDictationError,
   speaking,
   onInterrupt,
   onActivateGlobalVoice,
@@ -67,12 +69,12 @@ export default function InlineVoice({
   }, [speaking]);
 
   const startVocalRec = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert("Reconnaissance vocale non supportée."); return; }
+    if (!isDictationSupported()) { onDictationError?.("La reconnaissance vocale n'est pas supportée par ce navigateur."); return; }
 
     try { recRef.current?.abort(); } catch {}
     recRef.current = null;
 
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const rec = new SR();
     rec.lang = "fr-FR";
     rec.continuous = true;
@@ -139,34 +141,66 @@ export default function InlineVoice({
     }
   };
 
-  // ── Dictée (session unique, remplit l'input) ──────────────────────────────
+  // ── Dictée robuste (session unique, remplit l'input) ──────────────────────
+  // Avant : les erreurs (micro bloqué, conflit avec le mode Vocal, réseau
+  // coupé) étaient avalées en silence → le micro « ne faisait rien ».
+  // Désormais : on coupe le mode Vocal d'abord (Chrome n'autorise qu'une
+  // seule reconnaissance à la fois), on réessaie proprement après un abort,
+  // et on surface la vraie cause en français via onDictationError.
   const dictRecRef = useRef(null);
 
   const toggleDictation = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert("Reconnaissance vocale non supportée."); return; }
+    if (!isDictationSupported()) { onDictationError?.("La dictée vocale n'est pas supportée par ce navigateur."); return; }
 
     if (dictating) {
       try { dictRecRef.current?.abort(); } catch {}
+      dictRecRef.current = null;
       setDictating(false);
       return;
     }
 
+    // Le mode Vocal utilise déjà le micro : on le coupe d'abord.
+    if (vocalActiveRef.current) toggleVocal();
+    try { dictRecRef.current?.abort(); } catch {}
+    dictRecRef.current = null;
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const r = new SR();
     r.lang = "fr-FR";
     r.continuous = false;
     r.interimResults = false;
+    r.maxAlternatives = 1;
+    let gotResult = false;
     r.onstart = () => setDictating(true);
     r.onresult = (e) => {
-      const text = e.results[0][0].transcript;
-      if (onDictate) onDictate(text);
-      else onTranscript(text, false);
+      gotResult = true;
+      const text = e.results?.[0]?.[0]?.transcript?.trim();
+      if (text) {
+        if (onDictate) onDictate(text);
+        else onTranscript(text, false);
+      }
       setDictating(false);
     };
-    r.onerror = () => setDictating(false);
+    r.onerror = (e) => {
+      setDictating(false);
+      const err = e?.error;
+      if (err === "aborted") return; // arrêt volontaire, silencieux
+      if (err === "no-speech" && gotResult) return;
+      onDictationError?.(dictationErrorMessage(err));
+    };
     r.onend = () => setDictating(false);
     dictRecRef.current = r;
-    try { r.start(); } catch {}
+    try {
+      r.start();
+    } catch {
+      // start() lève si une instance précédente n'est pas libérée :
+      // on réessaie une fois après un abort propre.
+      try { r.abort(); } catch {}
+      setTimeout(() => {
+        try { r.start(); }
+        catch { onDictationError?.(dictationErrorMessage("unknown")); }
+      }, 250);
+    }
   };
 
   return (

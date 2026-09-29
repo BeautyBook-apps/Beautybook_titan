@@ -150,6 +150,10 @@ export class GrokVoiceSession {
   }
 
   // ── Micro ────────────────────────────────────────────────────────────────
+  // IMPORTANT : sur mobile, le navigateur ignore souvent le sampleRate demandé
+  // (48 kHz réel au lieu de 24 kHz). On rééchantillonne donc systématiquement
+  // vers 24 kHz avant l'envoi, sinon l'agent reçoit un audio « chipmunk »
+  // qu'il ne peut pas transcrire (impression que « l'agent n'écoute pas »).
   async _startMic() {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -158,6 +162,7 @@ export class GrokVoiceSession {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     this._actx = new Ctx({ sampleRate: SAMPLE_RATE });
     if (this._actx.state === 'suspended') await this._actx.resume();
+    const inRate = this._actx.sampleRate || SAMPLE_RATE; // taux RÉEL de capture
     const blob = new Blob([WORKLET_SRC], { type: 'application/javascript' });
     const url = URL.createObjectURL(blob);
     try {
@@ -167,29 +172,64 @@ export class GrokVoiceSession {
     }
     const src = this._actx.createMediaStreamSource(stream);
     const node = new AudioWorkletNode(this._actx, 'bb-mic-capture');
-    this._pcmAcc = [];
-    this._pcmLen = 0;
-    const target = Math.floor((SAMPLE_RATE * CHUNK_MS) / 1000);
+    const outLen = Math.floor((SAMPLE_RATE * CHUNK_MS) / 1000); // échantillons @24kHz par envoi
+    const need = Math.ceil((outLen * inRate) / SAMPLE_RATE); // échantillons d'entrée nécessaires
+    let f32Acc = [];
+    let f32Len = 0;
+    this._lastMicEmit = 0;
     node.port.onmessage = (ev) => {
       if (this.muted || !this.connected) return;
       const f32 = ev.data;
-      const i16 = new Int16Array(f32.length);
-      for (let i = 0; i < f32.length; i++) {
-        const v = Math.max(-1, Math.min(1, f32[i]));
-        i16[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+      // Niveau micro (indicateur visuel, ~7 fois/sec)
+      let peak = 0;
+      for (let i = 0; i < f32.length; i += 4) {
+        const a = Math.abs(f32[i]);
+        if (a > peak) peak = a;
       }
-      this._pcmAcc.push(i16);
-      this._pcmLen += i16.length;
-      if (this._pcmLen >= target) {
-        const merged = new Int16Array(this._pcmLen);
+      const now = performance.now();
+      if (now - this._lastMicEmit > 150) {
+        this._lastMicEmit = now;
+        this.emit('mic-level', { level: Math.min(1, peak * 1.6) });
+      }
+      f32Acc.push(f32);
+      f32Len += f32.length;
+      while (f32Len >= need) {
+        const input = new Float32Array(f32Len);
         let off = 0;
-        for (const c of this._pcmAcc) { merged.set(c, off); off += c.length; }
-        this._pcmAcc = [];
-        this._pcmLen = 0;
+        for (const c of f32Acc) { input.set(c, off); off += c.length; }
+        const i16 = new Int16Array(outLen);
+        if (inRate === SAMPLE_RATE) {
+          for (let i = 0; i < outLen; i++) {
+            const v = Math.max(-1, Math.min(1, input[i]));
+            i16[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+          }
+        } else {
+          // Rééchantillonnage linéaire vers 24 kHz
+          const ratio = inRate / SAMPLE_RATE;
+          const last = need - 1;
+          for (let i = 0; i < outLen; i++) {
+            const pos = i * ratio;
+            const i0 = Math.floor(pos);
+            const frac = pos - i0;
+            const s0 = input[i0] || 0;
+            const s1 = input[i0 + 1 > last ? last : i0 + 1] || 0;
+            const v = Math.max(-1, Math.min(1, s0 + (s1 - s0) * frac));
+            i16[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+          }
+        }
+        const rest = f32Len - need;
+        if (rest > 0) {
+          const restArr = new Float32Array(rest);
+          restArr.set(input.subarray(need));
+          f32Acc = [restArr];
+        } else {
+          f32Acc = [];
+        }
+        f32Len = rest;
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({
             type: 'input_audio_buffer.append',
-            audio: b64encode(new Uint8Array(merged.buffer)),
+            audio: b64encode(new Uint8Array(i16.buffer)),
           }));
         }
       }
