@@ -27,6 +27,7 @@ import {
   buildKnowledge, loadFaq, addFaqEntry, updateFaqEntry, deleteFaqEntry,
 } from "@/lib/mariaAssistant";
 import { grokChat } from "@/lib/grok";
+import { useTheme } from "@/hooks/useTheme";
 import "./AssistantConversationnel.css";
 
 /* ════════════════════════ Plateformes ════════════════════════ */
@@ -1113,6 +1114,7 @@ function newId() {
 
 export default function AssistantConversationnel() {
   const navigate = useNavigate();
+  const { theme } = useTheme();
   const [activeTab, setActiveTab] = useState("cerveau");
   const [proEmail, setProEmail] = useState("");
   const [salonName, setSalonName] = useState("");
@@ -1262,7 +1264,7 @@ export default function AssistantConversationnel() {
   };
 
   return (
-    <div className="sa-page">
+    <div className="sa-page" data-theme={theme}>
       {/* ── HERO ── */}
       <header className="sa-hero">
         <div className="sa-hero-glow" />
