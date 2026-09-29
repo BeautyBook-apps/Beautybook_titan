@@ -22,22 +22,29 @@ export function setGrokAgentId(id) {
 /**
  * Envoie une conversation à Grok et renvoie le texte de réponse.
  * @param {Array<{role:string, content:string}>} messages
- * @param {{system?:string, model?:string, max_tokens?:number, feature?:string}} opts
+ * @param {{system?:string, model?:string, max_tokens?:number, feature?:string, enableTools?:boolean, salonEmail?:string}} opts
  *   feature : 'maria' | 'global' | 'vocal' | 'social' | 'other' — pour le suivi
  *   d'utilisation (onglet Utilisation de la Réceptionniste IA).
+ *   enableTools + salonEmail : donne au modèle un accès LECTURE SEULE aux
+ *   vraies données du salon (catalogue, créneaux libres) via /api/xai-chat.
  * @returns {Promise<string>}
  */
 export async function grokChat(messages, opts = {}) {
+  const body = {
+    messages,
+    system: opts.system,
+    model: opts.model,
+    max_tokens: opts.max_tokens,
+  };
+  if (opts.enableTools && opts.salonEmail) {
+    body.enable_tools = true;
+    body.tool_context = { pro_email: opts.salonEmail };
+  }
   const res = await fetch('/api/xai-chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages,
-      system: opts.system,
-      model: opts.model,
-      max_tokens: opts.max_tokens,
-    }),
-    signal: AbortSignal.timeout(60000),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(90000),
   });
   let data = null;
   try { data = await res.json(); } catch { /* pas de JSON */ }

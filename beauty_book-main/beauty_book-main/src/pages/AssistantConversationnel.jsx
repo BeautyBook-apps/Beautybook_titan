@@ -402,7 +402,7 @@ const SIM_SUGGESTIONS = [
   "C'est quoi votre adresse ?",
 ];
 
-function SimulatorTab({ salonName, services, faq, info, cfg }) {
+function SimulatorTab({ salonName, services, faq, info, cfg, proEmail }) {
   const [platform, setPlatform] = useState("instagram");
   const [kind, setKind] = useState("dm");
   const [msgs, setMsgs] = useState([]);
@@ -433,7 +433,7 @@ function SimulatorTab({ salonName, services, faq, info, cfg }) {
         ? `[Contexte : commentaire public ${PLATFORM_LABELS[platform]} — réponds publiquement avec chaleur et invite à continuer en DM]\n${t}`
         : `[Contexte : message privé ${PLATFORM_LABELS[platform]}]\n${t}`;
       const reply = await grokChat([{ role: "user", content: context }], {
-        system, max_tokens: 400, feature: "social",
+        system, max_tokens: 400, feature: "social", enableTools: true, salonEmail: proEmail,
       });
       idRef.current += 1;
       setMsgs((m) => [...m, { id: idRef.current, from: "bot", text: (reply || "").trim() }]);
@@ -1324,6 +1324,7 @@ export default function AssistantConversationnel() {
                 faq={knowledge?.faq || []}
                 info={info}
                 cfg={cfg}
+                proEmail={proEmail}
               />
             )}
             {activeTab === "plateformes" && <PlatformsTab />}

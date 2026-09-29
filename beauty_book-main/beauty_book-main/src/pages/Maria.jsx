@@ -1036,7 +1036,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
       
       const rawReply = await grokChat(
         [...historyMsgs, { role: 'user', content: userContent }],
-        { system: MARIA_SYSTEM_PROMPT + (extraSystem ? `\n\n${extraSystem}` : ""), max_tokens: 800, feature: "maria" }
+        { system: MARIA_SYSTEM_PROMPT + (extraSystem ? `\n\n${extraSystem}` : ""), max_tokens: 800, feature: "maria", enableTools: true, salonEmail: data?.user?.email }
       );
       reply = rawReply || reply;
       // Les blocs d'action ```json émis par Grok (NAVIGATE, SERVICE_RECAP…)
