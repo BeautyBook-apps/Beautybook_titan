@@ -59,7 +59,6 @@ export default function ReceptionnistIA() {
 
   // Réglages IA du salon (agent vocal + chatbot propres à chaque salon)
   const [vocalEnabled, setVocalEnabled] = useState(true);
-  const [chatbotEnabled, setChatbotEnabled] = useState(true);
   const [aiReady, setAiReady] = useState(false);
 
   // Configuration vocale du salon
@@ -131,7 +130,6 @@ export default function ReceptionnistIA() {
         const ai = await getSalonAISettings(email);
         if (!alive) return;
         setVocalEnabled(ai.vocal_enabled !== false);
-        setChatbotEnabled(ai.chatbot_enabled !== false);
         setAgentId(ai.agent_id || DEFAULT_AGENT_ID);
         setAgentDraft(ai.agent_id || DEFAULT_AGENT_ID);
         setVoice(ai.voice || 'ara');
@@ -204,11 +202,6 @@ export default function ReceptionnistIA() {
       setMuted(false);
     }
     if (proEmail) await saveSalonAISettings(proEmail, { vocal_enabled: on });
-  }, [proEmail]);
-
-  const toggleChatbot = useCallback(async (on) => {
-    setChatbotEnabled(on);
-    if (proEmail) await saveSalonAISettings(proEmail, { chatbot_enabled: on });
   }, [proEmail]);
 
   // ─── Session voix ────────────────────────────────────────────────────────
@@ -525,16 +518,6 @@ export default function ReceptionnistIA() {
               </div>
             </div>
             <Toggle checked={vocalEnabled} onChange={toggleVocal} label="Activer ou désactiver l'agent vocal" />
-          </div>
-          <div className="rp-master-row">
-            <div className="rp-master-info">
-              <div className="rp-master-ico"><MessageCircle size={16} /></div>
-              <div>
-                <strong>Chatbot IA</strong>
-                <span>« Discuter avec Maria » sur votre page salon</span>
-              </div>
-            </div>
-            <Toggle checked={chatbotEnabled} onChange={toggleChatbot} label="Activer ou désactiver le chatbot IA" />
           </div>
           {!aiReady && (
             <p className="rp-card-sub" style={{ marginTop: 8 }}>Chargement des réglages du salon…</p>
