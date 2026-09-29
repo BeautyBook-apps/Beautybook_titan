@@ -85,6 +85,35 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
   const [editAddress, setEditAddress] = useState(rdv.salon_address || "");
   const [savingEdit, setSavingEdit] = useState(false);
 
+  // ── Collaborateur assigné : alimente le « CA par collaborateur » (AI Scaling),
+  // synchronisé avec la vraie équipe du salon (MembreEquipe). ──
+  const [team, setTeam] = useState([]);
+  const [collab, setCollab] = useState(rdv.collaborateur || "");
+  const [collabError, setCollabError] = useState("");
+  const [savingCollab, setSavingCollab] = useState(false);
+
+  useEffect(() => {
+    if (!proEmail) return;
+    entities.MembreEquipe.filter({ pro_email: proEmail }, "name", 50)
+      .then(d => setTeam(d || [])).catch(() => setTeam([]));
+  }, [proEmail]);
+
+  const handleCollabChange = async (e) => {
+    const v = e.target.value;
+    setCollabError("");
+    setSavingCollab(true);
+    try {
+      const { error } = await supabase.from("Reservation").update({ collaborateur: v || null }).eq("id", rdv.id);
+      if (error) throw error;
+      setCollab(v);
+      rdv.collaborateur = v || null;
+    } catch (err) {
+      console.error("Collaborateur update error:", err);
+      setCollabError("Enregistrement impossible : exécutez la migration 20260929_reservation_collaborateur.sql dans Supabase.");
+    }
+    setSavingCollab(false);
+  };
+
   const handleSaveEdit = async () => {
     setSavingEdit(true);
     try {
@@ -340,6 +369,24 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
             <span className="text-[13px] text-primary font-black">{rdv.total_price || rdv.service_price}€</span>
             <span className="text-[12px] text-gray-400 font-medium">{rdv.duration_min} min</span>
           </div>
+        </div>
+
+        {/* Collaborateur assigné — synchronisé avec la page Équipe.
+            Alimente le « CA par collaborateur » de la page AI Scaling Business. */}
+        <div className="bg-gray-50 rounded-2xl p-4 mb-3">
+          <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Collaborateur</p>
+          <select value={collab} onChange={handleCollabChange} disabled={savingCollab}
+            className="w-full text-[13px] font-black text-gray-900 bg-white border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-primary">
+            <option value="">Non assigné</option>
+            {team.map(m => (
+              <option key={m.id} value={m.name}>{m.name}{m.role ? ` — ${m.role}` : ""}</option>
+            ))}
+          </select>
+          {savingCollab && <p className="text-[11px] text-gray-400 font-medium mt-1.5">Enregistrement…</p>}
+          {collabError && <p className="text-[11px] text-red-500 font-bold mt-1.5">{collabError}</p>}
+          {!collabError && team.length === 0 && (
+            <p className="text-[11px] text-gray-400 font-medium mt-1.5">Ajoutez des membres depuis la page Équipe pour pouvoir les assigner ici.</p>
+          )}
         </div>
 
         {/* Date & Heure */}
@@ -600,7 +647,9 @@ function NouveauRdvModal({ onClose, proEmail, onCreated }) {
     date: format(new Date(), "yyyy-MM-dd"),
     time: "10:00",
     notes: "",
+    collab: "",
   });
+  const [newTeam, setNewTeam] = useState([]);
 
   useEffect(() => {
     // Charger clients depuis réservations précédentes
@@ -641,6 +690,9 @@ function NouveauRdvModal({ onClose, proEmail, onCreated }) {
     entities.Service.filter({ pro_email: proEmail, status: "actif" }, "title", 50)
       .then(s => { console.log('[NouveauRdv] Loaded services:', s?.length); setServices(s || []); mergePageCache(mKey, { services: s || [] }); })
       .catch(e => console.error('[NouveauRdv] Error loading services:', e));
+    // Charger l'équipe du salon pour l'assignation du collaborateur
+    entities.MembreEquipe.filter({ pro_email: proEmail }, "name", 50)
+      .then(m => setNewTeam(m || [])).catch(() => setNewTeam([]));
   }, [proEmail]);
 
   const filteredClients = clients.filter(c =>
@@ -675,6 +727,16 @@ function NouveauRdvModal({ onClose, proEmail, onCreated }) {
       crg_code: generateClientCode(),
     };
     const rdv = await entities.Reservation.create(payload);
+    // Assigner le collaborateur (colonne `collaborateur` — migration
+    // 20260929_reservation_collaborateur.sql). Mise à jour directe défensive :
+    // si la colonne n'existe pas encore, le RDV reste créé et l'assignation
+    // pourra se faire depuis le détail du RDV.
+    if (form.collab) {
+      try {
+        const { error } = await supabase.from("Reservation").update({ collaborateur: form.collab }).eq("id", rdv.id);
+        if (error) throw error;
+      } catch (e) { console.error("Collaborateur assign error:", e); }
+    }
     // Auto-create Client entry if not exists
     if (form.client.email) {
       entities.Client.filter({ pro_email: proEmail, email: form.client.email }, "-created_at", 1)
@@ -846,6 +908,19 @@ function NouveauRdvModal({ onClose, proEmail, onCreated }) {
                 rows={3}
                 className={inputClass + " resize-none"}
               />
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Collaborateur (optionnel)</p>
+              <select
+                value={form.collab}
+                onChange={e => setForm(f => ({ ...f, collab: e.target.value }))}
+                className={inputClass}
+              >
+                <option value="">Non assigné</option>
+                {newTeam.map(m => (
+                  <option key={m.id} value={m.name}>{m.name}{m.role ? ` — ${m.role}` : ""}</option>
+                ))}
+              </select>
             </div>
             <div className="flex gap-3 mt-2">
               <button onClick={() => setStep(2)} className="text-[12px] font-black text-gray-400 uppercase tracking-widest">← Retour</button>

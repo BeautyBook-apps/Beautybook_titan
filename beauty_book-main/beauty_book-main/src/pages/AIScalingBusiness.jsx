@@ -181,8 +181,11 @@ export default function AIScalingBusiness() {
   const [proProfile, setProProfile] = useState(null);
   const [rdvs, setRdvs] = useState([]);
   const [services, setServices] = useState([]);
+  const [teamMembers, setTeamMembers] = useState([]);
   const [email, setEmail] = useState("");
-  const [objectives, setObjectives] = useState({ ca: 10000, clients: 50, confirmation: 90, note: 4.8 });
+  // Objectifs : AUCUNE valeur fictive par défaut. Tant que la pro n'a rien
+  // défini, on affiche un état vide honnête au lieu de faux objectifs.
+  const [objectives, setObjectives] = useState({ ca: null, clients: null, confirmation: null, note: null });
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [goalDraft, setGoalDraft] = useState(null);
   // Chat
@@ -201,12 +204,15 @@ export default function AIScalingBusiness() {
         setEmail(em);
         const profiles = await entities.ProfilPro.filter({ user_email: em }, "-created_at", 1);
         if (profiles.length > 0) setProProfile(profiles[0]);
-        const [allRdvs, allServices] = await Promise.all([
+        const [allRdvs, allServices, members] = await Promise.all([
           entities.Reservation.filter({ pro_email: em }, "-created_at", 1000).catch(() => []),
           entities.Service.filter({ pro_email: em }, "-created_at", 200).catch(() => []),
+          // Vraie équipe du salon : synchronisée avec la page Équipe (MembreEquipe).
+          entities.MembreEquipe.filter({ pro_email: em }, "-created_at", 50).catch(() => []),
         ]);
         setRdvs(allRdvs || []);
         setServices(allServices || []);
+        setTeamMembers(members || []);
         try {
           const raw = localStorage.getItem(`bb_goals_${em}`);
           if (raw) setObjectives(o => ({ ...o, ...JSON.parse(raw) }));
@@ -387,17 +393,49 @@ export default function AIScalingBusiness() {
     return Object.values(m).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
   }, [doneCur, servicesById]);
 
-  /* ── Équipe ── */
+  /* ── Équipe : synchronisée avec la vraie équipe du salon (MembreEquipe).
+     Le CA de chaque membre vient des RDV auxquels il est réellement assigné
+     (champ `collaborateur` de Reservation, via le détail du RDV en Gestion agenda).
+     Aucun membre fictif : que des données réelles. ── */
   const teamRanking = useMemo(() => {
-    const m = {};
+    // CA réel attribué par nom de collaborateur (insensible à la casse).
+    const revByName = {};
     doneCur.forEach(r => {
       const name = staffOf(r);
       if (!name) return;
-      if (!m[name]) m[name] = { name, revenue: 0, count: 0 };
-      m[name].revenue += rdvPrice(r); m[name].count += 1;
+      const key = name.toLowerCase().trim();
+      if (!revByName[key]) revByName[key] = { name, revenue: 0, count: 0 };
+      revByName[key].revenue += rdvPrice(r); revByName[key].count += 1;
     });
-    return Object.values(m).sort((a, b) => b.revenue - a.revenue);
-  }, [doneCur]);
+    const norm = s => (s || "").toLowerCase().trim();
+    const matchedKeys = new Set();
+    const ranked = (teamMembers || []).map(m => {
+      const key = norm(m.name);
+      let rev = revByName[key];
+      if (!rev && key) {
+        // Correspondance tolérante (prénom seul, nom partiel…).
+        const found = Object.keys(revByName).find(k => k.includes(key) || key.includes(k));
+        if (found) rev = revByName[found];
+      }
+      if (rev) matchedKeys.add(norm(rev.name));
+      return {
+        name: m.name || "Membre",
+        role: m.role || "",
+        photo: m.membre_avatar || m.avatar_url || m.photo || "",
+        status: m.status || "",
+        revenue: rev?.revenue || 0,
+        count: rev?.count || 0,
+        inTeam: true,
+      };
+    });
+    // Noms présents sur de vrais RDV mais absents de l'équipe (données réelles).
+    Object.entries(revByName).forEach(([key, v]) => {
+      if (!matchedKeys.has(key)) {
+        ranked.push({ name: v.name, role: "", photo: "", status: "", revenue: v.revenue, count: v.count, inTeam: false });
+      }
+    });
+    return ranked.sort((a, b) => b.revenue - a.revenue);
+  }, [doneCur, teamMembers]);
 
   /* ── Entonnoir ── */
   const funnel = useMemo(() => {
@@ -482,7 +520,7 @@ export default function AIScalingBusiness() {
     return Object.values(firstRdvByClient).filter(d => d >= mStart && d <= now).length;
   }, [firstRdvByClient]);
 
-  const goals = useMemo(() => [
+  const allGoals = useMemo(() => [
     {
       id: "ca", label: "Chiffre d'affaires", unit: "€", icon: DollarSign,
       current: forecast.mtd, target: objectives.ca, display: money(forecast.mtd), targetDisplay: money(objectives.ca),
@@ -505,6 +543,21 @@ export default function AIScalingBusiness() {
       color: "#F59E0B", hint: `${num(proProfile?.reviews_count || 0)} avis clients`,
     },
   ], [forecast, mtdNewClients, confRateCur, proProfile, objectives]);
+
+  // Seuls les objectifs réellement définis par la pro sont affichés.
+  // Pas de valeurs fictives : un objectif non défini n'apparaît pas.
+  const goals = useMemo(() => allGoals.filter(g => g.target != null && Number(g.target) > 0), [allGoals]);
+  const hasGoals = goals.length > 0;
+
+  // Ligne « Objectifs » pour le prompt IA : uniquement les objectifs réels.
+  const objectivesLine = useMemo(() => {
+    const parts = [];
+    if (objectives.ca) parts.push(`CA ${money(objectives.ca)}/mois`);
+    if (objectives.clients) parts.push(`${objectives.clients} nouveaux clients/mois`);
+    if (objectives.confirmation) parts.push(`confirmation ${objectives.confirmation}%`);
+    if (objectives.note) parts.push(`note ${objectives.note}/5`);
+    return parts.length ? parts.join(", ") : "non définis par la pro";
+  }, [objectives]);
 
   const saveObjectives = () => {
     if (!goalDraft) return;
@@ -532,7 +585,7 @@ CONTEXTE DU SALON:
 - Taux de confirmation: ${Math.round(confRateCur)}% | Taux de retour: ${Math.round(retentionCur)}%
 - Canaux: ${channelStats.map(c => `${c.label}: ${c.count} RDV / ${money(c.revenue)}`).join(" ; ")}
 - Top services: ${topServices.slice(0, 3).map(s => `${s.name} (${money(s.revenue)})`).join(", ") || "Aucune donnée"}
-- Objectifs: CA ${money(objectives.ca)}/mois, ${objectives.clients} nouveaux clients/mois, confirmation ${objectives.confirmation}%, note ${objectives.note}/5
+- Objectifs: ${objectivesLine}
 - Prévision fin de mois: ${money(forecast.projected)}
 
 TU AIDES À: analyser le CA, fidéliser, définir des objectifs, créer des promos, optimiser prix et planning, développer l'acquisition (agent vocal, chatbot, app, réseaux sociaux).
@@ -619,10 +672,19 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
                   <div>
                     <p className="text-[12px] text-white/60 font-medium">Projeté fin de mois</p>
                     <p className="text-[18px] font-extrabold text-white">{money(forecast.projected)}</p>
-                    <div className="scaling-progress mt-2" style={{ width: 150, background: "rgba(255,255,255,.15)" }}>
-                      <span style={{ width: `${Math.min(100, forecast.pctOfGoal)}%` }} />
-                    </div>
-                    <p className="text-[11px] text-white/50 font-medium mt-1">{Math.round(forecast.pctOfGoal)}% de l'objectif mensuel</p>
+                    {objectives.ca ? (
+                      <>
+                        <div className="scaling-progress mt-2" style={{ width: 150, background: "rgba(255,255,255,.15)" }}>
+                          <span style={{ width: `${Math.min(100, forecast.pctOfGoal)}%` }} />
+                        </div>
+                        <p className="text-[11px] text-white/50 font-medium mt-1">{Math.round(forecast.pctOfGoal)}% de l'objectif mensuel</p>
+                      </>
+                    ) : (
+                      <button onClick={() => { setGoalDraft({ ca: "", clients: "", confirmation: "", note: "" }); setShowGoalModal(true); }}
+                        className="text-[11px] text-white/70 font-bold mt-1 underline underline-offset-2 active:scale-95">
+                        Définir mon objectif mensuel
+                      </button>
+                    )}
                   </div>
                   <div className="hidden sm:block opacity-90">
                     <Sparkline data={chartData.map(b => Math.round(b.revenue))} color="#FFB25E" width={170} height={64} />
@@ -743,7 +805,7 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
                 </div>
                 <div className="flex-1">
                   <h3 className="text-white text-[15px]">Vos objectifs du mois</h3>
-                  <p className="text-[12px] text-white/60 font-medium">Définis par vous, suivis en temps réel par l'IA.</p>
+                  <p className="text-[12px] text-white/60 font-medium">{hasGoals ? "Définis par vous, suivis en temps réel par l'IA." : "Définissez vos objectifs, l'IA les suivra en temps réel."}</p>
                 </div>
                 <button onClick={() => { setGoalDraft({ ...objectives }); setShowGoalModal(true); }}
                   className="flex items-center gap-1.5 bg-white/10 border border-white/15 text-white text-[12px] font-bold px-3.5 py-2 rounded-xl active:scale-95">
@@ -752,6 +814,14 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
               </div>
             </div>
 
+            {!hasGoals ? (
+              <div className="mt-3">
+                <EmptyState icon={Target} title="Aucun objectif défini"
+                  text="Définissez vos objectifs du mois : l'IA suivra votre progression en temps réel."
+                  action="Définir mes objectifs"
+                  onAction={() => { setGoalDraft({ ca: "", clients: "", confirmation: "", note: "" }); setShowGoalModal(true); }} />
+              </div>
+            ) : (
             <div className="grid gap-2.5 mt-3 sm:grid-cols-2">
               {goals.map(g => {
                 const pct = g.target > 0 ? (g.current / g.target) * 100 : 0;
@@ -774,7 +844,9 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
                 );
               })}
             </div>
+            )}
 
+            {hasGoals && (
             <div className="scaling-cta-banner mt-4">
               <div className="relative z-10 flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shrink-0"><Bot size={20} className="text-white" /></div>
@@ -782,12 +854,13 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
                   <p className="text-[14px] font-extrabold">Un plan d'action sur-mesure ?</p>
                   <p className="text-[12px] text-white/80 font-medium">L'IA construit votre feuille de route vers ces objectifs.</p>
                 </div>
-                <button onClick={() => askAI(`Voici mes objectifs du mois : CA ${money(objectives.ca)}, ${objectives.clients} nouveaux clients, ${objectives.confirmation}% de confirmation, note ${objectives.note}/5. Où j'en suis : CA ${money(forecast.mtd)}, ${mtdNewClients} nouveaux clients, ${Math.round(confRateCur)}% de confirmation. Crée-moi un plan d'action concret et priorisé pour atteindre ces objectifs.`)}
+                <button onClick={() => askAI(`Voici mes objectifs du mois : ${objectivesLine}. Où j'en suis : CA ${money(forecast.mtd)}, ${mtdNewClients} nouveaux clients, ${Math.round(confRateCur)}% de confirmation. Crée-moi un plan d'action concret et priorisé pour atteindre ces objectifs.`)}
                   className="bg-white text-purple-700 font-extrabold px-4 py-2.5 rounded-2xl text-[12px] shrink-0 active:scale-95 flex items-center gap-1">
                   Générer <ArrowUpRight size={15} />
                 </button>
               </div>
             </div>
+            )}
           </div>
         )}
 
@@ -918,13 +991,19 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
                   const initials = m.name.split(/[\s._-]+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
                   const grads = ["linear-gradient(135deg,#FF6B00,#FFB25E)", "linear-gradient(135deg,#8B5CF6,#A78BFA)", "linear-gradient(135deg,#3B82F6,#60A5FA)", "linear-gradient(135deg,#10B981,#34D399)", "linear-gradient(135deg,#EC4899,#F472B6)"];
                   return (
-                    <div key={m.name} className="scaling-member">
+                    <div key={`${m.name}-${i}`} className="scaling-member">
                       <span className={`scaling-rank ${i === 0 ? "r1" : i === 1 ? "r2" : i === 2 ? "r3" : "rx"}`}>{i + 1}</span>
-                      <div className="scaling-avatar" style={{ background: grads[i % grads.length] }}>{initials}</div>
+                      {m.photo ? (
+                        <img src={m.photo} alt={m.name} className="scaling-avatar object-cover" style={{ padding: 0 }} />
+                      ) : (
+                        <div className="scaling-avatar" style={{ background: grads[i % grads.length] }}>{initials}</div>
+                      )}
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13.5px] font-extrabold text-gray-900 truncate">{m.name}</p>
+                        <p className="text-[13.5px] font-extrabold text-gray-900 truncate">{m.name}{m.role ? <span className="font-semibold text-gray-400"> · {m.role}</span> : ""}</p>
                         <div className="scaling-progress mt-1.5"><span style={{ width: `${(m.revenue / top) * 100}%` }} /></div>
-                        <p className="text-[11px] text-gray-400 font-semibold mt-1">{m.count} RDV · panier {money(m.revenue / Math.max(1, m.count))}</p>
+                        <p className="text-[11px] text-gray-400 font-semibold mt-1">
+                          {m.count > 0 ? `${m.count} RDV · panier ${money(m.revenue / Math.max(1, m.count))}` : "Aucun RDV attribué sur la période"}
+                        </p>
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-[15px] font-black">{money(m.revenue)}</p>
@@ -934,27 +1013,49 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
                   );
                 })}
               </div>
+            ) : teamMembers.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState icon={Users} title="Aucun membre dans votre équipe"
+                  text="Ajoutez vos collaborateurs depuis la page Équipe pour suivre ici le chiffre d'affaires généré par chacun."
+                  action="Ajouter un membre"
+                  onAction={() => navigate("/pro/nouveau-membre")} />
+              </div>
             ) : (
               <div className="mt-3">
-                <EmptyState icon={Users} title="Aucun collaborateur détecté"
-                  text="Associez un collaborateur à chaque rendez-vous pour suivre ici le chiffre d'affaires généré par chacun." />
+                <EmptyState icon={Users} title="Aucune donnée sur la période"
+                  text="Vos collaborateurs sont bien synchronisés, mais aucun chiffre d'affaires ne leur est attribué sur cette période." />
               </div>
             )}
 
-            {teamRanking.length > 1 && (
+            {teamMembers.length > 0 && (
               <div className="scaling-insight mt-3">
-                <div className="in-icon" style={{ background: "linear-gradient(135deg,#10B981,#34D399)" }}><Lightbulb size={18} /></div>
+                <div className="in-icon" style={{ background: "linear-gradient(135deg,#3B82F6,#60A5FA)" }}><Users size={18} /></div>
                 <div>
-                  <p className="text-[13px] font-extrabold text-gray-900">Écart de performance</p>
+                  <p className="text-[13px] font-extrabold text-gray-900">Équipe synchronisée</p>
                   <p className="text-[12px] text-gray-600 font-medium mt-0.5 leading-relaxed">
-                    {teamRanking[0].name} génère {money(teamRanking[0].revenue - teamRanking[teamRanking.length - 1].revenue)} de plus que {teamRanking[teamRanking.length - 1].name}.
-                    Organisez un partage de bonnes pratiques pour homogénéiser.
+                    {teamMembers.length} collaborateur{teamMembers.length > 1 ? "s" : ""} · pour attribuer le CA de chacun, assignez un collaborateur à chaque RDV depuis le détail du RDV dans votre Gestion agenda.
                   </p>
                 </div>
               </div>
             )}
 
-            <button onClick={() => askAI("Analyse la performance de mon équipe par collaborateur et propose-moi un plan pour augmenter le chiffre d'affaires de chacun (formation, incentives, planning).")}
+            {teamRanking.filter(m => m.revenue > 0).length > 1 && (() => {
+              const withRev = teamRanking.filter(m => m.revenue > 0);
+              return (
+              <div className="scaling-insight mt-3">
+                <div className="in-icon" style={{ background: "linear-gradient(135deg,#10B981,#34D399)" }}><Lightbulb size={18} /></div>
+                <div>
+                  <p className="text-[13px] font-extrabold text-gray-900">Écart de performance</p>
+                  <p className="text-[12px] text-gray-600 font-medium mt-0.5 leading-relaxed">
+                    {withRev[0].name} génère {money(withRev[0].revenue - withRev[withRev.length - 1].revenue)} de plus que {withRev[withRev.length - 1].name}.
+                    Organisez un partage de bonnes pratiques pour homogénéiser.
+                  </p>
+                </div>
+              </div>
+              );
+            })()}
+
+            <button onClick={() => askAI(`Mon équipe : ${teamMembers.map(m => `${m.name}${m.role ? ` (${m.role})` : ""}`).join(", ") || "aucun membre"}. Chiffre d'affaires par collaborateur sur la période : ${teamRanking.map(m => `${m.name} : ${money(m.revenue)}`).join(", ") || "aucune donnée"}. Analyse la performance de mon équipe et propose-moi un plan pour augmenter le chiffre d'affaires de chacun (formation, incentives, planning).`)}
               className="w-full mt-3 flex items-center justify-center gap-2 text-[13px] font-extrabold text-white rounded-2xl py-3.5 active:scale-[.98] shadow-lg"
               style={{ background: "linear-gradient(135deg,#FF6B00,#FFB25E)", boxShadow: "0 10px 24px rgba(255,107,0,.3)" }}>
               <Sparkles size={16} /> Coaching d'équipe par l'IA
