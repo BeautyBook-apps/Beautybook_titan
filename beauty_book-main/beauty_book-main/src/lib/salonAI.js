@@ -80,6 +80,17 @@ function newer(a, b) {
   return String(a?.updated_at || "") >= String(b?.updated_at || "");
 }
 
+const FULL_COLS = "pro_email,vocal_enabled,chatbot_enabled,agent_id,voice,welcome_message,custom_instructions,connection_mode,updated_at";
+const BASE_COLS = "pro_email,vocal_enabled,chatbot_enabled,agent_id,voice";
+
+async function readRow(email) {
+  // Colonnes complètes d'abord ; si la migration n'est pas exécutée (400),
+  // repli sur les colonnes de base pour éviter le 400 en console.
+  let r = await supabase.from(TABLE).select(FULL_COLS).eq("pro_email", email).maybeSingle();
+  if (r.error) r = await supabase.from(TABLE).select(BASE_COLS).eq("pro_email", email).maybeSingle();
+  return r;
+}
+
 /**
  * Lit les réglages IA d'un salon. Le plus récent (local ou serveur) gagne.
  * @returns {Promise<{vocal_enabled,chatbot_enabled,agent_id,voice}>}
@@ -93,11 +104,7 @@ export async function getSalonAISettings(proEmail) {
     return local;
   }
   try {
-    const { data, error } = await supabase
-      .from(TABLE)
-      .select("pro_email,vocal_enabled,chatbot_enabled,agent_id,voice,welcome_message,custom_instructions,connection_mode,updated_at")
-      .eq("pro_email", email)
-      .maybeSingle();
+    const { data, error } = await readRow(email);
     if (!error && data) {
       const server = fromRow(data);
       // Le serveur gagne sauf si le local est plus récent (écriture en attente)
@@ -126,20 +133,23 @@ export async function saveSalonAISettings(proEmail, patch) {
   if (!email) return next;
   // Synchro serveur best-effort (ne bloque jamais l'UI)
   try {
-    await supabase.from(TABLE).upsert(
-      {
-        pro_email: email,
-        vocal_enabled: !!next.vocal_enabled,
-        chatbot_enabled: !!next.chatbot_enabled,
-        agent_id: next.agent_id || "",
-        voice: next.voice || "ara",
-        welcome_message: next.welcome_message || "",
-        custom_instructions: next.custom_instructions || "",
-        connection_mode: next.connection_mode === "agent" ? "agent" : "direct",
-        updated_at: next.updated_at,
-      },
-      { onConflict: "pro_email" }
-    );
+    const fullPayload = {
+      pro_email: email,
+      vocal_enabled: !!next.vocal_enabled,
+      chatbot_enabled: !!next.chatbot_enabled,
+      agent_id: next.agent_id || "",
+      voice: next.voice || "ara",
+      welcome_message: next.welcome_message || "",
+      custom_instructions: next.custom_instructions || "",
+      connection_mode: next.connection_mode === "agent" ? "agent" : "direct",
+      updated_at: next.updated_at,
+    };
+    const r = await supabase.from(TABLE).upsert(fullPayload, { onConflict: "pro_email" });
+    if (r.error) {
+      // Migration non exécutée → repli sur les colonnes de base
+      const { welcome_message, custom_instructions, connection_mode, updated_at, ...basePayload } = fullPayload;
+      await supabase.from(TABLE).upsert(basePayload, { onConflict: "pro_email" });
+    }
   } catch { /* RLS ou table absente → le local fait foi */ }
   return next;
 }
