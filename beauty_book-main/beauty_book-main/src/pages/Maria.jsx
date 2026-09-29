@@ -28,6 +28,7 @@ import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCa
 import AuthModal from "@/components/ui/AuthModal";
 import { grokChat } from "@/lib/grok";
 import { dictationErrorMessage, isDictationSupported } from "@/lib/dictation";
+import { getProActivityStats, formatStatsForMaria } from "@/lib/proStats";
 
 const SCAN_IMG = "https://images.unsplash.com/photo-1620331311520-246422fd82f9?q=80&w=400";
 const STYLE_IMG = "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?q=80&w=400";
@@ -774,7 +775,9 @@ export default function Maria() {
   };
 
   // ── Send message via mariaAgent ──
-  const sendMessage = async (text, fromVocal = false) => {
+  // extraSystem : bloc de contexte système additionnel (ex : vrais chiffres
+  // d'activité) — Maria ne doit jamais inventer ce qu'on lui fournit ici.
+  const sendMessage = async (text, fromVocal = false, extraSystem = "") => {
     const content = text || input.trim();
     if (!content && !attachedFiles.length) return;
     if (loading) return;
@@ -938,7 +941,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
       
       const rawReply = await grokChat(
         [...historyMsgs, { role: 'user', content: userContent }],
-        { system: MARIA_SYSTEM_PROMPT, max_tokens: 800 }
+        { system: MARIA_SYSTEM_PROMPT + (extraSystem ? `\n\n${extraSystem}` : ""), max_tokens: 800 }
       );
       reply = rawReply || reply;
       // Les blocs d'action ```json émis par Grok (NAVIGATE, SERVICE_RECAP…)
@@ -993,6 +996,29 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
   const handleVoiceTranscript = (text, isVocal = false) => {
     stopSpeaking();
     sendMessage(text, isVocal);
+  };
+
+  // ── « Mon activité » : résumé écrit par Maria à partir des VRAIS chiffres ──
+  // Les stats sont calculées depuis les réservations du pro puis injectées
+  // dans le prompt système : Maria commente des données réelles, elle n'en
+  // invente jamais (exigence : aucune fonctionnalité factice).
+  const handleActivitySummary = async () => {
+    if (loading) return;
+    const email = user?.email || readSessionEmailSync();
+    if (!email) { requireAuth("Connectez-vous pour voir votre résumé d'activité."); return; }
+    setView("chat");
+    setLoading(true);
+    try {
+      const stats = await getProActivityStats(email);
+      const block = formatStatsForMaria(stats);
+      const empty = stats.revenue === 0 && stats.rdvCount === 0;
+      const prompt = empty
+        ? "Fais-moi un résumé écrit de mon activité sur les 30 derniers jours."
+        : "Fais-moi un résumé écrit clair et motivant de mon activité sur les 30 derniers jours : points forts, points à améliorer, et 3 actions concrètes pour progresser ce mois-ci.";
+      await sendMessage(prompt, false, `${block}\n${empty ? "Tous les chiffres sont à zéro : dis-le simplement et propose 3 actions concrètes pour lancer l'activité." : ""}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleVoiceInterrupt = () => {
@@ -1523,7 +1549,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
           <div className="grid grid-cols-2 gap-2 mb-4">
             {(isPro ? [
               { icon: Calendar, label: "RDV du jour", to: "/pro/gestion-agenda" },
-              { icon: TrendingUp, label: "Mon activité", to: "/pro/analytics" },
+              { icon: TrendingUp, label: "Mon activité", action: "stats" },
               { icon: Star, label: "Avis clients", to: "/pro/avis-clients" },
               { icon: Megaphone, label: "Booster un service", to: "/pro/catalogue-services" },
               { icon: Lightbulb, label: "Idée de post", q: "Propose-moi 3 idées de publications pour les réseaux sociaux de mon salon cette semaine : pour chacune, la légende prête à poster et les hashtags." },
@@ -1535,10 +1561,14 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
               { icon: MessageSquare, label: "Aide aux réponses", q: "Aide-moi à rédiger des réponses chaleureuses et professionnelles à mes clientes." },
               { icon: Calendar, label: "Prendre RDV", q: "Je veux réserver une prestation beauté, guide-moi étape par étape." },
               { icon: Lightbulb, label: "Créer une routine", q: "Je veux créer une routine beauté personnalisée, propose-moi des idées adaptées à mon profil." },
-            ]).map(({ icon: Icon, label, q, to, highlight }) => (
+            ]).map(({ icon: Icon, label, q, to, action, highlight }) => (
               <button
                 key={label}
-                onClick={() => (to ? navigate(to) : sendMessage(q))}
+                onClick={() => {
+                  if (to) navigate(to);
+                  else if (action === "stats") handleActivitySummary();
+                  else sendMessage(q);
+                }}
                 className={`flex items-center gap-2 rounded-2xl px-3 py-3 active:scale-[0.98] transition-all text-left border ${
                   highlight
                     ? "bg-orange-50 border-orange-200"
