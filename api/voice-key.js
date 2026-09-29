@@ -7,21 +7,39 @@
 //   { pro_email, access_token, action: 'save', voice_api_key } -> { ok: true }
 //   { pro_email, access_token, action: 'remove' }             -> { ok: true }
 
-async function getUserEmail(url, accessToken) {
+/** Vérifie le JWT Supabase et renvoie un diagnostic précis (jamais un simple « refusé »). */
+async function checkAuth(url, accessToken) {
+  const endpoint = `${String(url || '').replace(/\/$/, '')}/auth/v1/user`;
+  let res;
   try {
-    const res = await fetch(`${url.replace(/\/$/, '')}/auth/v1/user`, {
+    res = await fetch(endpoint, {
       headers: {
         apikey: process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '',
         Authorization: `Bearer ${accessToken}`,
       },
       signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) return '';
-    const user = await res.json().catch(() => null);
-    return String((user && user.email) || '').trim().toLowerCase();
   } catch {
-    return '';
+    return { ok: false, code: 'AUTH_URL_UNREACHABLE',
+      message: "Le serveur n'arrive pas à joindre Supabase : vérifiez la variable SUPABASE_URL dans Vercel (elle doit valoir exactement l'URL de votre projet, https://…supabase.co)." };
   }
+  const raw = await res.text().catch(() => '');
+  if (res.status === 401 && /invalid api key/i.test(raw)) {
+    return { ok: false, code: 'AUTH_BAD_API_KEY',
+      message: "La clé API Supabase configurée sur le serveur est rejetée : recopiez SUPABASE_ANON_KEY depuis votre dashboard Supabase (Project Settings → API)." };
+  }
+  if (!res.ok) {
+    return { ok: false, code: 'AUTH_TOKEN_REJECTED',
+      message: "Votre session n'est pas reconnue par le serveur : déconnectez-vous puis reconnectez-vous sur le site. Si le problème persiste, vérifiez que SUPABASE_URL dans Vercel correspond exactement au projet utilisé par l'application." };
+  }
+  let user = null;
+  try { user = JSON.parse(raw); } catch { user = null; }
+  const email = String((user && user.email) || '').trim().toLowerCase();
+  if (!email) {
+    return { ok: false, code: 'AUTH_NO_EMAIL',
+      message: "Le serveur n'a pas pu lire votre email de session : déconnectez-vous puis reconnectez-vous." };
+  }
+  return { ok: true, email };
 }
 
 function rest(path, serviceKey, opts = {}) {
@@ -59,8 +77,11 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Authentification requise.', code: 'AUTH_REQUIRED' });
   }
   // Le JWT doit appartenir au professionnel dont on gère la clé.
-  const authedEmail = await getUserEmail(url, accessToken);
-  if (!authedEmail || authedEmail !== proEmail) {
+  const auth = await checkAuth(url, accessToken);
+  if (!auth.ok) {
+    return res.status(502).json({ error: auth.message, code: auth.code });
+  }
+  if (auth.email !== proEmail) {
     return res.status(403).json({ error: 'Accès refusé.', code: 'FORBIDDEN' });
   }
 
