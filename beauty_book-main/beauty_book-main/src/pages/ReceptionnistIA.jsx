@@ -62,7 +62,9 @@ export default function ReceptionnistIA() {
   const [chatbotEnabled, setChatbotEnabled] = useState(true);
   const [aiReady, setAiReady] = useState(false);
 
-  // Configuration Grok du salon
+  // Configuration vocale du salon
+  const [voiceKeySet, setVoiceKeySet] = useState(false);
+  const [voiceKeyDraft, setVoiceKeyDraft] = useState('');
   const [agentId, setAgentId] = useState(DEFAULT_AGENT_ID);
   const [agentDraft, setAgentDraft] = useState(DEFAULT_AGENT_ID);
   const [voice, setVoice] = useState('ara');
@@ -109,13 +111,13 @@ export default function ReceptionnistIA() {
     setSvcState('checking');
     setSvcError('');
     try {
-      await mintVoiceToken();
+      await mintVoiceToken(proEmail);
       setSvcState('ok');
     } catch (e) {
       setSvcState('error');
       setSvcError(e.message);
     }
-  }, []);
+  }, [proEmail]);
 
   // ─── Chargement initial : pro + réglages IA du salon + vrais services ────
   useEffect(() => {
@@ -138,6 +140,18 @@ export default function ReceptionnistIA() {
         setCustomInstructions(ai.custom_instructions || '');
         setInstructionsDraft(ai.custom_instructions || '');
         setConnectionMode(ai.connection_mode === 'agent' ? 'agent' : 'direct');
+        setVoiceKeySet(false);
+        // Statut de la clé via la route serveur (la clé brute ne revient jamais au navigateur)
+        try {
+          const { data: sess } = await supabase.auth.getSession();
+          const r = await fetch('/api/voice-key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pro_email: email, access_token: sess?.session?.access_token || '', action: 'status' }),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (alive && r.ok) setVoiceKeySet(!!j.configured);
+        } catch { /* indicateur indisponible */ }
         setAiReady(true);
         if (email) {
           const profiles = await entities.ProfilPro.filter({ user_email: email }, '-created_at', 1).catch(() => []);
@@ -281,7 +295,7 @@ export default function ReceptionnistIA() {
     setMicLevel(0);
     setMode(null);
     try {
-      const { token } = await mintVoiceToken();
+      const { token } = await mintVoiceToken(proEmail);
       // ── Données du salon RELUES À CHAQUE APPEL (temps réel) ──
       let liveServices = services;
       let liveBundles = bundles;
@@ -423,6 +437,39 @@ export default function ReceptionnistIA() {
     }
   };
 
+  const [savingKey, setSavingKey] = useState(false);
+  const [keyMsg, setKeyMsg] = useState(null);
+  const callVoiceKeyApi = async (action, voice_api_key) => {
+    const { data: sess } = await supabase.auth.getSession();
+    const r = await fetch('/api/voice-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pro_email: proEmail, access_token: sess?.session?.access_token || '', action, voice_api_key }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'Échec.');
+    return j;
+  };
+  const saveVoiceKey = async () => {
+    const v = voiceKeyDraft.trim();
+    if (!v) { setKeyMsg({ type: 'error', text: 'Collez votre clé API vocale.' }); return; }
+    setSavingKey(true);
+    try {
+      await callVoiceKeyApi('save', v);
+      setVoiceKeySet(true); setVoiceKeyDraft('');
+      setKeyMsg({ type: 'ok', text: 'Clé enregistrée. Les prochains appels utiliseront votre propre clé.' });
+    } catch (e) { setKeyMsg({ type: 'error', text: e.message || "Échec de l'enregistrement." }); }
+    finally { setSavingKey(false); }
+  };
+  const removeVoiceKey = async () => {
+    if (!window.confirm('Supprimer la clé API vocale de ce salon ?')) return;
+    try {
+      await callVoiceKeyApi('remove');
+      setVoiceKeySet(false); setVoiceKeyDraft('');
+      setKeyMsg({ type: 'ok', text: 'Clé supprimée.' });
+    } catch (e) { setKeyMsg({ type: 'error', text: e.message || 'Échec de la suppression.' }); }
+  };
+
   const copyForXaiConsole = async () => {
     const name = profil?.salon_name || salonName || 'votre salon';
     const text = buildVoiceInstructions({
@@ -444,7 +491,7 @@ export default function ReceptionnistIA() {
 
   const serviceReady = svcState === 'ok';
   const inCall = voiceState === 'live' || voiceState === 'connecting';
-  const badgeLabel = !vocalEnabled ? 'DÉSACTIVÉ' : serviceReady ? 'GROK PRÊT' : 'À CONFIGURER';
+  const badgeLabel = !vocalEnabled ? 'DÉSACTIVÉ' : serviceReady ? 'AGENT PRÊT' : 'À CONFIGURER';
   const badgeActive = vocalEnabled && serviceReady;
 
   return (
@@ -500,10 +547,10 @@ export default function ReceptionnistIA() {
           <div className="rp-hero-content">
             <div className="rp-hero-avatar"><Bot size={30} /></div>
             <div className="rp-hero-text">
-              <span className="rp-hero-badge"><Sparkles size={10} /> Agent vocal Grok — conversation en direct</span>
+              <span className="rp-hero-badge"><Sparkles size={10} /> Agent vocal IA — conversation en direct</span>
               <h2>Maria — Votre Réceptionniste Vocale</h2>
               <p>
-                Parlez directement à votre agent vocal Grok depuis cette page :
+                Parlez directement à votre agent vocal IA depuis cette page :
                 il vous répond à voix haute, en français, 24h/24.
               </p>
               <button
@@ -538,7 +585,7 @@ export default function ReceptionnistIA() {
             <div className="rp-card">
               <div className="rp-card-title-row">
                 <Bot size={15} className="rp-card-icon" />
-                <h3>État de l'agent Grok</h3>
+                <h3>État de l'agent vocal</h3>
                 <button className="rp-btn-ghost-sm" onClick={checkService} disabled={svcState === 'checking'}>
                   <RefreshCw size={12} className={svcState === 'checking' ? 'rp-spin' : ''} /> Vérifier
                 </button>
@@ -546,7 +593,7 @@ export default function ReceptionnistIA() {
               {svcState === 'unknown' && (
                 <div className="rp-info-box">
                   <AlertCircle size={15} />
-                  <span>Vérification de la connexion au service vocal Grok…</span>
+                  <span>Vérification de la connexion au service vocal…</span>
                 </div>
               )}
               {svcState === 'checking' && (
@@ -606,7 +653,7 @@ export default function ReceptionnistIA() {
               {vocalEnabled && voiceState === 'connecting' && (
                 <div className="rp-voice-idle">
                   <div className="rp-voice-start connecting"><Loader2 size={26} className="rp-spin" /></div>
-                  <p>Connexion à l'agent Grok…</p>
+                  <p>Connexion à l'agent vocal…</p>
                 </div>
               )}
 
@@ -626,11 +673,11 @@ export default function ReceptionnistIA() {
                       <Bot size={30} />
                     </div>
                     <p className="rp-voice-status">
-                      {mode === 'agent' ? 'Agent Grok connecté' : 'Mode direct Grok'}
+                      {mode === 'agent' ? 'Agent distant connecté' : 'Mode direct'}
                       {' · '}
                       {speaking === 'agent' ? 'Maria parle…' : speaking === 'user' ? 'Vous parlez…' : muted ? 'Micro coupé' : 'À vous…'}
                     </p>
-                    {/* Étape serveur en direct : prouve que Grok entend / réfléchit / répond */}
+                    {/* Étape serveur en direct : prouve que l'agent entend / réfléchit / répond */}
                     {pipeStage && (
                       <p className="rp-pipe-stage">
                         {pipeStage === 'listening'
@@ -679,11 +726,11 @@ export default function ReceptionnistIA() {
                 <h3>Bon à savoir</h3>
               </div>
               <p className="rp-card-sub">
-                La connexion utilise un <strong>token éphémère de 5 minutes</strong> : votre clé API xAI
+                La connexion utilise un <strong>token éphémère de 5 minutes</strong> : votre clé API vocale
                 reste sur le serveur et n'est jamais exposée dans l'application.
                 Chaque salon possède son propre agent et ses propres réglages.
                 Pour recevoir de vrais appels téléphoniques, attachez un numéro à votre agent
-                depuis la console xAI (page de l'agent → onglet Deployment).
+                depuis la console du service vocal (page de l'agent → onglet Deployment).
               </p>
             </div>
           </div>
@@ -786,7 +833,7 @@ export default function ReceptionnistIA() {
                 Le ton, les instructions détaillées et le message d'accueil de l'agent se règlent
                 dans l'onglet <strong>Configuration</strong> ci-contre.
                 {connectionMode === 'agent'
-                  ? " Vous êtes en mode « Agent xAI » : pensez aussi à mettre à jour la console xAI (bouton « Copier pour la console xAI »)."
+                  ? " Vous êtes en mode « Agent distant » : pensez aussi à mettre à jour la console du service vocal (bouton « Copier pour la console »)."
                   : " Vous êtes en mode « Direct » : l'agent parle français et utilise vos instructions ci-dessous."}
               </p>
               <button className="rp-btn-ghost full" onClick={() => setTab('config')}>
@@ -802,25 +849,51 @@ export default function ReceptionnistIA() {
             <div className="rp-card">
               <div className="rp-card-title-row">
                 <KeyRound size={15} className="rp-card-icon" />
-                <h3>Clé API xAI</h3>
+                <h3>Clé API vocale du salon</h3>
               </div>
               <p className="rp-card-sub">
-                Le service vocal et le chatbot utilisent votre clé xAI <strong>côté serveur uniquement</strong>.
-                Ajoutez-la dans Vercel, puis redéployez :
+                Chaque salon peut connecter sa <strong>propre clé API vocale</strong> : l'agent vocal
+                utilisera alors votre clé (et votre facturation) au lieu de celle de BeautyBook.
+                La clé est conservée <strong>côté serveur uniquement</strong> — elle n'est jamais
+                affichée ni renvoyée au navigateur.
               </p>
-              <ol className="rp-steps">
-                <li>Ouvrez le dashboard Vercel du projet <span className="mono">thelastjiren</span></li>
-                <li><strong>Settings → Environment Variables</strong> → ajoutez <span className="mono">XAI_API_KEY</span></li>
-                <li>Collez votre clé (console.x.ai → API Keys), environnement <strong>Production</strong></li>
-                <li><strong>Deployments → Redéployer</strong> le dernier déploiement</li>
-              </ol>
-              <button className="rp-btn-primary" onClick={checkService} disabled={svcState === 'checking'}>
-                {svcState === 'checking' ? <Loader2 size={14} className="rp-spin" /> : <CheckCircle2 size={14} />}
-                {' '}Tester la connexion au service
-              </button>
+              {voiceKeySet ? (
+                <div className="rp-alert ok" style={{ marginTop: 4 }}>
+                  <CheckCircle2 size={15} /><span>Une clé API vocale est enregistrée pour ce salon.</span>
+                </div>
+              ) : (
+                <div className="rp-alert" style={{ marginTop: 4 }}>
+                  <AlertCircle size={15} /><span>Aucune clé enregistrée : l'agent utilise la clé BeautyBook.</span>
+                </div>
+              )}
+              <div className="rp-field" style={{ marginTop: 10 }}>
+                <label className="rp-label">{voiceKeySet ? 'Remplacer la clé' : 'Ajouter votre clé API vocale'}</label>
+                <input type="password" className="rp-input" autoComplete="new-password"
+                  placeholder="Collez votre clé API vocale"
+                  value={voiceKeyDraft} onChange={(e) => setVoiceKeyDraft(e.target.value)} />
+                <p className="rp-field-help">La clé n'est jamais réaffichée après enregistrement.</p>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="rp-btn-primary" onClick={saveVoiceKey} disabled={savingKey || !voiceKeyDraft.trim()}>
+                  {savingKey ? <Loader2 size={14} className="rp-spin" /> : <KeyRound size={14} />}{' '}
+                  {savingKey ? 'Enregistrement…' : 'Enregistrer la clé'}
+                </button>
+                {voiceKeySet && (
+                  <button className="rp-btn-ghost danger" onClick={removeVoiceKey}>Supprimer la clé</button>
+                )}
+                <button className="rp-btn-ghost" onClick={checkService} disabled={svcState === 'checking'}>
+                  {svcState === 'checking' ? <Loader2 size={14} className="rp-spin" /> : <CheckCircle2 size={14} />}{' '}
+                  Tester la connexion au service
+                </button>
+              </div>
+              {keyMsg && (
+                <div className={`rp-alert ${keyMsg.type === 'ok' ? 'ok' : 'error'}`} style={{ marginTop: 10 }}>
+                  <span>{keyMsg.text}</span>
+                </div>
+              )}
               {svcState === 'ok' && (
                 <div className="rp-alert ok" style={{ marginTop: 12 }}>
-                  <CheckCircle2 size={15} /><span>Clé configurée : le service vocal et le chatbot répondent.</span>
+                  <CheckCircle2 size={15} /><span>Clé configurée : le service vocal répond.</span>
                 </div>
               )}
               {svcState === 'error' && (
@@ -861,9 +934,9 @@ export default function ReceptionnistIA() {
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>Email du salon testé : {diagResult.email}</div>
                   <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>
-                    Mode actuel : <strong>{connectionMode === 'agent' ? 'Agent xAI' : 'Direct'}</strong>
+                    Mode actuel : <strong>{connectionMode === 'agent' ? 'Agent distant' : 'Direct'}</strong>
                     {connectionMode === 'agent'
-                      ? " — attention : l'agent configuré dans la console xAI n'a AUCUN accès à vos données BeautyBook (aucun outil). Passez en mode Direct pour la prise de RDV."
+                      ? " — attention : l'agent configuré dans la console du service vocal n'a AUCUN accès à vos données BeautyBook (aucun outil). Passez en mode Direct pour la prise de RDV."
                       : " — l'agent utilise les instructions et les outils de l'application."}
                   </div>
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
@@ -881,7 +954,7 @@ export default function ReceptionnistIA() {
                 <label className="rp-label">Mode de connexion</label>
                 <select className="rp-input" value={connectionMode} onChange={(e) => saveConnectionMode(e.target.value)}>
                   <option value="direct">Direct (recommandé) — français, instructions et outils de l'app</option>
-                  <option value="agent">Agent xAI — configuration de votre console xAI</option>
+                  <option value="agent">Agent distant — configuration de votre console vocale</option>
                 </select>
                 <p className="rp-field-help">
                   En mode Direct, l'agent parle français, vérifie les vrais créneaux,
@@ -930,7 +1003,7 @@ export default function ReceptionnistIA() {
                   <RefreshCw size={13} /> Réinitialiser
                 </button>
                 <button className="rp-btn-ghost" onClick={copyForXaiConsole}>
-                  <ExternalLink size={13} /> Copier pour la console xAI
+                  <ExternalLink size={13} /> Copier pour la console
                 </button>
               </div>
               {kbSaved && (
@@ -946,7 +1019,7 @@ export default function ReceptionnistIA() {
                 <h3>Agent vocal de ce salon</h3>
               </div>
               <div className="rp-field">
-                <label className="rp-label">Identifiant de l'agent (console xAI)</label>
+                <label className="rp-label">Identifiant de l'agent (console vocale)</label>
                 <input
                   type="text"
                   className="rp-input mono"
@@ -955,7 +1028,7 @@ export default function ReceptionnistIA() {
                   placeholder="agent_…"
                   autoComplete="off"
                 />
-                <p className="rp-field-help">L'agent créé dans console.x.ai → Voice → Agents. Propre à ce salon.</p>
+                <p className="rp-field-help">L'agent créé dans votre console vocale → Voice → Agents. Propre à ce salon.</p>
               </div>
               <button className="rp-btn-ghost" onClick={saveAgentId}>
                 <CheckCircle2 size={13} /> Enregistrer l'agent
@@ -977,13 +1050,13 @@ export default function ReceptionnistIA() {
               </div>
               <p className="rp-card-sub">
                 Pour que Maria décroche vos vrais appels, attachez un numéro à votre agent
-                depuis la console xAI (page de l'agent → onglet <strong>Deployment</strong>).
+                depuis la console du service vocal (page de l'agent → onglet <strong>Deployment</strong>).
               </p>
               <button
                 className="rp-btn-ghost full"
                 onClick={() => window.open('https://console.x.ai/', '_blank')}
               >
-                <ExternalLink size={13} /> Ouvrir la console xAI
+                <ExternalLink size={13} /> Ouvrir la console vocale
               </button>
             </div>
           </div>

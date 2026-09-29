@@ -89,7 +89,7 @@ export default function ApiUsageTab() {
       <div className="rp-card">
         <div className="rp-card-title-row">
           <Wallet size={15} className="rp-card-icon" />
-          <h3>Crédit xAI vs utilisation</h3>
+          <h3>Crédit du service IA vs utilisation</h3>
           <button className="rp-btn-ghost-sm" onClick={() => setRefreshKey((k) => k + 1)}>
             <RefreshCw size={12} /> Actualiser
           </button>
@@ -99,7 +99,7 @@ export default function ApiUsageTab() {
           <div className="rp-info-box">
             <Info size={15} />
             <span>
-              Indiquez le montant du crédit que vous avez chargé sur votre compte xAI :
+              Indiquez le montant du crédit que vous avez chargé sur votre compte du service IA :
               l'anneau affichera votre taux d'utilisation en temps réel.
             </span>
           </div>
@@ -121,7 +121,7 @@ export default function ApiUsageTab() {
               </p>
               <p className="text-[11px] text-gray-400">
                 {pct >= 100
-                  ? '⚠️ Vous avez probablement dépassé votre crédit : rechargez votre compte xAI.'
+                  ? '⚠️ Vous avez probablement dépassé votre crédit : rechargez votre compte du service IA.'
                   : pct >= 70
                     ? 'Votre crédit fond vite : surveillez les prochains jours.'
                     : 'Utilisation sous contrôle.'}
@@ -132,7 +132,7 @@ export default function ApiUsageTab() {
         )}
 
         <div className="rp-field" style={{ marginTop: 12 }}>
-          <label className="rp-label">Crédit chargé sur xAI (USD)</label>
+          <label className="rp-label">Crédit chargé sur le service IA (USD)</label>
           <div className="flex gap-2">
             <input
               type="number" min="0" step="1" inputMode="decimal"
@@ -260,7 +260,7 @@ export default function ApiUsageTab() {
         <p className="rp-card-sub" style={{ marginTop: 10 }}>
           Estimations indicatives calculées depuis les tokens réellement consommés.
           Suivi local à cet appareil uniquement. Le crédit est saisi manuellement
-          (xAI n'expose pas votre solde via son API).
+          (le service IA n'expose pas votre solde via son API).
         </p>
       </div>
     </div>

@@ -3,6 +3,8 @@
 // Chaque outil lit/écrit les VRAIES données Supabase du salon :
 //   - check_availability : créneaux libres calculés depuis les horaires du
 //     salon + les réservations existantes (aucun créneau inventé) ;
+//   - get_team           : vraie équipe du salon (choix du professionnel) ;
+//   - get_service_questions : questions de préparation du service (étape 2) ;
 //   - create_booking     : crée la réservation dans `Reservation`
 //     (statut en_attente → visible dans la page Gestion agenda du pro) ;
 //   - find_booking / reschedule_booking / cancel_booking : gestion des RDV ;
@@ -295,6 +297,17 @@ const DEFINITIONS = [
   },
   {
     type: 'function',
+    name: 'get_team',
+    description:
+      "Retourne la VRAIE équipe du salon (noms et rôles des collaborateurs). À appeler quand le client souhaite un(e) professionnel(le) précis(e). Ne propose JAMAIS un nom qui n'y figure pas.",
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    type: 'function',
     name: 'get_service_questions',
     description:
       "Retourne les questions de préparation du service choisi (les mêmes que dans l'application : d'abord celles personnalisées par le professionnel, sinon celles de la catégorie du service). À appeler dès que la prestation est choisie, AVANT de proposer les créneaux.",
@@ -325,6 +338,8 @@ const DEFINITIONS = [
         notes: { type: 'string', description: 'Notes éventuelles' },
         questionnaire_answers: { type: 'string', description: 'Réponses du client aux questions de préparation, au format « question → réponse » séparées par « ; »' },
         payment_preference: { type: 'string', description: "Préférence de paiement exprimée par le client : 'onsite' (règlement au salon) ou 'card' (paiement par carte — le salon enverra un lien de paiement sécurisé)" },
+        persons: { type: 'integer', description: 'Nombre de personnes pour ce rendez-vous (1 par défaut)' },
+        collaborateur: { type: 'string', description: "Nom du/de la professionnel(le) choisi(e) par le client — doit figurer dans get_team, sinon laisser vide" },
       },
       required: ['date', 'time_slot', 'client_name'],
     },
@@ -385,6 +400,37 @@ const DEFINITIONS = [
 // ─── Exécuteurs ─────────────────────────────────────────────────────────────
 function buildExecutors(proEmail) {
   const email = normEmail(proEmail);
+
+  // ── Équipe réelle du salon (pour le choix du professionnel, étape 1) ─────
+  async function getTeam() {
+    try {
+      const { data, error } = await qread(() =>
+        supabase
+          .from('MembreEquipe')
+          .select('name,role,status')
+          .eq('pro_email', email)
+          .order('name', { ascending: true })
+      );
+      if (error) return err("Je n'arrive pas à lire l'équipe du salon pour le moment.", 'NO_ACCESS');
+      const members = (data || [])
+        .filter((m) => String(m?.name || '').trim())
+        .filter((m) => {
+          const st = String(m?.status || '').toLowerCase();
+          return !st || st === 'actif' || st === 'active';
+        })
+        .map((m) => ({ name: String(m.name).trim(), role: String(m.role || '').trim() }));
+      if (members.length === 0) {
+        return { status: 'success', members: [], message: "Le salon n'a pas renseigné d'équipe : ne propose aucun nom de collaborateur, dis simplement que l'équipe s'occupera du client." };
+      }
+      return {
+        status: 'success',
+        members,
+        hint: 'Propose UNIQUEMENT ces noms. Si le client cite un nom absent de cette liste, dis-le poliment et propose un membre de la liste.',
+      };
+    } catch {
+      return err("Je n'arrive pas à lire l'équipe du salon pour le moment.", 'NO_ACCESS');
+    }
+  }
 
   // ── Questions de préparation du service (parcours de réservation vocal) ──
   // Mêmes questions que dans l'application (étape « Vos Préférences ») :
@@ -520,9 +566,12 @@ function buildExecutors(proEmail) {
       const payLabel = payPref === 'card'
         ? 'par carte (le salon enverra un lien de paiement sécurisé au client)'
         : 'au salon';
+      const persons = Math.max(1, Math.min(20, parseInt(args.persons, 10) || 1));
+      const collaborateur = String(args.collaborateur || '').trim() || null;
       const notesParts = [];
       if (qaText) notesParts.push(`[Questionnaire vocal] ${qaText}`);
       notesParts.push(`[Paiement] préférence du client : ${payLabel}`);
+      if (persons > 1) notesParts.push(`[Personnes] ${persons}`);
       const extraNotes = String(args.notes || '').trim();
       if (extraNotes) notesParts.push(extraNotes);
 
@@ -534,7 +583,9 @@ function buildExecutors(proEmail) {
         service_id: presta?.id || args.service_id || null,
         service_name: serviceName,
         service_price: price,
-        total_price: price,
+        total_price: price != null ? price * persons : null,
+        persons,
+        collaborateur,
         date: dateStr,
         time_slot: slot,
         duration_min: duration,
@@ -548,7 +599,15 @@ function buildExecutors(proEmail) {
         booking_code,
         crg_code,
       };
-      const { data, error } = await supabase.from('Reservation').insert(payload).select().single();
+      let insertRes = await supabase.from('Reservation').insert(payload).select().single();
+      if (insertRes.error && /collaborateur/i.test(insertRes.error.message || '')) {
+        // Colonne `collaborateur` pas encore migrée : on réessaie sans elle,
+        // en conservant le professionnel souhaité dans les notes du RDV.
+        const { collaborateur: _omit, ...retryPayload } = payload;
+        retryPayload.notes = `${payload.notes}\n[Professionnel souhaité] ${collaborateur}`;
+        insertRes = await supabase.from('Reservation').insert(retryPayload).select().single();
+      }
+      const { data, error } = insertRes;
       if (error || !data) {
         return err("La création de la réservation a échoué. Propose de prendre un message pour l'équipe.", 'CREATE_FAILED');
       }
@@ -561,6 +620,8 @@ function buildExecutors(proEmail) {
         time_slot: slot,
         service_name: serviceName,
         service_price: price,
+        persons,
+        collaborateur,
         client_name: clientName,
         payment_preference: payPref === 'card' ? 'card' : 'onsite',
         dictate_to_client:
@@ -684,6 +745,7 @@ function buildExecutors(proEmail) {
     const a = args && typeof args === 'object' ? args : {};
     switch (name) {
       case 'check_availability': return checkAvailability(a);
+      case 'get_team': return getTeam(a);
       case 'get_service_questions': return getServiceQuestions(a);
       case 'create_booking': return createBooking(a);
       case 'find_booking': return findBooking(a);
@@ -766,6 +828,25 @@ export async function testVoiceDataAccess(proEmail) {
 
   const bundles = await getBundles(email);
   push('Offres / packs (bundles)', true, `${bundles.length} bundle(s) actif(s)`);
+
+  let team = [];
+  let teamErr = null;
+  {
+    const res = await qread(() =>
+      supabase.from('MembreEquipe').select('id,name,role').eq('pro_email', email).limit(50)
+    );
+    team = res.data || [];
+    teamErr = res.error || null;
+  }
+  push(
+    'Équipe du salon (choix du professionnel)',
+    !teamErr,
+    teamErr
+      ? `lecture impossible : ${teamErr?.message || 'erreur réseau/accès'}`
+      : (team.length > 0
+          ? `${team.length} membre(s) : ${team.slice(0, 5).map((m) => m.name).join(', ')}${team.length > 5 ? '…' : ''}`
+          : "aucun membre renseigné — l'agent ne proposera aucun nom")
+  );
 
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);

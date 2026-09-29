@@ -1,5 +1,5 @@
 /**
- * ── Suivi d'utilisation de l'API xAI (Grok) ────────────────────────────────
+ * ── Suivi d'utilisation de l'API du service IA ───────────────────────────────
  * Enregistre chaque appel /api/xai-chat (tokens in/out via `usage` renvoyé
  * par le proxy) et chaque minute de voix temps réel, puis estime le coût.
  *
@@ -20,9 +20,9 @@ const MAX_DAYS = 90;
 // Tarifs indicatifs par défaut ($ / 1M tokens) — modifiables dans l'interface.
 export const DEFAULT_RATES = {
   models: {
-    "grok-4-1-fast-non-reasoning": { in: 0.2, out: 0.5, label: "Grok 4.1 Fast" },
-    "grok-4-1-fast-reasoning": { in: 0.2, out: 0.5, label: "Grok 4.1 Fast Reasoning" },
-    "grok-4": { in: 3.0, out: 15.0, label: "Grok 4" },
+    "grok-4-1-fast-non-reasoning": { in: 0.2, out: 0.5, label: "Modèle Fast" },
+    "grok-4-1-fast-reasoning": { in: 0.2, out: 0.5, label: "Modèle Fast Reasoning" },
+    "grok-4": { in: 3.0, out: 15.0, label: "Modèle Pro" },
   },
   fallback: { in: 0.2, out: 0.5 }, // modèle inconnu → tarif fast par défaut
   voicePerMin: 0.08, // $ / minute de voix temps réel (modifiable)

@@ -63,9 +63,23 @@ export async function grokChat(messages, opts = {}) {
   return content;
 }
 
-/** Récupère un token éphémère pour la session voix temps réel. */
-export async function mintVoiceToken() {
-  const res = await fetch('/api/xai-token', { method: 'POST', signal: AbortSignal.timeout(20000) });
+/** Récupère un token éphémère pour la session voix temps réel.
+ * @param {string} proEmail - email du salon : le serveur vérifie le JWT du
+ *   professionnel connecté, puis utilise la clé API vocale propre au salon
+ *   si configurée, sinon la clé BeautyBook. */
+export async function mintVoiceToken(proEmail) {
+  let accessToken = '';
+  try {
+    const { supabase } = await import('@/api/supabaseClient');
+    const { data } = await supabase.auth.getSession();
+    accessToken = data?.session?.access_token || '';
+  } catch { /* session indisponible */ }
+  const res = await fetch('/api/xai-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pro_email: proEmail || '', access_token: accessToken }),
+    signal: AbortSignal.timeout(20000),
+  });
   let data = null;
   try { data = await res.json(); } catch { /* pas de JSON */ }
   if (!res.ok || !data?.token) {

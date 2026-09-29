@@ -1,4 +1,4 @@
-// ─── Proxy Grok (xAI) pour le chatbot ─────────────────────────────────────────
+// ─── Proxy du service IA pour le chatbot ──────────────────────────────────────
 // Le navigateur n'appelle JAMAIS api.x.ai directement : la clé XAI_API_KEY reste
 // côté serveur (variable d'environnement Vercel). Le front appelle /api/xai-chat.
 const ALLOWED_MODELS = new Set([
@@ -50,8 +50,8 @@ export default async function handler(req, res) {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) {
     return res.status(503).json({
-      error: "Service IA non configuré. Ajoutez la variable XAI_API_KEY dans Vercel puis redéployez.",
-      code: 'XAI_KEY_MISSING',
+      error: "Service IA non configuré. Contactez le support BeautyBook.",
+      code: 'VOICE_KEY_MISSING',
     });
   }
 
@@ -82,18 +82,11 @@ export default async function handler(req, res) {
     });
     const data = await upstream.json().catch(() => ({}));
     if (!upstream.ok) {
-      const msg = data?.error?.message || `Erreur xAI (${upstream.status})`;
+      const msg = data?.error?.message || `Erreur du service IA (${upstream.status})`;
       return res.status(upstream.status === 401 ? 503 : 502).json({ error: msg, code: 'XAI_UPSTREAM_ERROR' });
     }
     const content = data?.choices?.[0]?.message?.content || '';
-    const usage = data?.usage && typeof data.usage === 'object'
-      ? {
-          prompt_tokens: Number(data.usage.prompt_tokens) || 0,
-          completion_tokens: Number(data.usage.completion_tokens) || 0,
-          total_tokens: Number(data.usage.total_tokens) || 0,
-        }
-      : null;
-    return res.status(200).json({ content, model: data?.model || model, usage });
+    return res.status(200).json({ content, model: data?.model || model });
   } catch (e) {
     return res.status(502).json({ error: 'Impossible de joindre le service IA.', code: 'XAI_UNREACHABLE' });
   }

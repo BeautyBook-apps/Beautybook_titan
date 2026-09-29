@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Supabase Edge Function : social-webhook
 // Reçoit les événements Meta (Instagram / Facebook / WhatsApp) et fait répondre
-// l'AGENT SOCIAL GROK aux DMs et commentaires EN CONDITIONS RÉELLES.
+// l'AGENT SOCIAL IA aux DMs et commentaires EN CONDITIONS RÉELLES.
 //
 // Nouveau principe (2026-09-30) : PLUS AUCUN mot-clé, PLUS AUCUNE automatisation.
-// Grok SUIT les INSTRUCTIONS du salon (table `social_agent_config`, configurées
+// L'assistant SUIT les INSTRUCTIONS du salon (table `social_agent_config`, configurées
 // dans la page « Agent Social IA »), avec les VRAIES données du salon
 // (prestations, tarifs, durées, horaires, adresse, FAQ) — jamais d'invention.
 //
@@ -21,7 +21,7 @@
 //   (optionnel) VOICE_SERVER_URL, VOICE_SERVER_ADMIN_TOKEN
 //   → pour pousser les réservations vers Google Agenda via le serveur vocal.
 //
-// Parcours réservation : quand Grok détecte une intention de réservation, il
+// Parcours réservation : quand l'assistant détecte une intention de réservation, il
 // préfixe sa réponse par [RÉSERVER] ; la machine à états prend alors le relais
 // (service → questionnaire optionnel → date → heure → prénom/téléphone) puis
 // crée la RÉSERVATION RÉELLE (table Reservation, source 'maria_assistant',
@@ -176,14 +176,28 @@ MODE OPÉRATOIRE (à suivre impérativement) :
 - Si la personne donne son email, remercie-la simplement (la capture est gérée par le salon).`;
 }
 
-/** Appelle Grok avec les instructions du salon + l'historique de conversation. */
-async function callGrok(system: string, history: { role: string; text: string }[], message: string): Promise<string> {
-  if (!XAI_API_KEY) {
-    throw new Error("XAI_API_KEY manquant : ajoutez-le via `supabase secrets set XAI_API_KEY=...` puis redéployez la fonction.");
+/** Appelle l'assistant avec les instructions du salon + l'historique de conversation. */
+/** Clé API vocale propre au salon (sinon clé BeautyBook XAI_API_KEY). */
+async function getSalonApiKey(userEmail: string): Promise<string> {
+  try {
+    const { data } = await supabase
+      .from("salon_ai_settings")
+      .select("voice_api_key")
+      .eq("pro_email", userEmail)
+      .maybeSingle();
+    const k = String((data as { voice_api_key?: string } | null)?.voice_api_key || "").trim();
+    if (k) return k;
+  } catch { /* repli clé globale */ }
+  return XAI_API_KEY;
+}
+async function callGrok(system: string, history: { role: string; text: string }[], message: string, salonApiKey?: string): Promise<string> {
+  const apiKey = salonApiKey || XAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("Clé du service IA manquante : ajoutez-la via `supabase secrets set XAI_API_KEY=...` ou dans la page Réceptionniste IA du salon.");
   }
   const res = await fetch(XAI_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${XAI_API_KEY}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: GROK_MODEL,
       temperature: 0.7,
@@ -198,10 +212,10 @@ async function callGrok(system: string, history: { role: string; text: string }[
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = data?.error?.message || data?.error || `HTTP ${res.status}`;
-    throw new Error(`Grok indisponible (${detail}). Réessayez dans un moment.`);
+    throw new Error(`Assistant indisponible (${detail}). Réessayez dans un moment.`);
   }
   const text = data?.choices?.[0]?.message?.content;
-  if (!text || !String(text).trim()) throw new Error("Grok n'a pas généré de réponse. Réessayez.");
+  if (!text || !String(text).trim()) throw new Error("L'assistant n'a pas généré de réponse. Réessayez.");
   return String(text).trim();
 }
 
@@ -543,7 +557,7 @@ async function setConvState(userEmail: string, platform: string, state: ConvStat
   await logEvent({ user_email: userEmail, platform, automation_id: state.automationId, event_type: "conv_state", meta: state });
 }
 
-/** Historique récent des échanges avec cet expéditeur (pour Grok). */
+/** Historique récent des échanges avec cet expéditeur (pour l'assistant). */
 async function getHistory(userEmail: string, senderId: string): Promise<{ role: string; text: string }[]> {
   try {
     const { data } = await supabase
@@ -668,7 +682,7 @@ async function handleIncoming(
 
   const state = await getConvState(userEmail, senderId);
   const say = (t: string) => replyToSender(conn, { ...(state as ConvState), senderId, commentId: state?.commentId ?? commentId } as ConvState, t, platform);
-  const logReply = (t: string) => logEvent({ user_email: userEmail, platform, automation_id: null, event_type: "agent_reply", meta: { sender_id: senderId, text: t.slice(0, 500), via: "grok" } });
+  const logReply = (t: string) => logEvent({ user_email: userEmail, platform, automation_id: null, event_type: "agent_reply", meta: { sender_id: senderId, text: t.slice(0, 500), via: "assistant" } });
 
   // ── Suite d'un parcours de réservation en cours (machine à états) ──
   if (state && state.stage !== "done") {
@@ -799,11 +813,12 @@ async function handleIncoming(
     }
   }
 
-  // ── Nouveau message : Grok répond avec les instructions du salon ──
+  // ── Nouveau message : l'assistant répond avec les instructions du salon ──
   try {
     const system = buildSystemPrompt(cfg, k, isComment);
     const history = await getHistory(userEmail, senderId);
-    const raw = await callGrok(system, history, text);
+    const salonKey = await getSalonApiKey(userEmail);
+    const raw = await callGrok(system, history, text, salonKey);
 
     let reply = raw;
     let wantsBooking = false;
@@ -817,7 +832,7 @@ async function handleIncoming(
     await say(reply);
     await logReply(reply);
 
-    // Grok a détecté une intention de réservation → parcours guidé réel.
+    // L'assistant a détecté une intention de réservation → parcours guidé réel.
     if (wantsBooking && k.services.length) {
       const newState: ConvState = {
         stage: "booking_service", automationId: null, senderId,
@@ -828,10 +843,10 @@ async function handleIncoming(
       await say(t); await logReply(t);
     }
   } catch (e) {
-    console.error("grok reply:", e);
+    console.error("social reply:", e);
     // Échec honnête : on ne prétend pas avoir répondu, on le dit.
-    const t = e instanceof Error && e.message.includes("XAI_API_KEY")
-      ? "Bonjour ! 👋 L'assistant IA n'est pas encore configuré (clé XAI manquante). Écrivez-nous directement, on vous répond très vite."
+    const t = e instanceof Error && e.message.includes("Clé du service IA")
+      ? "Bonjour ! 👋 L'assistant IA n'est pas encore configuré (clé manquante). Écrivez-nous directement, on vous répond très vite."
       : "Oups, je suis momentanément indisponible 😔 Réessayez dans un instant, ou contactez directement le salon.";
     try { await say(t); await logReply(t); } catch { /* ignore */ }
   }

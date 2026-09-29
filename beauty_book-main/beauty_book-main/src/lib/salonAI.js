@@ -2,7 +2,7 @@
 // Chaque salon (pro_email) possède ses propres réglages :
 //   - vocal_enabled   : l'agent vocal « Parler à l'agent » est actif ou non
 //   - chatbot_enabled : le widget « Discuter avec Maria » visible par les visiteurs
-//   - agent_id        : identifiant de l'agent vocal xAI du salon
+//   - agent_id        : identifiant de l'agent vocal distant du salon (console du fournisseur)
 //   - voice           : voix utilisée en mode direct
 //
 // Stockage : localStorage immédiat (clé par salon) + table Supabase
@@ -25,7 +25,8 @@ export const DEFAULT_AI_SETTINGS = {
   // Agent vocal : base de connaissances propre au salon
   welcome_message: "",      // message de bienvenue (vide = modèle par défaut)
   custom_instructions: "",  // instructions perso (vide = modèle par défaut)
-  connection_mode: "direct", // 'direct' (FR + outils + données app) | 'agent' (console xAI)
+  connection_mode: "direct", // 'direct' (FR + outils + données app) | 'agent' (console du fournisseur vocal)
+  voice_api_key_set: false, // indicateur : une clé est enregistrée (via /api/voice-key, jamais lue au navigateur)
 };
 
 function normEmail(e) {
@@ -69,6 +70,9 @@ function fromRow(row) {
     welcome_message: row.welcome_message || "",
     custom_instructions: row.custom_instructions || "",
     connection_mode: row.connection_mode === "agent" ? "agent" : "direct",
+    // La clé brute n'est JAMAIS lue depuis le navigateur : seul l'indicateur
+    // « configurée / non » transite, via la route serveur /api/voice-key.
+    voice_api_key_set: false,
     updated_at: row.updated_at || "",
   };
 }
@@ -98,6 +102,7 @@ export async function getSalonAISettings(proEmail) {
       const server = fromRow(data);
       // Le serveur gagne sauf si le local est plus récent (écriture en attente)
       const merged = newer(local, server) ? { ...server, ...local } : server;
+      merged.voice_api_key_set = !!server.voice_api_key_set;
       if (!merged.agent_id) merged.agent_id = DEFAULT_AGENT_ID;
       return merged;
     }
