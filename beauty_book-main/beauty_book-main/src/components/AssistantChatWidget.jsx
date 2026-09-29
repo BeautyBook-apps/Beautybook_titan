@@ -1,11 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// AssistantChatWidget — widget « Discuter avec Maria » affiché sur la page
-// publique du salon (VueClient, visiteurs uniquement).
+// AssistantChatWidget — bulle « Réserver avec MARIA » + fenêtre de chat,
+// affichées sur la page publique du salon (VueClient, visiteurs uniquement).
 // Questions libres via le moteur partagé (answerQuestion) + parcours de
 // réservation RÉEL (table Reservation → Gestion agenda + Google Agenda).
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef } from "react";
-import { MessageCircle, X, Send, Calendar, Bot } from "lucide-react";
+import { X, Send, Calendar, Clock, Sparkles, Phone, ChevronRight, MoreHorizontal } from "lucide-react";
 import {
   buildKnowledge, answerQuestion, detectBookingIntent, EMAIL_RE,
   createAssistantReservation, pushToGoogleCalendar, bookingConfirmationText,
@@ -14,8 +14,28 @@ import {
 import { getQuestionnaireForService } from "@/lib/questionnaires";
 import "./AssistantChatWidget.css";
 
+const AVATAR = "/maria-avatar.png";
+
 const GREETING = (salon) =>
-  `Bonjour 👋 Bienvenue chez ${salon || "notre salon"} ! Je suis Maria, l'assistante du salon. Posez-moi vos questions ou dites-moi « je veux réserver ».`;
+  `Bonjour ! Je suis Maria IA, votre assistante de réservation. 🌸\n` +
+  `Je peux vous aider à réserver un créneau${salon ? ` chez ${salon}` : ""}, voir les disponibilités ou répondre à toutes vos questions.\n` +
+  `Que souhaitez-vous faire ?`;
+
+const QUICK_ACTIONS = [
+  { id: "book", label: "Réserver un créneau", Icon: Calendar },
+  { id: "slots", label: "Voir disponibilités", Icon: Clock },
+  { id: "services", label: "Nos services", Icon: Sparkles },
+  { id: "call", label: "Appeler le salon", Icon: Phone },
+];
+
+const SUGGESTIONS = [
+  { id: "book", label: "Réserver", Icon: Calendar },
+  { id: "slots", label: "Disponibilités", Icon: Clock },
+  { id: "services", label: "Services", Icon: Sparkles },
+];
+
+const nowTime = () =>
+  new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 
 export default function AssistantChatWidget({ proEmail, salonName }) {
   const [open, setOpen] = useState(false);
@@ -24,6 +44,7 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState("");
   const [showBooking, setShowBooking] = useState(false);
+  const [bookingPreset, setBookingPreset] = useState("");
   const [bookingDone, setBookingDone] = useState(false);
   const timers = useRef([]);
   const scrollRef = useRef(null);
@@ -32,7 +53,7 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
 
   const push = (m) => {
     idRef.current += 1;
-    setMsgs((prev) => [...prev.slice(-80), { ...m, _id: idRef.current }]);
+    setMsgs((prev) => [...prev.slice(-80), { ...m, _id: idRef.current, time: m.time || nowTime() }]);
   };
   const later = (ms) => new Promise((res) => { const t = setTimeout(res, ms); timers.current.push(t); });
 
@@ -47,14 +68,7 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
       setTyping(true);
       await later(800);
       setTyping(false);
-      push({ from: "bot", text: GREETING(k?.salonName || salonName) });
-      if ((k?.services || []).length > 0) {
-        push({
-          from: "bot",
-          text: "",
-          action: { id: "book", label: "📅 Réserver un créneau" },
-        });
-      }
+      push({ from: "bot", text: GREETING(k?.salonName || salonName), actions: QUICK_ACTIONS });
     })();
     return () => { timers.current.forEach(clearTimeout); timers.current = []; };
   }, [open, proEmail]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -72,21 +86,70 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
     push({ from: "bot", text: ans.text });
     if ((ans.type === "booking" || detectBookingIntent(text)) && !bookingDone) {
       await later(400);
+      setBookingPreset("");
       setShowBooking(true);
     }
   };
 
-  const send = async () => {
-    const text = input.trim();
+  const send = async (preset) => {
+    const text = (preset ?? input).trim();
     if (!text || typing) return;
     setInput("");
     push({ from: "me", text });
     await botAnswer(text);
   };
 
-  const startBooking = () => {
+  const startBooking = (serviceId = "", serviceName = "") => {
+    setBookingPreset(serviceId);
     setShowBooking(true);
-    push({ from: "me", text: "Je veux réserver" });
+    push({ from: "me", text: serviceName ? `Je veux réserver : ${serviceName}` : "Je veux réserver un créneau" });
+  };
+
+  const onQuickAction = async (id) => {
+    if (id === "book") { startBooking(); return; }
+    if (id === "slots") {
+      push({ from: "me", text: "Voir les disponibilités" });
+      setTyping(true);
+      await later(800);
+      setTyping(false);
+      const svcs = (knowledge?.services || []).slice(0, 12);
+      if (svcs.length > 0) {
+        push({
+          from: "bot",
+          text: "Avec plaisir ! Voici nos prestations — touchez-en une pour réserver :",
+          chips: svcs.map((s) => ({
+            id: String(s.id),
+            label: s.name,
+            sub: s.price != null ? `${s.price}€` : "",
+          })),
+          onChip: (chip) => startBooking(chip.id, chip.label),
+        });
+      } else {
+        push({ from: "bot", text: "Dites-moi quel service vous intéresse et je vous propose un créneau tout de suite 💛" });
+      }
+      return;
+    }
+    if (id === "services") {
+      push({ from: "me", text: "Quels sont vos services ?" });
+      await botAnswer("quels sont vos services et vos prix");
+      return;
+    }
+    if (id === "call") {
+      push({ from: "me", text: "Je veux parler au salon" });
+      setTyping(true);
+      await later(700);
+      setTyping(false);
+      const phone = (knowledge?.phone || "").trim();
+      if (phone) {
+        push({
+          from: "bot",
+          text: `Vous pouvez joindre le salon directement :`,
+          link: { label: `📞 ${phone}`, href: `tel:${phone.replace(/[^+\d]/g, "")}` },
+        });
+      } else {
+        push({ from: "bot", text: "Le salon vous répondra ici même — laissez votre question, je transmets 💛" });
+      }
+    }
   };
 
   const confirmBooking = async (data, setErr) => {
@@ -139,37 +202,79 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
       {open && (
         <div className="maria-panel" role="dialog" aria-label="Discuter avec Maria">
           <div className="maria-panel-head">
-            <span className="maria-avatar"><Bot size={18} /></span>
-            <div>
-              <p className="maria-title">Maria · {knowledge?.salonName || salonName || "Assistant"}</p>
-              <p className="maria-status"><span className="maria-dot" /> En ligne — répond instantanément</p>
+            <span className="maria-head-avatar">
+              <img src={AVATAR} alt="Maria IA" />
+              <span className="maria-online" />
+            </span>
+            <div className="maria-head-text">
+              <p className="maria-title">Maria IA <span className="maria-live"><span className="maria-dot" /> En ligne</span></p>
+              <p className="maria-subtitle">Assistant de réservation</p>
             </div>
-            <button type="button" className="maria-close" onClick={() => setOpen(false)} aria-label="Fermer">
-              <X size={18} />
-            </button>
+            <button type="button" className="maria-head-btn" aria-label="Options"><MoreHorizontal size={20} /></button>
+            <button type="button" className="maria-head-btn" onClick={() => setOpen(false)} aria-label="Fermer"><X size={20} /></button>
           </div>
 
           <div className="maria-chat" ref={scrollRef}>
             {msgs.map((m) => m.from === "me"
-              ? <div key={m._id} className="maria-bubble me">{m.text}</div>
+              ? (
+                <div key={m._id} className="maria-row me">
+                  <div className="maria-bubble me">{m.text}<span className="maria-time">{m.time}</span></div>
+                </div>
+              )
               : (
-                <div key={m._id} className="maria-bubble bot">
-                  {m.text}
-                  {m.action && (
-                    <button type="button" className="maria-action" onClick={startBooking}>
-                      <Calendar size={13} /> {m.action.label}
-                    </button>
-                  )}
+                <div key={m._id} className="maria-row bot">
+                  <img className="maria-msg-avatar" src={AVATAR} alt="" />
+                  <div className="maria-bubble bot">
+                    {m.text}
+                    <span className="maria-time">{m.time}</span>
+                    {m.actions && (
+                      <div className="maria-quick">
+                        {m.actions.map(({ id, label, Icon }) => (
+                          <button key={id} type="button" className="maria-quick-btn" onClick={() => onQuickAction(id)}>
+                            <Icon size={17} className="maria-quick-icon" />
+                            <span>{label}</span>
+                            <ChevronRight size={15} className="maria-quick-chev" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {m.chips && (
+                      <div className="maria-chips">
+                        {m.chips.map((c) => (
+                          <button key={c.id} type="button" className="maria-chip" onClick={() => m.onChip && m.onChip(c)}>
+                            {c.label}{c.sub ? ` · ${c.sub}` : ""}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {m.link && (
+                      <a className="maria-link-btn" href={m.link.href}>{m.link.label}</a>
+                    )}
+                  </div>
                 </div>
               ))}
-            {typing && <div className="maria-bubble bot maria-typing"><span /><span /><span /></div>}
+            {typing && (
+              <div className="maria-row bot">
+                <img className="maria-msg-avatar" src={AVATAR} alt="" />
+                <div className="maria-bubble bot maria-typing"><span /><span /><span /></div>
+              </div>
+            )}
             {showBooking && (
               <WidgetBookingForm
                 services={knowledge?.services || []}
+                initialServiceId={bookingPreset}
                 onConfirm={confirmBooking}
                 onCancel={() => setShowBooking(false)}
               />
             )}
+          </div>
+
+          <div className="maria-suggest">
+            {SUGGESTIONS.map(({ id, label, Icon }) => (
+              <button key={id} type="button" className="maria-suggest-chip" onClick={() => onQuickAction(id)}>
+                <Icon size={13} /> {label}
+              </button>
+            ))}
           </div>
 
           <div className="maria-inputbar">
@@ -177,10 +282,10 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") send(); }}
-              placeholder="Posez votre question…"
+              placeholder="Écrivez votre message ici…"
               aria-label="Votre message"
             />
-            <button type="button" onClick={send} aria-label="Envoyer"><Send size={16} /></button>
+            <button type="button" onClick={() => send()} aria-label="Envoyer"><Send size={17} /></button>
           </div>
         </div>
       )}
@@ -188,17 +293,24 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
         type="button"
         className={`maria-fab ${open ? "open" : ""}`}
         onClick={() => setOpen((o) => !o)}
-        aria-label={open ? "Fermer le chat" : "Discuter avec Maria"}
+        aria-label={open ? "Fermer le chat" : "Réserver avec Maria"}
       >
-        {open ? <X size={22} /> : <MessageCircle size={22} />}
-        {!open && <span className="maria-fab-label">Discuter avec Maria</span>}
+        {open ? <X size={22} /> : (
+          <>
+            <span className="maria-fab-avatar">
+              <img src={AVATAR} alt="Maria IA" />
+              <span className="maria-online" />
+            </span>
+            <span className="maria-fab-label">Réserver avec <b>MARIA</b></span>
+          </>
+        )}
       </button>
     </div>
   );
 }
 
-export function WidgetBookingForm({ services, onConfirm, onCancel }) {
-  const [serviceId, setServiceId] = useState("");
+export function WidgetBookingForm({ services, initialServiceId = "", onConfirm, onCancel }) {
+  const [serviceId, setServiceId] = useState(initialServiceId);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [name, setName] = useState("");
@@ -208,6 +320,8 @@ export function WidgetBookingForm({ services, onConfirm, onCancel }) {
   const [err, setErr] = useState("");
   const [sending, setSending] = useState(false);
   const todayStr = new Date().toISOString().slice(0, 10);
+
+  useEffect(() => { if (initialServiceId) setServiceId(initialServiceId); }, [initialServiceId]);
 
   const selectedService = (services || []).find((s) => String(s.id) === String(serviceId)) || null;
   // Mêmes questions que l'étape 2 du parcours web, selon la catégorie du service.
