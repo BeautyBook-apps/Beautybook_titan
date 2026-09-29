@@ -11,6 +11,9 @@ import { useTheme } from '@/hooks/useTheme';
 import { GrokVoiceSession } from '@/lib/grokVoice';
 import { mintVoiceToken, DEFAULT_AGENT_ID } from '@/lib/grok';
 import { getSalonAISettings, saveSalonAISettings } from '@/lib/salonAI';
+import { buildVoiceInstructions, resolveWelcomeMessage, DEFAULT_INSTRUCTIONS, DEFAULT_WELCOME_MESSAGE } from '@/lib/voiceAgentPrompt';
+import { buildVoiceTools } from '@/lib/voiceAgentTools';
+import { summarizeHours } from '@/lib/hours';
 import './ReceptionnistIA.css';
 
 const GROK_VOICES = [
@@ -23,22 +26,6 @@ const GROK_VOICES = [
 
 const fmtPrice = (s) => (s.price != null && s.price !== '' ? `${Number(s.price).toFixed(0)} €` : '—');
 const fmtDur = (s) => `${s.duration || s.duration_min || 60} min`;
-
-function buildInstructions(salonName, services) {
-  const lines = (services || []).slice(0, 40).map(
-    (s) => `- ${s.title || s.name || 'Prestation'} : ${fmtPrice(s)}, durée ${fmtDur(s)}`
-  );
-  return [
-    `Tu es Maria, la réceptionniste vocale du salon de beauté « ${salonName || 'BeautyBook'} ».`,
-    'Tu réponds toujours en français, avec un ton chaleureux et professionnel.',
-    'Tu accueilles les appelants, présentes les prestations, donnes les tarifs et les durées,',
-    "et proposes de les aider à réserver via l'application BeautyBook.",
-    'Prestations du salon (noms, tarifs et durées réels — ne jamais en inventer d\'autres) :',
-    ...lines,
-    "Si on te demande quelque chose hors de ton rôle, redirige poliment vers le salon.",
-    'Tes réponses restent courtes et adaptées à une conversation téléphonique.',
-  ].join('\n');
-}
 
 /** Petit interrupteur on/off. */
 function Toggle({ checked, onChange, label }) {
@@ -62,6 +49,7 @@ export default function ReceptionnistIA() {
 
   const [tab, setTab] = useState('vocal');
   const [salonName, setSalonName] = useState('');
+  const [profil, setProfil] = useState(null); // ProfilPro complet (adresse, téléphone, horaires…)
   const [proEmail, setProEmail] = useState('');
   const [services, setServices] = useState([]);
   const [loadingServices, setLoadingServices] = useState(true);
@@ -75,6 +63,14 @@ export default function ReceptionnistIA() {
   const [agentId, setAgentId] = useState(DEFAULT_AGENT_ID);
   const [agentDraft, setAgentDraft] = useState(DEFAULT_AGENT_ID);
   const [voice, setVoice] = useState('ara');
+
+  // Base de connaissances de l'agent vocal (propre au salon)
+  const [welcomeMessage, setWelcomeMessage] = useState('');
+  const [welcomeDraft, setWelcomeDraft] = useState('');
+  const [customInstructions, setCustomInstructions] = useState('');
+  const [instructionsDraft, setInstructionsDraft] = useState('');
+  const [connectionMode, setConnectionMode] = useState('direct');
+  const [kbSaved, setKbSaved] = useState(false);
 
   // État du service (test réel du endpoint de token)
   const [svcState, setSvcState] = useState('unknown'); // unknown | checking | ok | error
@@ -115,7 +111,7 @@ export default function ReceptionnistIA() {
         const { data: authData } = await supabase.auth.getUser();
         const email = authData?.user?.email || '';
         if (alive) setProEmail(email);
-        // Réglages IA propres à ce salon (agent vocal + chatbot + agent_id + voix)
+        // Réglages IA propres à ce salon (agent vocal + chatbot + agent_id + voix + base de connaissances)
         const ai = await getSalonAISettings(email);
         if (!alive) return;
         setVocalEnabled(ai.vocal_enabled !== false);
@@ -123,11 +119,19 @@ export default function ReceptionnistIA() {
         setAgentId(ai.agent_id || DEFAULT_AGENT_ID);
         setAgentDraft(ai.agent_id || DEFAULT_AGENT_ID);
         setVoice(ai.voice || 'ara');
+        setWelcomeMessage(ai.welcome_message || '');
+        setWelcomeDraft(ai.welcome_message || '');
+        setCustomInstructions(ai.custom_instructions || '');
+        setInstructionsDraft(ai.custom_instructions || '');
+        setConnectionMode(ai.connection_mode === 'agent' ? 'agent' : 'direct');
         setAiReady(true);
         if (email) {
           const profiles = await entities.ProfilPro.filter({ user_email: email }, '-created_at', 1).catch(() => []);
           if (!alive) return;
-          if (profiles.length > 0 && profiles[0].salon_name) setSalonName(profiles[0].salon_name);
+          if (profiles.length > 0) {
+            setProfil(profiles[0]);
+            if (profiles[0].salon_name) setSalonName(profiles[0].salon_name);
+          }
           const { data: svcs } = await supabase
             .from('Service')
             .select('id,title,name,price,duration,duration_min')
@@ -191,6 +195,11 @@ export default function ReceptionnistIA() {
       setVoiceState((s) => (s === 'live' ? s : 'error'));
     } else if (type === 'mic-level') {
       setMicLevel(p.level || 0);
+    } else if (type === 'tool-call') {
+      // L'agent utilise un outil (créneaux, réservation…) — journal discret.
+      console.log('[Réceptionniste IA] outil appelé :', p.name, p.args);
+    } else if (type === 'agent-hangup') {
+      setTranscript((t) => [...t, { who: 'agent', text: 'Appel terminé.', done: true }]);
     } else if (type === 'pipeline') {
       // Étapes serveur : listening (il nous entend) → thinking →
       // responding. 'ready' = config VAD acceptée par le serveur.
@@ -250,12 +259,49 @@ export default function ReceptionnistIA() {
     setMode(null);
     try {
       const { token } = await mintVoiceToken();
+      // ── Données du salon RELUES À CHAQUE APPEL (temps réel) ──
+      let liveServices = services;
+      let liveProfil = profil;
+      try {
+        const { data: svcs } = await supabase
+          .from('Service')
+          .select('id,title,name,price,duration,duration_min')
+          .eq('pro_email', proEmail)
+          .order('created_at', { ascending: false })
+          .limit(100);
+        if (svcs) { liveServices = svcs; setServices(svcs); }
+        const profiles = await entities.ProfilPro.filter({ user_email: proEmail }, '-created_at', 1).catch(() => []);
+        if (profiles && profiles.length > 0) {
+          liveProfil = profiles[0];
+          setProfil(profiles[0]);
+          if (profiles[0].salon_name) setSalonName(profiles[0].salon_name);
+        }
+      } catch { /* repli sur le cache déjà chargé */ }
+      const name = liveProfil?.salon_name || salonName || 'votre salon';
+      const hoursSummary = (() => {
+        try {
+          const groups = summarizeHours(liveProfil?.ouverture || liveProfil?.horaires);
+          return groups.map((g) => `${g.label} : ${g.open ? g.hours : 'Fermé'}`).join(' · ') || '';
+        } catch { return ''; }
+      })();
+      const todayLabel = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      const instructions = buildVoiceInstructions({
+        salonName: name,
+        services: liveServices,
+        profil: liveProfil,
+        hoursSummary,
+        customInstructions,
+        todayLabel,
+      });
       const session = new GrokVoiceSession({
         token,
         agentId,
         voice,
         language: 'fr',
-        instructions: buildInstructions(salonName, services),
+        instructions,
+        tools: buildVoiceTools({ proEmail }),
+        greeting: resolveWelcomeMessage(welcomeMessage, name),
+        connectionMode,
         onEvent: handleVoiceEvent,
       });
       sessionRef.current = session;
@@ -290,6 +336,58 @@ export default function ReceptionnistIA() {
   const saveVoice = async (v) => {
     setVoice(v);
     if (proEmail) await saveSalonAISettings(proEmail, { voice: v });
+  };
+
+  // ─── Base de connaissances : message de bienvenue + instructions + mode ──
+  const flashSaved = () => {
+    setKbSaved(true);
+    setTimeout(() => setKbSaved(false), 2500);
+  };
+
+  const saveWelcome = async () => {
+    const v = welcomeDraft.trim();
+    setWelcomeMessage(v);
+    if (proEmail) await saveSalonAISettings(proEmail, { welcome_message: v });
+    flashSaved();
+  };
+
+  const saveInstructions = async () => {
+    const v = instructionsDraft.trim();
+    setCustomInstructions(v);
+    if (proEmail) await saveSalonAISettings(proEmail, { custom_instructions: v });
+    flashSaved();
+  };
+
+  const resetInstructions = async () => {
+    setInstructionsDraft('');
+    setCustomInstructions('');
+    if (proEmail) await saveSalonAISettings(proEmail, { custom_instructions: '' });
+    flashSaved();
+  };
+
+  const saveConnectionMode = async (m) => {
+    const v = m === 'agent' ? 'agent' : 'direct';
+    setConnectionMode(v);
+    if (proEmail) await saveSalonAISettings(proEmail, { connection_mode: v });
+    flashSaved();
+  };
+
+  const copyForXaiConsole = async () => {
+    const name = profil?.salon_name || salonName || 'votre salon';
+    const text = buildVoiceInstructions({
+      salonName: name,
+      services,
+      profil,
+      hoursSummary: '',
+      customInstructions: instructionsDraft,
+      todayLabel: '',
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      flashSaved();
+    } catch {
+      setVoiceError("Copie impossible : sélectionnez le texte manuellement.");
+    }
   };
 
   const serviceReady = svcState === 'ok';
@@ -591,14 +689,51 @@ export default function ReceptionnistIA() {
             <div className="rp-card">
               <div className="rp-card-title-row">
                 <Sparkles size={15} className="rp-card-icon" />
-                <h3>Personnalité de l'agent</h3>
+                <h3>Ce que l'agent sait de votre salon</h3>
               </div>
               <p className="rp-card-sub">
-                Le ton, les instructions et la voix de l'agent se règlent dans la
-                <strong> console xAI</strong> (votre agent <span className="mono">{agentId}</span>).
-                Si l'agent configuré est injoignable, l'application bascule automatiquement
-                en mode direct : Maria utilise alors les prestations ci-dessus et la voix « {voice} ».
+                À chaque appel, l'agent relit <strong>en temps réel</strong> vos données BeautyBook :
+                prestations, tarifs, durées, horaires, adresse et téléphone.
+                Modifiez-les dans votre profil ou votre catalogue : l'agent utilisera
+                automatiquement les nouvelles informations, sans rien reconfigurer.
               </p>
+              {(() => {
+                let hoursTxt = '';
+                try {
+                  const groups = summarizeHours(profil?.ouverture || profil?.horaires);
+                  hoursTxt = groups.map((g) => `${g.label} : ${g.open ? g.hours : 'Fermé'}`).join(' · ');
+                } catch { /* horaires non configurés */ }
+                const addr = profil?.address || profil?.adresse || '';
+                const phone = profil?.phone || profil?.telephone || '';
+                if (!hoursTxt && !addr && !phone) return null;
+                return (
+                  <div className="rp-kb-data">
+                    {hoursTxt ? <div className="rp-kb-data-row"><strong>Horaires :</strong><span>{hoursTxt}</span></div> : null}
+                    {addr ? <div className="rp-kb-data-row"><strong>Adresse :</strong><span>{addr}</span></div> : null}
+                    {phone ? <div className="rp-kb-data-row"><strong>Téléphone :</strong><span>{phone}</span></div> : null}
+                    <button className="rp-btn-ghost full" onClick={() => navigate('/pro/profil')}>
+                      Modifier dans mon profil pro
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="rp-card">
+              <div className="rp-card-title-row">
+                <MessageCircle size={15} className="rp-card-icon" />
+                <h3>Instructions et message de bienvenue</h3>
+              </div>
+              <p className="rp-card-sub">
+                Le ton, les instructions détaillées et le message d'accueil de l'agent se règlent
+                dans l'onglet <strong>Configuration</strong> ci-contre.
+                {connectionMode === 'agent'
+                  ? " Vous êtes en mode « Agent xAI » : pensez aussi à mettre à jour la console xAI (bouton « Copier pour la console xAI »)."
+                  : " Vous êtes en mode « Direct » : l'agent parle français et utilise vos instructions ci-dessous."}
+              </p>
+              <button className="rp-btn-ghost full" onClick={() => setTab('config')}>
+                <Settings size={13} /> Ouvrir la configuration
+              </button>
             </div>
           </div>
         )}
@@ -633,6 +768,82 @@ export default function ReceptionnistIA() {
               {svcState === 'error' && (
                 <div className="rp-alert error" style={{ marginTop: 12 }}>
                   <AlertCircle size={15} /><span>{svcError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="rp-card">
+              <div className="rp-card-title-row">
+                <BookOpen size={15} className="rp-card-icon" />
+                <h3>Base de connaissances de l'agent</h3>
+              </div>
+              <p className="rp-card-sub">
+                Chaque salon a son propre agent. Les instructions et le message de bienvenue
+                ci-dessous sont utilisés <strong>en français</strong>, avec vos prestations,
+                tarifs, horaires, adresse et téléphone relus <strong>en temps réel</strong> à
+                chaque appel. Modifiez votre profil ou votre catalogue : l'agent suit
+                automatiquement, sans reconfiguration.
+              </p>
+
+              <div className="rp-field">
+                <label className="rp-label">Mode de connexion</label>
+                <select className="rp-input" value={connectionMode} onChange={(e) => saveConnectionMode(e.target.value)}>
+                  <option value="direct">Direct (recommandé) — français, instructions et outils de l'app</option>
+                  <option value="agent">Agent xAI — configuration de votre console xAI</option>
+                </select>
+                <p className="rp-field-help">
+                  En mode Direct, l'agent parle français, vérifie les vrais créneaux,
+                  crée les réservations dans votre Gestion agenda et raccroche si un
+                  appelant insiste pour obtenir des données sensibles.
+                </p>
+              </div>
+
+              <div className="rp-field">
+                <label className="rp-label">Message de bienvenue</label>
+                <textarea
+                  className="rp-input rp-textarea"
+                  rows={3}
+                  value={welcomeDraft}
+                  onChange={(e) => setWelcomeDraft(e.target.value)}
+                  placeholder={resolveWelcomeMessage('', profil?.salon_name || salonName || 'votre salon')}
+                />
+                <p className="rp-field-help">
+                  Vide = message par défaut avec le nom de votre salon. Écrivez {`{{salon_name}}`} pour insérer le nom automatiquement.
+                </p>
+              </div>
+              <button className="rp-btn-ghost" onClick={saveWelcome}>
+                <CheckCircle2 size={13} /> Enregistrer le message
+              </button>
+
+              <div className="rp-field" style={{ marginTop: 16 }}>
+                <label className="rp-label">Instructions de l'agent</label>
+                <textarea
+                  className="rp-input rp-textarea mono"
+                  rows={10}
+                  value={instructionsDraft}
+                  onChange={(e) => setInstructionsDraft(e.target.value)}
+                  placeholder="Vide = instructions par défaut (réceptionniste de salon, en français). Écrivez vos propres règles ici pour les remplacer."
+                />
+                <p className="rp-field-help">
+                  Vide = le modèle complet par défaut (prise de RDV, tarifs, sécurité…).
+                  Vos données sensibles (clés API, mots de passe) ne sont <strong>jamais</strong> transmises à l'agent :
+                  s'il les réclame, il avertit puis raccroche.
+                </p>
+              </div>
+              <div className="rp-btn-row">
+                <button className="rp-btn-ghost" onClick={saveInstructions}>
+                  <CheckCircle2 size={13} /> Enregistrer
+                </button>
+                <button className="rp-btn-ghost" onClick={resetInstructions}>
+                  <RefreshCw size={13} /> Réinitialiser
+                </button>
+                <button className="rp-btn-ghost" onClick={copyForXaiConsole}>
+                  <ExternalLink size={13} /> Copier pour la console xAI
+                </button>
+              </div>
+              {kbSaved && (
+                <div className="rp-alert ok" style={{ marginTop: 12 }}>
+                  <CheckCircle2 size={15} /><span>Enregistré : sera utilisé dès le prochain appel.</span>
                 </div>
               )}
             </div>

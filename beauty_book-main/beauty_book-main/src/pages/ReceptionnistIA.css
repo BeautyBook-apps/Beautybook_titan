@@ -465,3 +465,14 @@ html.dark .rp-steps .mono { background: #2a2f3a; }
 html.dark .rp-master-row { border-top-color: #374151; }
 html.dark .rp-master-info strong { color: #e5e7eb; }
 html.dark .rp-mic-meter { background: #374151; }
+
+/* ── Base de connaissances (onglets knowledge / config) ── */
+.rp-textarea { resize: vertical; min-height: 76px; line-height: 1.55; }
+.rp-textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.rp-btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.rp-kb-data { margin-top: 12px; border: 1px solid #f0e9e2; border-radius: 12px; padding: 10px 12px; background: #fffdfb; display: flex; flex-direction: column; gap: 8px; }
+.rp-kb-data-row { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.rp-kb-data-row strong { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #a8a29e; }
+.rp-kb-data-row span { color: #44403c; }
+html.dark .rp-kb-data { background: #1f2937; border-color: #374151; }
+html.dark .rp-kb-data-row span { color: #d1d5db; }

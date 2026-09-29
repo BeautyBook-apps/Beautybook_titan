@@ -41,18 +41,27 @@ registerProcessor('bb-mic-capture', MicCapture);
 `;
 
 export class GrokVoiceSession {
-  constructor({ token, agentId, instructions = '', voice = 'ara', language = 'fr', onEvent = () => {} }) {
+  constructor({ token, agentId, instructions = '', voice = 'ara', language = 'fr', onEvent = () => {}, tools = null, greeting = '', connectionMode = 'direct' }) {
     this.token = token;
     this.agentId = agentId;
     this.instructions = instructions;
     this.voice = voice;
     this.language = language;
     this.onEvent = onEvent;
+    // Outils function-calling (mode direct) : { definitions, execute }
+    this.tools = tools;
+    // Message de bienvenue à faire dire à l'agent dès la connexion (mode direct)
+    this.greeting = greeting;
+    // 'direct' (défaut) : instructions + outils de l'app, en français.
+    // 'agent' : configuration de la console xAI.
+    this.connectionMode = connectionMode === 'agent' ? 'agent' : 'direct';
     this.ws = null;
     this.mode = null; // 'agent' | 'direct'
     this.connected = false;
     this.muted = false;
     this._agentBuf = '';
+    this._greeted = false;
+    this._funcCallBuf = null;
   }
 
   emit(type, payload = {}) {
@@ -61,10 +70,15 @@ export class GrokVoiceSession {
 
   async connect() {
     this.emit('state', { state: 'connecting' });
-    const ok = await this._tryConnect(true);
+    // Ordre de connexion selon le mode choisi par le salon :
+    // - 'direct' (défaut) : d'abord le mode direct (instructions FR + outils
+    //   + données temps réel de l'app), repli sur l'agent console ;
+    // - 'agent' : d'abord l'agent console xAI, repli sur le mode direct.
+    const first = this.connectionMode === 'agent';
+    const ok = await this._tryConnect(first);
     if (!ok) {
       this.emit('state', { state: 'agent-failed' });
-      const ok2 = await this._tryConnect(false);
+      const ok2 = await this._tryConnect(!first);
       if (!ok2) {
         this.emit('state', { state: 'error' });
         this.emit('error', { message: "Connexion à l'agent vocal impossible. Réessayez." });
@@ -159,6 +173,12 @@ export class GrokVoiceSession {
       session.modalities = ['text', 'audio'];
       session.voice = this.voice || 'ara';
       if (this.instructions) session.instructions = this.instructions;
+      // Outils du salon (créneaux réels, réservation, annulation…) : l'agent
+      // les appelle en français et reçoit les vrais résultats Supabase.
+      if (this.tools && this.tools.definitions && this.tools.definitions.length > 0) {
+        session.tools = this.tools.definitions;
+        session.tool_choice = 'auto';
+      }
     }
     // En mode agent : on ne touche PAS à voice/instructions — ils viennent
     // de la configuration de l'agent dans la console xAI. On active
@@ -310,12 +330,60 @@ export class GrokVoiceSession {
     this._oNext = 0;
   }
 
+  // ── Message de bienvenue : l'agent salue en premier (mode direct) ────────
+  _maybeGreet() {
+    if (this.mode !== 'direct' || this._greeted) return;
+    const greeting = (this.greeting || '').trim();
+    if (!greeting) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this._greeted = true;
+    this.ws.send(JSON.stringify({
+      type: 'response.create',
+      response: {
+        modalities: ['text', 'audio'],
+        instructions:
+          `Accueille l'appelant en français avec EXACTEMENT ce message de bienvenue, ` +
+          `sans rien ajouter avant ni après : « ${greeting} »`,
+      },
+    }));
+  }
+
+  // ── Appels d'outils (function calling, mode direct) ──────────────────────
+  async _runToolCall(name, argsJson, callId) {
+    let args = {};
+    try { args = argsJson ? JSON.parse(argsJson) : {}; } catch { args = {}; }
+    this.emit('tool-call', { name, args });
+    let result;
+    try {
+      result = this.tools && this.tools.execute
+        ? await this.tools.execute(name, args)
+        : { status: 'error', message: 'Outils indisponibles.' };
+    } catch (e) {
+      result = { status: 'error', message: 'Échec de l\'outil.' };
+    }
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    // Renvoie le résultat à l'agent, qui le formulera en français.
+    this.ws.send(JSON.stringify({
+      type: 'conversation.item.create',
+      item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(result) },
+    }));
+    this.ws.send(JSON.stringify({ type: 'response.create' }));
+    // end_call : l'agent a déjà dit au revoir avant d'appeler l'outil.
+    if (name === 'end_call') {
+      setTimeout(() => {
+        this.emit('agent-hangup', { reason: (args && args.reason) || '' });
+        this.disconnect();
+      }, 1200);
+    }
+  }
+
   // ── Événements serveur ──────────────────────────────────────────────────
   _handleEvent(msg) {
     switch (msg.type) {
       case 'session.updated':
         // Confirmation que notre configuration (VAD…) est bien appliquée.
         this.emit('pipeline', { stage: 'ready' });
+        this._maybeGreet();
         break;
       case 'input_audio_buffer.speech_started':
         this._stopPlayback();
@@ -364,6 +432,20 @@ export class GrokVoiceSession {
         const t = msg.transcript || this._agentBuf;
         if (t) this.emit('agent-transcript', { delta: '', done: true, text: t });
         this._agentBuf = '';
+        break;
+      }
+      // ── Function calling (mode direct) ──
+      case 'response.function_call_arguments.done': {
+        const callId = msg.call_id || msg.callId || '';
+        this._runToolCall(msg.name || '', msg.arguments || '{}', callId);
+        break;
+      }
+      case 'response.output_item.done': {
+        const item = msg.item || {};
+        if (item.type === 'function_call' && this.mode === 'direct') {
+          const callId = item.call_id || item.id || '';
+          this._runToolCall(item.name || '', item.arguments || '{}', callId);
+        }
         break;
       }
       default:

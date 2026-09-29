@@ -22,6 +22,10 @@ export const DEFAULT_AI_SETTINGS = {
   chatbot_enabled: true,
   agent_id: "",
   voice: "ara",
+  // Agent vocal : base de connaissances propre au salon
+  welcome_message: "",      // message de bienvenue (vide = modèle par défaut)
+  custom_instructions: "",  // instructions perso (vide = modèle par défaut)
+  connection_mode: "direct", // 'direct' (FR + outils + données app) | 'agent' (console xAI)
 };
 
 function normEmail(e) {
@@ -62,6 +66,9 @@ function fromRow(row) {
     chatbot_enabled: row.chatbot_enabled !== false,
     agent_id: row.agent_id || "",
     voice: row.voice || "ara",
+    welcome_message: row.welcome_message || "",
+    custom_instructions: row.custom_instructions || "",
+    connection_mode: row.connection_mode === "agent" ? "agent" : "direct",
     updated_at: row.updated_at || "",
   };
 }
@@ -84,7 +91,7 @@ export async function getSalonAISettings(proEmail) {
   try {
     const { data, error } = await supabase
       .from(TABLE)
-      .select("pro_email,vocal_enabled,chatbot_enabled,agent_id,voice,updated_at")
+      .select("pro_email,vocal_enabled,chatbot_enabled,agent_id,voice,welcome_message,custom_instructions,connection_mode,updated_at")
       .eq("pro_email", email)
       .maybeSingle();
     if (!error && data) {
@@ -121,6 +128,9 @@ export async function saveSalonAISettings(proEmail, patch) {
         chatbot_enabled: !!next.chatbot_enabled,
         agent_id: next.agent_id || "",
         voice: next.voice || "ara",
+        welcome_message: next.welcome_message || "",
+        custom_instructions: next.custom_instructions || "",
+        connection_mode: next.connection_mode === "agent" ? "agent" : "direct",
         updated_at: next.updated_at,
       },
       { onConflict: "pro_email" }
