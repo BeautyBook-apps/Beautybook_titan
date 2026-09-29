@@ -8,6 +8,7 @@ import { supabase } from '@/api/supabaseClient';
 import { apiClient } from '@/lib/apiClient';
 import { notifyPaymentConfirmed } from '@/lib/notificationService';
 import { generateBookingCode } from "@/lib/bookingCodes";
+import { getQuestionsForPrestation } from "@/lib/serviceQuestions";
 import QRCode from "qrcode";
 
 // ── Formatage carte bancaire ──────────────────────────────────────────────────
@@ -702,6 +703,39 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
   const summaryRef = useRef(null);
   const [clientNotes, setClientNotes] = useState(booking.notes || "");
 
+  // ── Intitulés des questions du questionnaire (étape 2) ─────────────────────
+  // customAnswers est indexé par ID de question ; on reconstruit la table
+  // id → intitulé avec la même logique que StepQuestionnaire (service : questions
+  // perso du pro sinon catégorie du service ; bundle : catégorie dominante des
+  // prestations incluses).
+  const [questionLabels, setQuestionLabels] = useState({});
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const bundle = booking.bundle || null;
+        let includedServices = [];
+        const ids = Array.isArray(bundle?.service_ids) ? bundle.service_ids : [];
+        if (ids.length) {
+          const { data } = await supabase
+            .from("Service")
+            .select("id,title,name,category,subcategory")
+            .in("id", ids);
+          includedServices = data || [];
+        }
+        const { questions } = getQuestionsForPrestation({
+          service: booking.services?.[0] || null,
+          bundle,
+          includedServices,
+        });
+        const map = {};
+        questions.forEach((q) => { if (q.id) map[q.id] = q.question || q.id; });
+        if (alive) setQuestionLabels(map);
+      } catch { if (alive) setQuestionLabels({}); }
+    })();
+    return () => { alive = false; };
+  }, [booking.services?.[0]?.id, booking.bundle?.id]);
+
   useLayoutEffect(() => {
     const scrollTop = () => {
       scrollRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -1176,14 +1210,23 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
         {/* 📋 Caractéristiques & Réponses aux questions */}
         {booking.customAnswers && Object.keys(booking.customAnswers).length > 0 && (
           <div className="bg-orange-50/80 border border-orange-200/70 rounded-3xl p-4.5 space-y-2.5">
-            <div className="flex items-center gap-2 text-[#E8732A] font-black text-[12px] uppercase tracking-wider">
-              <span>📋</span> Caractéristiques & Réponses aux questions
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-[#E8732A] font-black text-[12px] uppercase tracking-wider">
+                <span>📋</span> Caractéristiques & Réponses aux questions
+              </div>
+              <button
+                type="button"
+                onClick={onBack}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-orange-200 text-[#E8732A] text-[11px] font-black uppercase tracking-wider active:scale-95 transition-all shadow-sm"
+              >
+                <Pencil className="w-3.5 h-3.5" /> Modifier
+              </button>
             </div>
             <div className="grid grid-cols-1 gap-2 pt-1">
-              {Object.entries(booking.customAnswers).map(([questionText, answerVal]) => (
+              {Object.entries(booking.customAnswers).map(([questionId, answerVal]) => (
                 answerVal ? (
-                  <div key={questionText} className="bg-white rounded-2xl p-3 border border-orange-100/80 shadow-2xs">
-                    <p className="text-[11px] font-bold text-gray-500">{questionText}</p>
+                  <div key={questionId} className="bg-white rounded-2xl p-3 border border-orange-100/80 shadow-2xs">
+                    <p className="text-[11px] font-bold text-gray-500">{questionLabels[questionId] || questionId}</p>
                     <p className="text-[13px] font-black text-gray-900 mt-0.5">{Array.isArray(answerVal) ? answerVal.join(", ") : answerVal}</p>
                   </div>
                 ) : null

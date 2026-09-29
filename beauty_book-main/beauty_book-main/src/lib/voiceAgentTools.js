@@ -14,6 +14,8 @@
 import { supabase } from '@/api/supabaseClient';
 import { getEffectiveOpening, DAY_KEYS, timeToMin } from './hours';
 import { generateBookingCode, generateClientCode } from './bookingCodes';
+import { getQuestionnaireForService, detectCategory } from './questionnaires';
+import { getEffectiveQuestions, normalizeQuestion, dominantCategory } from './serviceQuestions';
 
 const SLOT_STEP = 30; // pas de génération des créneaux (minutes)
 
@@ -159,26 +161,51 @@ async function resolvePrestation(proEmail, { service_id, service_name }) {
 
 async function bundleToPrestation(email, b) {
   let duration = 60;
+  let category = 'general';
   const ids = Array.isArray(b.service_ids) ? b.service_ids : [];
   if (ids.length > 0) {
     const { data: svcs, error } = await qread(() =>
       supabase
         .from('Service')
-        .select('duration,duration_min')
+        .select('id,title,name,category,subcategory,duration,duration_min')
         .eq('pro_email', email)
         .in('id', ids)
     );
     if (!error && svcs && svcs.length > 0) {
       duration = svcs.reduce((sum, s) => sum + Number(s.duration || s.duration_min || 60), 0);
+      try { category = dominantCategory(svcs); } catch { /* repli : nom du bundle */ }
     }
+  }
+  if (category === 'general') {
+    try { category = detectCategory({ title: b.name, name: b.name }) || 'general'; } catch { /* ignore */ }
   }
   return {
     id: b.id,
     name: b.name || 'Offre pack',
     price: b.bundle_price != null ? Number(b.bundle_price) : null,
     duration,
+    category,
     kind: 'bundle',
   };
+}
+
+/**
+ * Ligne Service brute pour les questions de préparation (avec les questions
+ * personnalisées du pro si la colonne `questions` existe — la migration
+ * 20260928_add_service_questions.sql n'est pas forcément exécutée : on
+ * réessaie sans la colonne en cas d'erreur 400, sans jamais échouer).
+ */
+async function getServiceRowForQuestions(email, { service_id, service_name }) {
+  const run = (cols) => {
+    let q = supabase.from('Service').select(cols).eq('pro_email', email);
+    if (service_id) q = q.eq('id', service_id);
+    else if (service_name) q = q.or(`title.ilike.%${service_name}%,name.ilike.%${service_name}%`);
+    else return Promise.resolve({ data: null, error: new Error('no selector') });
+    return q.limit(1).maybeSingle();
+  };
+  let res = await qread(() => run('id,title,name,category,subcategory,questions'));
+  if (res.error) res = await qread(() => run('id,title,name,category,subcategory'));
+  return res.data || null;
 }
 
 async function getBookings(proEmail, dateStr) {
@@ -268,6 +295,20 @@ const DEFINITIONS = [
   },
   {
     type: 'function',
+    name: 'get_service_questions',
+    description:
+      "Retourne les questions de préparation du service choisi (les mêmes que dans l'application : d'abord celles personnalisées par le professionnel, sinon celles de la catégorie du service). À appeler dès que la prestation est choisie, AVANT de proposer les créneaux.",
+    parameters: {
+      type: 'object',
+      properties: {
+        service_id: { type: 'string', description: 'Identifiant de la prestation (si connu)' },
+        service_name: { type: 'string', description: 'Nom de la prestation' },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
     name: 'create_booking',
     description:
       "Crée la réservation dans le planning du salon (prestation OU offre pack). Le rendez-vous apparaît dans la page Gestion agenda du professionnel.",
@@ -282,6 +323,8 @@ const DEFINITIONS = [
         client_phone: { type: 'string', description: 'Téléphone du client' },
         client_email: { type: 'string', description: 'Email du client (si communiqué)' },
         notes: { type: 'string', description: 'Notes éventuelles' },
+        questionnaire_answers: { type: 'string', description: 'Réponses du client aux questions de préparation, au format « question → réponse » séparées par « ; »' },
+        payment_preference: { type: 'string', description: "Préférence de paiement exprimée par le client : 'onsite' (règlement au salon) ou 'card' (paiement par carte — le salon enverra un lien de paiement sécurisé)" },
       },
       required: ['date', 'time_slot', 'client_name'],
     },
@@ -342,6 +385,54 @@ const DEFINITIONS = [
 // ─── Exécuteurs ─────────────────────────────────────────────────────────────
 function buildExecutors(proEmail) {
   const email = normEmail(proEmail);
+
+  // ── Questions de préparation du service (parcours de réservation vocal) ──
+  // Mêmes questions que dans l'application (étape « Vos Préférences ») :
+  // d'abord celles personnalisées par le pro, sinon celles de la catégorie.
+  async function getServiceQuestions(args) {
+    try {
+      const presta = await resolvePrestation(email, { service_id: args.service_id, service_name: args.service_name });
+      const askedService = String(args.service_id || args.service_name || '').trim();
+      if (askedService && !presta) {
+        return err(
+          `La prestation « ${askedService} » est introuvable dans le catalogue du salon.`,
+          'SERVICE_NOT_FOUND'
+        );
+      }
+      const row = presta && presta.kind === 'bundle'
+        ? null // bundle : catégorie dominante déjà calculée dans resolvePrestation
+        : await getServiceRowForQuestions(email, {
+            service_id: presta ? presta.id : null,
+            service_name: presta ? presta.name : askedService,
+          });
+      let custom = [];
+      try { custom = getEffectiveQuestions(row || {}); } catch { custom = []; }
+      const like = row || {
+        title: presta?.name || askedService,
+        name: presta?.name || askedService,
+        category: presta?.category || undefined, // bundle : catégorie dominante des prestations incluses
+      };
+      const questions = (custom.length > 0 ? custom : getQuestionnaireForService(like).questions || [])
+        .map((q, i) => normalizeQuestion(q, i))
+        .filter((q) => String(q.question || '').trim());
+      // À l'oral on limite aux plus pertinentes (l'agent les pose naturellement,
+      // une à la fois, sans lire les listes de choix de façon exhaustive).
+      const picked = questions.slice(0, 6).map((q) => ({
+        id: q.id,
+        question: q.question,
+        type: q.type,
+        options: q.type === 'qcm' ? q.options.slice(0, 5) : [],
+      }));
+      return {
+        status: 'success',
+        service: presta?.name || askedService,
+        questions: picked,
+        hint: "Pose ces questions naturellement à l'oral, une à la fois, les plus pertinentes d'abord (allergies, sensibilités, état). Transmets les réponses à create_booking via questionnaire_answers.",
+      };
+    } catch (e) {
+      return err("Je n'arrive pas à charger les questions de préparation pour le moment.", 'NO_ACCESS');
+    }
+  }
 
   async function checkAvailability(args) {
     try {
@@ -420,6 +511,21 @@ function buildExecutors(proEmail) {
       const crg_code = generateClientCode();
       const [hh, mm] = slot.split(':').map(Number);
       const endMin = hh * 60 + mm + duration;
+
+      // ── Questionnaire vocal + préférence de paiement (parcours vocal) ──
+      // Rien n'est débité par l'agent vocal : payment_status reste 'non_paye',
+      // la préférence exprimée par le client est simplement notée pour le salon.
+      const qaText = String(args.questionnaire_answers || '').trim();
+      const payPref = String(args.payment_preference || '').trim().toLowerCase();
+      const payLabel = payPref === 'card'
+        ? 'par carte (le salon enverra un lien de paiement sécurisé au client)'
+        : 'au salon';
+      const notesParts = [];
+      if (qaText) notesParts.push(`[Questionnaire vocal] ${qaText}`);
+      notesParts.push(`[Paiement] préférence du client : ${payLabel}`);
+      const extraNotes = String(args.notes || '').trim();
+      if (extraNotes) notesParts.push(extraNotes);
+
       const payload = {
         pro_email: email,
         client_name: clientName,
@@ -437,7 +543,8 @@ function buildExecutors(proEmail) {
         source: 'agent_vocal',
         salon_name: profil?.salon_name || '',
         salon_address: profil?.address || profil?.adresse || '',
-        notes: String(args.notes || '').trim(),
+        payment_status: 'non_paye',
+        notes: notesParts.join('\n'),
         booking_code,
         crg_code,
       };
@@ -453,10 +560,15 @@ function buildExecutors(proEmail) {
         date: dateStr,
         time_slot: slot,
         service_name: serviceName,
+        service_price: price,
         client_name: clientName,
+        payment_preference: payPref === 'card' ? 'card' : 'onsite',
         dictate_to_client:
           `Réservation enregistrée avec succès. COMMUNIQUE au client son ID de réservation en l'épelant lettre par lettre : ${booking_code}. ` +
-          `Dis-lui qu'il pourra le saisir dans l'application BeautyBook, rubrique Rendez-vous → « Ajouter un ID de réservation », pour retrouver son rendez-vous.`,
+          `Dis-lui qu'il pourra le saisir dans l'application BeautyBook, rubrique Rendez-vous → « Ajouter un ID de réservation », pour retrouver son rendez-vous. ` +
+          (payPref === 'card'
+            ? 'Rappelle-lui que le salon lui enverra un lien de paiement sécurisé par carte.'
+            : 'Rappelle-lui que le règlement se fera au salon.'),
       };
     } catch (e) {
       return err("La création de la réservation a échoué. Propose de prendre un message pour l'équipe.", 'CREATE_FAILED');
@@ -572,6 +684,7 @@ function buildExecutors(proEmail) {
     const a = args && typeof args === 'object' ? args : {};
     switch (name) {
       case 'check_availability': return checkAvailability(a);
+      case 'get_service_questions': return getServiceQuestions(a);
       case 'create_booking': return createBooking(a);
       case 'find_booking': return findBooking(a);
       case 'reschedule_booking': return rescheduleBooking(a);
@@ -672,6 +785,28 @@ export async function testVoiceDataAccess(proEmail) {
     bookings !== null,
     bookings === null ? 'lecture impossible' : `${bookings.length} réservation(s) existante(s) demain`
   );
+
+  // Questions de préparation (parcours vocal) sur la 1re prestation.
+  if (!servicesErr && services.length > 0) {
+    try {
+      const row = await getServiceRowForQuestions(email, { service_id: services[0].id });
+      let custom = [];
+      try { custom = getEffectiveQuestions(row || {}); } catch { custom = []; }
+      const like = row || { title: services[0].title || services[0].name };
+      const qs = (custom.length > 0 ? custom : getQuestionnaireForService(like).questions || [])
+        .map((q, i) => normalizeQuestion(q, i))
+        .filter((q) => String(q.question || '').trim());
+      push(
+        'Questions de préparation (parcours vocal)',
+        qs.length > 0,
+        qs.length > 0
+          ? `${qs.length} question(s) pour « ${services[0].title || services[0].name} »${custom.length > 0 ? ' (personnalisées du pro)' : ' (catégorie)'}`
+          : `aucune question détectée pour « ${services[0].title || services[0].name} » — l'agent posera quand même les infos de base`
+      );
+    } catch {
+      push('Questions de préparation (parcours vocal)', false, 'lecture impossible');
+    }
+  }
 
   return report;
 }

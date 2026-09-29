@@ -170,7 +170,7 @@ export function detectCategory(service = {}) {
     service.style,
   ].map(norm);
   const has = (...keys) => fields.some((v) => keys.some((k) => v.includes(k)));
-  if (has("tresse", "braid", "natte", "vanille", "locs", "cornrow")) return "tresses";
+  if (has("tresse", "tress", "braid", "natte", "vanille", "locs", "cornrow", "twist", "twits")) return "tresses";
   if (has("cil", "sourcil", "lash", "brow")) return "cils";
   if (has("coiff", "cheveu", "lissage", "coloration", "coupe", "brushing", "chignon")) return "coiffure";
   if (has("ongle", "manucure", "manucur", "pedicure", "nail")) return "ongles";

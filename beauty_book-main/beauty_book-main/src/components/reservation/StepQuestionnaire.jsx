@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { ArrowLeft, Save, Scissors, Gem, Paintbrush, Flower2, Sparkles, Droplets, Zap, MessageSquare, ChevronRight, Check, Lightbulb } from "lucide-react";
-import { getQuestionnaireForService } from "@/lib/questionnaires";
-import { getEffectiveQuestions, normalizeQuestion } from "@/lib/serviceQuestions";
+import { supabase } from "@/api/supabaseClient";
+import { getQuestionsForPrestation } from "@/lib/serviceQuestions";
 
 // Icônes par catégorie (le module canonique expose un nom d'icône texte).
 // Source unique : src/lib/questionnaires.js — aussi publiée dans
@@ -18,26 +18,46 @@ export default function StepQuestionnaire({
   onNext,
   onBack
 }) {
-  const primaryService = booking.services?.[0] || {};
+  const primaryService = booking.services?.[0] || null;
+  const bundle = booking.bundle || null;
+
+  // Prestations incluses dans le bundle : la catégorie du questionnaire est
+  // celle DOMINANTE des prestations incluses (service OU bundle → questions
+  // adaptées à la catégorie réelle).
+  const [includedServices, setIncludedServices] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const ids = Array.isArray(bundle?.service_ids) ? bundle.service_ids : [];
+      if (!ids.length) { if (alive) setIncludedServices([]); return; }
+      try {
+        const { data } = await supabase
+          .from("Service")
+          .select("id,title,name,category,subcategory")
+          .in("id", ids);
+        if (alive) setIncludedServices(data || []);
+      } catch { if (alive) setIncludedServices([]); }
+    })();
+    return () => { alive = false; };
+  }, [bundle?.id]);
 
   // Questionnaire synchronisé — même source que l'agent vocal IA et Maria
-  // (src/lib/questionnaires.js → public/questionnaires.json), sauf si le pro
-  // a personnalisé les questions de ce service (étape 4 de la création).
-  const { key: catKey, label: catLabel, icon: catIcon, tip: catTip } =
-    getQuestionnaireForService(primaryService);
-  const customQs = getEffectiveQuestions(primaryService);
-  const questions = (customQs.length > 0
-    ? customQs
-    : getQuestionnaireForService(primaryService).questions || []
-  ).map((q, i) => normalizeQuestion(q, i)).filter(q => String(q.question || "").trim());
+  // (src/lib/questionnaires.js → public/questionnaires.json) : questions
+  // personnalisées du pro pour un service, sinon questionnaire de la catégorie
+  // du service ou — pour un bundle — de la catégorie dominante de ses prestations.
+  const { questions, categoryKey: catKey, categoryLabel: catLabel, catTip, catIcon } =
+    getQuestionsForPrestation({ service: primaryService, bundle, includedServices });
   const CatIcon = ICON_COMPONENTS[catIcon] || Scissors;
 
   const [answers, setAnswers] = useState(() => {
+    // Au retour depuis le récapitulatif (« Modifier »), on repart des réponses
+    // déjà saisies ; sinon on reprend la sauvegarde locale éventuelle.
+    const fromBooking = booking.customAnswers && typeof booking.customAnswers === "object" ? booking.customAnswers : {};
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...fromBooking, ...JSON.parse(saved) };
     } catch {}
-    return {};
+    return { ...fromBooking };
   });
 
   const answeredCount = questions.filter(q => answers[q.id]).length;

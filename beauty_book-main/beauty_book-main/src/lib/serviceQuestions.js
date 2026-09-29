@@ -7,7 +7,7 @@
 // Tant que la migration n'est pas appliquée, repli localStorage par service.
 // Le parcours de réservation (StepQuestionnaire) lit via getEffectiveQuestions().
 // ─────────────────────────────────────────────────────────────────────────────
-import { getQuestionnaireForService } from "@/lib/questionnaires";
+import { getQuestionnaireForService, detectCategory } from "@/lib/questionnaires";
 
 const FALLBACK_PREFIX = "bb_service_questions_";
 
@@ -59,4 +59,56 @@ export function normalizeQuestion(q, idx = 0) {
     type,
     options: type === "qcm" ? opts : [],
   };
+}
+
+// ── Catégorie selon la prestation réservée (service OU bundle) ───────────────
+// Pour un bundle, la catégorie est celle DOMINANTE des prestations incluses
+// (ex : un pack « coiffure + maquillage » majoritairement coiffure → questions
+// coiffure). On ignore « general » sauf si tout est général.
+export function dominantCategory(serviceLikes = []) {
+  const cats = (serviceLikes || [])
+    .map((s) => { try { return detectCategory(s || {}); } catch { return "general"; } })
+    .filter((c) => c && c !== "general");
+  if (cats.length === 0) return "general";
+  const counts = {};
+  cats.forEach((c) => { counts[c] = (counts[c] || 0) + 1; });
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+/**
+ * Questions effectives pour une réservation : service OU bundle.
+ * @param {Object} opts
+ * @param {Object} opts.service - service réservé (prioritaire si présent)
+ * @param {Object} opts.bundle - bundle réservé (ligne ServiceBundle : name, service_ids…)
+ * @param {Array} opts.includedServices - lignes Service incluses dans le bundle
+ * @returns {{ questions: Array, categoryKey: string, categoryLabel: string, isCustom: boolean }}
+ *   questions = questions normalisées (id, question, type, options).
+ */
+export function getQuestionsForPrestation({ service = null, bundle = null, includedServices = [] } = {}) {
+  const norm = (list) =>
+    (list || [])
+      .map((q, i) => normalizeQuestion(q, i))
+      .filter((q) => String(q.question || "").trim());
+
+  // 1) Service simple : questions perso du pro, sinon questionnaire de sa catégorie.
+  if (service && !bundle) {
+    let custom = [];
+    try { custom = getEffectiveQuestions(service); } catch { custom = []; }
+    if (custom.length > 0) {
+      const qc = getQuestionnaireForService(service);
+      return { questions: norm(custom), categoryKey: qc.key, categoryLabel: qc.label, isCustom: true, catTip: qc.tip, catIcon: qc.icon };
+    }
+    const q = getQuestionnaireForService(service);
+    return { questions: norm(q.questions), categoryKey: q.key, categoryLabel: q.label, isCustom: false, catTip: q.tip, catIcon: q.icon };
+  }
+
+  // 2) Bundle : questionnaire de la catégorie dominante des prestations incluses.
+  if (bundle) {
+    const cat = dominantCategory(includedServices.length > 0 ? includedServices : [bundle]);
+    const like = { category: cat, title: bundle.name || bundle.title || "", name: bundle.name || bundle.title || "" };
+    const q = getQuestionnaireForService(like);
+    return { questions: norm(q.questions), categoryKey: q.key, categoryLabel: q.label, isCustom: false, catTip: q.tip, catIcon: q.icon };
+  }
+
+  return { questions: [], categoryKey: "general", categoryLabel: "", isCustom: false };
 }
