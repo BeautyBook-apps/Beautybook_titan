@@ -235,13 +235,37 @@ export default function ProfilPro() {
     return <VueClient onClose={() => setActiveTab("gestion")} proEmail={user?.email} />;
   }
 
-  const allMenuItems = [
-    ...quickActions,
-    { id: "lancer_direct", label: "LANCER UN DIRECT", Icon: Clapperboard, bg: "bg-gradient-to-br from-pink-50 to-rose-100", color: "text-pink-500", route: "/pro/lancer-direct" },
-    { id: "modifier_profil", label: "MODIFIER PROFIL", Icon: UserCircle, bg: "bg-gradient-to-br from-gray-50 to-slate-100", color: "text-gray-600", route: "/pro/parametres" },
-    { id: "agenda", label: "AGENDA", Icon: Calendar, bg: "bg-gradient-to-br from-teal-50 to-emerald-100", color: "text-teal-600", route: "/pro/gestion-agenda" },
-    { id: "parametres_pro", label: "PARAMÈTRES", Icon: Settings, bg: "bg-gradient-to-br from-gray-50 to-slate-100", color: "text-slate-500", route: "/pro/parametres" },
+  // ── Menu latéral : entrées regroupées par usage ──
+  const menuSections = [
+    {
+      title: "Pilotage",
+      items: [
+        { id: "agenda", label: "Agenda", Icon: Calendar, tile: "bg-teal-400/15", iconColor: "text-teal-300", route: "/pro/gestion-agenda" },
+        { id: "services", label: "Services", Icon: Scissors, tile: "bg-sky-400/15", iconColor: "text-sky-300", route: "/pro/catalogue-services" },
+        { id: "avis", label: "Avis clients", Icon: Star, tile: "bg-emerald-400/15", iconColor: "text-emerald-300", route: "/pro/avis-clients" },
+        { id: "analytics", label: "Analytics", Icon: BarChart3, tile: "bg-indigo-400/15", iconColor: "text-indigo-300", route: "/pro/analytics" },
+      ],
+    },
+    {
+      title: "Contenu",
+      items: [
+        { id: "publication", label: "Publication", Icon: Camera, tile: "bg-rose-400/15", iconColor: "text-rose-300", route: "/pro/publication" },
+        { id: "lancer_direct", label: "Lancer un direct", Icon: Clapperboard, tile: "bg-pink-400/15", iconColor: "text-pink-300", route: "/pro/lancer-direct" },
+        { id: "visite3d", label: "Visite virtuelle", Icon: Eye, tile: "bg-cyan-400/15", iconColor: "text-cyan-300", route: "/pro/visite-3d" },
+      ],
+    },
+    {
+      title: "Mon salon",
+      items: [
+        { id: "equipe", label: "Équipe", Icon: Users, tile: "bg-violet-400/15", iconColor: "text-violet-300", route: "/pro/equipe" },
+        { id: "franchise", label: "Franchise", Icon: Building2, tile: "bg-purple-400/15", iconColor: "text-purple-300", route: "/pro/franchise" },
+        { id: "beauty_pay", label: "Beauty Pay", Icon: Wallet, tile: "bg-amber-400/15", iconColor: "text-amber-300", route: "/pro/beauty-pay", comingSoon: true },
+        { id: "modifier_profil", label: "Modifier profil", Icon: UserCircle, tile: "bg-slate-400/15", iconColor: "text-slate-300", route: "/pro/parametres" },
+        { id: "parametres_pro", label: "Paramètres", Icon: Settings, tile: "bg-slate-400/15", iconColor: "text-slate-300", route: "/pro/parametres" },
+      ],
+    },
   ];
+  const drawerBg = theme === "night" ? "#05070c" : theme === "dark" ? "#0c1322" : "#101a33";
 
   return (
     <div className="font-display pb-4 min-h-full" style={{ background: getPageBg(theme) }}>
@@ -249,97 +273,101 @@ export default function ProfilPro() {
       {/* ── Menu Drawer ── */}
       {menuOpen && (
         <div className="fixed inset-0 z-[400] flex" onClick={() => setMenuOpen(false)}>
-          {/* Backdrop with blur */}
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-md transition-opacity" />
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           {/* Drawer */}
           <div
-            className="relative w-[82vw] max-w-[320px] h-full shadow-2xl flex flex-col overflow-hidden"
+            className="relative w-[84vw] max-w-[340px] h-full shadow-2xl flex flex-col overflow-hidden"
             style={{
-              background: "linear-gradient(180deg, #0f172a 0%, #1e293b 40%, #f8fafc 40.5%, #f8fafc 100%)",
-              animation: "slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)"
+              background: drawerBg,
+              animation: "slideIn 0.32s cubic-bezier(0.16, 1, 0.3, 1)"
             }}
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="relative px-6 pt-14 pb-8">
-              {/* Decorative dots */}
-              <div className="absolute top-4 right-6 flex gap-1">
-                <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
-                <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <div className="w-[60px] h-[60px] rounded-2xl overflow-hidden bg-gradient-to-br from-primary to-pink-600 shadow-lg shadow-primary/30">
+            <div className="relative px-5 pt-12 pb-6 overflow-hidden shrink-0">
+              <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-orange-500/25 blur-3xl pointer-events-none" />
+              <div className="absolute -top-16 -left-20 w-56 h-56 rounded-full bg-rose-500/15 blur-3xl pointer-events-none" />
+              <div className="relative flex items-center gap-4">
+                <div className="relative shrink-0">
+                  <div className="w-16 h-16 rounded-[20px] overflow-hidden ring-2 ring-white/25 shadow-xl bg-gradient-to-br from-orange-500 to-rose-600">
                     {proInfoCurrent?.avatar_url || clientProfile?.avatar_url ? (
                       <BeautyImage src={proInfoCurrent?.avatar_url || clientProfile?.avatar_url} alt="profil" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-white font-black text-xl">{nomCommerce?.[0]?.toUpperCase() || "P"}</div>
+                      <div className="w-full h-full flex items-center justify-center text-white font-black text-2xl">{nomCommerce?.[0]?.toUpperCase() || "P"}</div>
                     )}
                   </div>
-                  <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[#0f172a] flex items-center justify-center ${proInfoCurrent?.status === 'actif' ? "bg-emerald-400" : "bg-amber-400"}`}>
+                  <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-black/50 flex items-center justify-center ${proInfoCurrent?.status === 'actif' ? "bg-emerald-400" : "bg-amber-400"}`}>
                     <Sparkles className="w-2.5 h-2.5 text-white" />
                   </div>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-white text-[17px] font-black leading-tight truncate">{nomCommerce}</p>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <div className="px-2 py-0.5 bg-primary/20 rounded-full">
-                      <span className="text-primary text-[10px] font-bold uppercase tracking-wider">Pro</span>
-                    </div>
+                  <p className="text-white text-[18px] font-extrabold leading-tight truncate">{nomCommerce}</p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="px-2.5 py-0.5 bg-orange-500 rounded-full text-white text-[10px] font-black uppercase tracking-widest">Pro</span>
                     {proInfoCurrent?.city && (
-                      <span className="text-white/40 text-[11px] font-medium truncate">{proInfoCurrent.city}</span>
+                      <span className="text-white/50 text-[12px] font-medium truncate">{proInfoCurrent.city}</span>
+                    )}
+                    {proInfoCurrent?.rating > 0 && (
+                      <span className="flex items-center gap-1 text-amber-300 text-[12px] font-bold">
+                        <Star className="w-3 h-3 fill-amber-300" />{proInfoCurrent.rating}
+                      </span>
                     )}
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Menu Items */}
-            <div className="flex-1 overflow-y-auto px-4 py-2" style={{ scrollbarWidth: 'none' }}>
-              <div className="space-y-1">
-                {allMenuItems.map(({ id, label, Icon, bg, color, route, comingSoon }, index) => (
-                  <button
-                    key={id}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      if (comingSoon) {
-                        setTimeout(() => alert("Bientôt disponible !"), 200);
-                        return;
-                      }
-                      navigate(route);
-                    }}
-                    className={`w-full flex items-center gap-3.5 px-3 py-3 rounded-2xl hover:bg-gray-100/80 active:scale-[0.98] transition-all duration-200 text-left group ${comingSoon ? "opacity-50" : ""}`}
-                    style={{ animationDelay: `${index * 30}ms` }}
-                  >
-                    <div className={`w-11 h-11 ${bg} rounded-xl flex items-center justify-center shrink-0 shadow-sm group-hover:shadow-md transition-shadow`}>
-                      <Icon className={`w-5 h-5 ${color}`} strokeWidth={2} />
-                    </div>
-                    <span className="flex-1 text-[13px] font-bold text-gray-700 uppercase tracking-wider">{label}</span>
-                    {comingSoon ? (
-                      <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Soon</span>
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-400 group-hover:translate-x-0.5 transition-all" />
-                    )}
-                  </button>
-                ))}
-              </div>
+            {/* Sections */}
+            <div className="flex-1 overflow-y-auto px-4 pb-4 no-scrollbar">
+              {menuSections.map((section, si) => (
+                <div key={section.title} className="mb-5">
+                  <p className="px-3 mb-1 text-[10px] font-black uppercase tracking-[0.22em] text-white/35">{section.title}</p>
+                  <div>
+                    {section.items.map(({ id, label, Icon, tile, iconColor, route, comingSoon }, ii) => (
+                      <button
+                        key={id}
+                        onClick={() => {
+                          setMenuOpen(false);
+                          if (comingSoon) {
+                            setTimeout(() => alert("Bientôt disponible !"), 200);
+                            return;
+                          }
+                          navigate(route);
+                        }}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/[0.07] active:scale-[0.98] active:bg-white/[0.1] transition-all duration-150 text-left group"
+                        style={{ animation: "fadeInUp 0.4s cubic-bezier(0.16,1,0.3,1) both", animationDelay: `${(si * 4 + ii) * 40}ms` }}
+                      >
+                        <div className={`w-11 h-11 ${tile} rounded-xl flex items-center justify-center shrink-0`}>
+                          <Icon className={`w-5 h-5 ${iconColor}`} strokeWidth={2} />
+                        </div>
+                        <span className="flex-1 text-[14px] font-semibold text-white/90">{label}</span>
+                        {comingSoon ? (
+                          <span className="text-[9px] font-black uppercase tracking-widest text-amber-300 bg-amber-400/15 px-2.5 py-1 rounded-full">Bientôt</span>
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-white/20 group-hover:text-white/60 group-hover:translate-x-0.5 transition-all" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
 
             {/* Logout */}
-            <div className="px-4 pb-6 pt-2 border-t border-gray-100">
+            <div className="px-4 pb-6 pt-3 border-t border-white/10 shrink-0">
               <button
                 onClick={() => {
                   setMenuOpen(false);
                   localStorage.removeItem("bb_is_pro");
                   supabase.auth.signOut().then(() => window.location.href = "/");
                 }}
-                className="w-full flex items-center gap-3.5 px-3 py-3.5 rounded-2xl hover:bg-red-50 active:scale-[0.98] transition-all duration-200 group"
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-red-500/10 active:scale-[0.98] transition-all duration-150 group"
               >
-                <div className="w-11 h-11 bg-red-50 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-red-100 transition-colors">
-                  <LogOut className="w-5 h-5 text-red-400 group-hover:text-red-500 transition-colors" strokeWidth={2} />
+                <div className="w-11 h-11 bg-red-500/15 rounded-xl flex items-center justify-center shrink-0">
+                  <LogOut className="w-5 h-5 text-red-400" strokeWidth={2} />
                 </div>
-                <span className="text-[13px] font-bold text-red-400 uppercase tracking-wider group-hover:text-red-500 transition-colors">Se déconnecter</span>
+                <span className="text-[14px] font-semibold text-red-400">Se déconnecter</span>
               </button>
             </div>
           </div>
