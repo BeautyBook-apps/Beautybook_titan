@@ -28,6 +28,7 @@ import { format, addDays, startOfWeek, isSameDay, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import { summarizeHours, hasHoursData, applyNightMode } from "@/lib/hours";
 import ShowcasePhotoStep from "@/components/showcase/ShowcasePhotoStep";
+import RdvShowcaseManager from "@/components/showcase/RdvShowcaseManager";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function buildWeek(baseDate) {
@@ -365,6 +366,11 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
             </div>
           );
         })()}
+
+        {/* Photos de la prestation — visible sur RDV terminé :
+            affiche les photos « Prestations réalisées » et permet d'en
+            ajouter si le pro a oublié à la validation */}
+        {rdv.status === "termine" && <RdvShowcaseManager rdv={rdv} />}
 
         {/* Actions selon statut */}
         {rdv.status === "en_attente" && (
