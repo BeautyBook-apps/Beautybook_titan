@@ -65,10 +65,14 @@ function err(message, code) {
 }
 
 async function getProfil(proEmail) {
+  // Colonnes strictement existantes sur ProfilPro : PostgREST rejette TOUTE la
+  // requête (400) si une seule colonne du select n'existe pas — c'est ce qui
+  // faisait dire à l'agent « je ne parviens pas à accéder au planning ».
+  // (Il n'y a pas de colonne `adresse` ni `telephone` sur cette table.)
   const { data, error } = await qread(() =>
     supabase
       .from('ProfilPro')
-      .select('salon_name,address,adresse,phone,telephone,ouverture,horaires')
+      .select('salon_name,address,phone,ouverture,horaires')
       .eq('user_email', normEmail(proEmail))
       .maybeSingle()
   );
