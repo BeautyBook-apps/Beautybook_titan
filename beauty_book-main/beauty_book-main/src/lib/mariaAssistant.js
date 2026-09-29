@@ -347,6 +347,7 @@ export async function createAssistantReservation({
   clientPhone,
   clientEmail, // optionnel : email capturé plus tôt dans la conversation
   answers, // optionnel : réponses au questionnaire par catégorie (étape 2 du parcours)
+  source, // optionnel : 'maria_widget' pour le chatbot du site web (badge « Site web »)
 }) {
   const digits = String(clientPhone || "").replace(/\D/g, "");
   const svcName = service?.name || service?.title || "Prestation";
@@ -376,7 +377,7 @@ export async function createAssistantReservation({
     status: "en_attente",
     notes: answersSummary ? `${baseNotes} Préférences : ${answersSummary}` : baseNotes,
     salon_name: salonName || "",
-    source: "maria_assistant",
+    source: source || "maria_assistant",
     booking_code: generateBookingCode(),
     crg_code: generateClientCode(),
   };

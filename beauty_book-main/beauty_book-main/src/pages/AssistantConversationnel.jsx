@@ -1022,8 +1022,11 @@ function SiteWebTab({ proEmail, salonName }) {
   const code = encodeWidgetCode(proEmail);
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const widgetUrl = code ? `${origin}/maria-site/${code}` : "";
+  // Embed « bulle flottante » : l'iframe reste invisible (fond transparent)
+  // sauf la bulle ; elle s'agrandit quand le visiteur ouvre la conversation
+  // (la page du chatbot signale sa taille via postMessage).
   const iframeCode = code
-    ? `<iframe\n  src="${widgetUrl}"\n  title="Chatbot ${salonName || "Maria"}"\n  style="width:100%;height:640px;max-height:85vh;border:1px solid #fed7aa;border-radius:18px;"\n  allow="clipboard-write">\n</iframe>`
+    ? `<iframe\n  id="bb-maria-chat"\n  src="${widgetUrl}"\n  title="Chatbot ${salonName || "Maria"}"\n  style="position:fixed;bottom:0;right:0;width:120px;height:110px;border:none;background:transparent;z-index:99999;"\n  allow="clipboard-write">\n</iframe>\n<script>\n(function(){\n  var f=document.getElementById('bb-maria-chat');\n  window.addEventListener('message',function(e){\n    if(e.data&&e.data.type==='bb-maria-resize'){f.style.width=e.data.w+'px';f.style.height=e.data.h+'px';}\n  });\n})();\n</script>`
     : "";
 
   const copy = async (text, key) => {
@@ -1047,8 +1050,9 @@ function SiteWebTab({ proEmail, salonName }) {
         <p className="sa-eyebrow">Chatbot IA sur votre site</p>
         <h3>Maria sur le site web du salon</h3>
         <p className="sa-muted small" style={{ marginTop: 6 }}>
-          Intégrez Maria à votre site internet : vos visiteurs discutent avec elle,
-          posent leurs questions (prestations, tarifs, horaires — vos vraies données)
+          Intégrez Maria à votre site internet : une <strong>bulle flottante</strong> apparaît
+          en bas à droite de vos pages — vos visiteurs discutent avec elle
+          (cerveau Grok : prestations, tarifs, horaires, <strong>vrais créneaux libres</strong>)
           et <strong>réservent directement</strong>. Chaque réservation arrive dans
           « Gestion agenda » avec le badge <strong>Site web</strong>.
         </p>
