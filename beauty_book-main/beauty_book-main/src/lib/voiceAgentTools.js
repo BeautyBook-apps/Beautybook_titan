@@ -127,24 +127,43 @@ function err(message, code) {
 }
 
 async function getProfil(proEmail) {
-  // Lecture tolérante : seats_count, travail_nuit, se_deplace et produits
-  // peuvent manquer si une migration n'a pas été exécutée — la requête est
-  // relancée sans les colonnes fautives au lieu d'échouer en 400.
+  // Lecture en DEUX temps, déterministe (aucune dépendance au texte des
+  // erreurs 400) :
+  //  1. colonnes de base GARANTIES (l'application les utilise : elles
+  //     existent) — horaires inclus, sinon l'agent croit le planning vide ;
+  //  2. colonnes optionnelles (migrations parfois non exécutées :
+  //     seats_count, travail_nuit, se_deplace, produits) — d'abord en un
+  //     seul appel, puis colonne par colonne en cas d'échec, en ne gardant
+  //     que celles qui existent vraiment.
+  // Seul l'échec de la lecture de base = vrai problème d'accès.
   // (Il n'y a pas de colonne `adresse` ni `telephone` sur cette table.)
-  // Repli ultime : si la lecture complète échoue pour une raison quelconque,
-  // on relit avec les seules colonnes de base garanties. Seul l'échec de
-  // CETTE lecture (ou l'absence de ligne) = vrai problème d'accès.
-  const { data, error } = await lenientSelect(
-    'ProfilPro',
-    ['salon_name', 'address', 'phone', 'ouverture', 'horaires', 'seats_count', 'travail_nuit', 'se_deplace', 'produits'],
-    (q) => q.eq('user_email', normEmail(proEmail)).maybeSingle()
-  );
-  if (!error) return { profil: data || null, error: null };
+  const email = normEmail(proEmail);
   const base = await qread(() =>
-    supabase.from('ProfilPro').select('salon_name,address,phone').eq('user_email', normEmail(proEmail)).maybeSingle()
+    supabase
+      .from('ProfilPro')
+      .select('salon_name,address,phone,ouverture,horaires')
+      .eq('user_email', email)
+      .maybeSingle()
   );
-  if (!base.error && base.data) return { profil: base.data, error: null };
-  return { profil: null, error: base.error || error };
+  if (base.error || !base.data) return { profil: null, error: base.error || new Error('no_profil_row') };
+  const profil = { ...base.data };
+  const OPTIONAL = ['seats_count', 'travail_nuit', 'se_deplace', 'produits'];
+  const optAll = await qread(() =>
+    supabase.from('ProfilPro').select(OPTIONAL.join(',')).eq('user_email', email).maybeSingle()
+  );
+  if (!optAll.error && optAll.data) {
+    Object.assign(profil, optAll.data);
+  } else {
+    // Une (ou plusieurs) colonne optionnelle manque : on les essaie une par
+    // une et on garde celles qui existent.
+    for (const col of OPTIONAL) {
+      const one = await qread(() =>
+        supabase.from('ProfilPro').select(col).eq('user_email', email).maybeSingle()
+      );
+      if (!one.error && one.data && one.data[col] !== undefined) profil[col] = one.data[col];
+    }
+  }
+  return { profil, error: null };
 }
 
 async function getService(proEmail, serviceId) {

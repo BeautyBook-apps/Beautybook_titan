@@ -80,15 +80,21 @@ function newer(a, b) {
   return String(a?.updated_at || "") >= String(b?.updated_at || "");
 }
 
-const FULL_COLS = "pro_email,vocal_enabled,chatbot_enabled,agent_id,voice,welcome_message,custom_instructions,connection_mode,updated_at";
 const BASE_COLS = "pro_email,vocal_enabled,chatbot_enabled,agent_id,voice";
+const OPT_COLS = ["welcome_message", "custom_instructions", "connection_mode"];
 
 async function readRow(email) {
-  // Colonnes complètes d'abord ; si la migration n'est pas exécutée (400),
-  // repli sur les colonnes de base pour éviter le 400 en console.
-  let r = await supabase.from(TABLE).select(FULL_COLS).eq("pro_email", email).maybeSingle();
-  if (r.error) r = await supabase.from(TABLE).select(BASE_COLS).eq("pro_email", email).maybeSingle();
-  return r;
+  // Lecture en DEUX temps, déterministe : les colonnes de base existent
+  // toujours ; les colonnes optionnelles (migration parfois non exécutée)
+  // sont lues séparément, une par une, sans jamais provoquer de 400.
+  const r = await supabase.from(TABLE).select(BASE_COLS).eq("pro_email", email).maybeSingle();
+  if (r.error || !r.data) return r;
+  const row = { ...r.data };
+  for (const col of OPT_COLS) {
+    const one = await supabase.from(TABLE).select("pro_email," + col).eq("pro_email", email).maybeSingle();
+    if (!one.error && one.data && one.data[col] !== undefined) row[col] = one.data[col];
+  }
+  return { data: row, error: null };
 }
 
 /**
