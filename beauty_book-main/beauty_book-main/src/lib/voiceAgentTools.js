@@ -56,7 +56,19 @@ async function qread(fn, retries = 1) {
   return res;
 }
 
-const MISSING_COL_RE = /Could not find the '([^']+)' column/i;
+const MISSING_COL_RES = [
+  /Could not find the '([^']+)' column/i, // PostgREST schema cache
+  /column "([^"]+)" does not exist/i,     // Postgres direct
+  /column ([a-zA-Z_][\w]*) does not exist/i,
+];
+function missingColumn(msg) {
+  const m = String(msg || '');
+  for (const re of MISSING_COL_RES) {
+    const hit = re.exec(m);
+    if (hit) return hit[1];
+  }
+  return null;
+}
 
 /**
  * Select tolérant : si PostgREST rejette la requête parce qu'une colonne
@@ -71,9 +83,9 @@ async function lenientSelect(table, columns, buildQuery) {
   for (let i = 0; i <= columns.length; i++) {
     const { data, error } = await qread(() => buildQuery(supabase.from(table).select(cols.join(','))));
     if (!error) return { data, error: null };
-    const m = MISSING_COL_RE.exec(error.message || '');
-    if (!m || !cols.includes(m[1])) return { data: null, error };
-    cols = cols.filter((c) => c !== m[1]);
+    const col = missingColumn(error.message);
+    if (!col || !cols.includes(col)) return { data: null, error };
+    cols = cols.filter((c) => c !== col);
   }
   return { data: null, error: { message: 'Colonnes indisponibles.' } };
 }
@@ -89,9 +101,9 @@ async function lenientInsert(table, payload) {
   for (let i = 0; i < 15; i++) {
     const { data, error } = await supabase.from(table).insert(rest).select('id').maybeSingle();
     if (!error) return { data, kept: rest, error: null };
-    const m = MISSING_COL_RE.exec(error.message || '');
-    if (!m || !(m[1] in rest)) return { data: null, kept: rest, error };
-    delete rest[m[1]];
+    const col = missingColumn(error.message);
+    if (!col || !(col in rest)) return { data: null, kept: rest, error };
+    delete rest[col];
   }
   return { data: null, kept: rest, error: { message: "Échec de la création de la réservation." } };
 }

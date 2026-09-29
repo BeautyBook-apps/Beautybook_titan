@@ -72,6 +72,7 @@ export class GrokVoiceSession {
     // attendre les réponses → on lui injecte une consigne d'arrêt.
     this._lastUserSpeechAt = 0;
     this._lastToolCallAt = 0;
+    this._chainedCount = 0;
   }
 
   emit(type, payload = {}) {
@@ -383,6 +384,46 @@ export class GrokVoiceSession {
     let args = {};
     try { args = argsJson ? JSON.parse(argsJson) : {}; } catch { args = {}; }
     this.emit('tool-call', { name, args });
+    // ── Tour de parole STRICT ──────────────────────────────────────────
+    // Si cet appel d'outil suit les précédents SANS parole du client entre
+    // les deux, l'agent est en train d'enchaîner (ex : il a proposé les
+    // services supplémentaires puis appelle get_service_questions sans
+    // attendre la réponse). Au-delà de 2 appels enchaînés, on NE L'EXÉCUTE
+    // PLUS : on lui renvoie une consigne d'arrêt et il doit poser UNE
+    // question puis se taire. (end_call reste toujours exécutable pour
+    // permettre au client de raccrocher.)
+    const chained = this._lastToolCallAt > 0 &&
+      this._lastToolCallAt >= this._lastUserSpeechAt;
+    this._chainedCount = chained ? (this._chainedCount || 0) + 1 : 1;
+    this._lastToolCallAt = Date.now();
+    if (chained && this._chainedCount >= 3 && name !== 'end_call' && this.mode === 'direct') {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+      this.ws.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: callId,
+          output: JSON.stringify({
+            status: 'error',
+            code: 'WAIT_FOR_USER',
+            message: "STOP. Tu enchaînes les actions sans laisser le client répondre. " +
+              "N'appelle plus aucun outil. Pose UNE SEULE question courte au client, " +
+              "puis TAIS-TOI et attends sa réponse.",
+          }),
+        },
+      }));
+      this.ws.send(JSON.stringify({
+        type: 'response.create',
+        response: {
+          instructions:
+            `Tu es Maria, l'assistante vocale du salon, tu parles uniquement français. ` +
+            `RÈGLE DE TOUR DE PAROLE ABSOLUE : tu viens d'enchaîner plusieurs actions sans que le client ait parlé. ` +
+            `Dans cette réponse, pose AU MAXIMUM une seule question courte, puis TAIS-TOI et attends sa réponse. ` +
+            `N'appelle AUCUN autre outil avant qu'il ait répondu.`,
+        },
+      }));
+      return;
+    }
     let result;
     try {
       result = this.tools && this.tools.execute
@@ -392,15 +433,6 @@ export class GrokVoiceSession {
       result = { status: 'error', message: 'Échec de l\'outil.' };
     }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    // ── Tour de parole ──────────────────────────────────────────────────
-    // Si cet appel d'outil suit un précédent appel SANS parole du client
-    // entre les deux, l'agent est en train d'enchaîner (ex : il a proposé
-    // les services supplémentaires puis appelle get_service_questions sans
-    // attendre la réponse). On lui impose, pour CETTE réponse uniquement :
-    // une seule question maximum, puis silence jusqu'à la réponse du client.
-    const chained = this._lastToolCallAt > 0 &&
-      this._lastToolCallAt >= this._lastUserSpeechAt;
-    this._lastToolCallAt = Date.now();
     // Renvoie le résultat à l'agent, qui le formulera en français.
     this.ws.send(JSON.stringify({
       type: 'conversation.item.create',
@@ -476,7 +508,10 @@ export class GrokVoiceSession {
         const text = msg.transcript || '';
         if (text) {
           // Le client a réellement parlé → réarme le tour de parole.
-          if (msg.type.endsWith('completed')) this._lastUserSpeechAt = Date.now();
+          if (msg.type.endsWith('completed')) {
+            this._lastUserSpeechAt = Date.now();
+            this._chainedCount = 0;
+          }
           this.emit('user-transcript', { text, final: msg.type.endsWith('completed') });
         }
         break;
@@ -540,6 +575,7 @@ export class GrokVoiceSession {
     this._doneToolCalls.clear();
     this._lastUserSpeechAt = 0;
     this._lastToolCallAt = 0;
+    this._chainedCount = 0;
     try { clearTimeout(this._speechGuardT); } catch {}
     this._speechGuardT = null;
     try { this.ws?.close(); } catch {}
