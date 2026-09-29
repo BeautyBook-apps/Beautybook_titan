@@ -62,6 +62,9 @@ export class GrokVoiceSession {
     this._agentBuf = '';
     this._greeted = false;
     this._funcCallBuf = null;
+    // ── Anti-boucle écho ──
+    this._agentSpeaking = false; // true pendant la lecture audio de l'agent
+    this._doneToolCalls = new Set(); // call_id déjà exécutés (anti-doublons)
   }
 
   emit(type, payload = {}) {
@@ -221,7 +224,8 @@ export class GrokVoiceSession {
     node.port.onmessage = (ev) => {
       if (this.muted || !this.connected) return;
       const f32 = ev.data;
-      // Niveau micro (indicateur visuel, ~7 fois/sec)
+      // Niveau micro (indicateur visuel, ~7 fois/sec) — toujours calculé,
+      // même quand l'envoi est suspendu (l'agent parle).
       let peak = 0;
       for (let i = 0; i < f32.length; i += 4) {
         const a = Math.abs(f32[i]);
@@ -232,6 +236,12 @@ export class GrokVoiceSession {
         this._lastMicEmit = now;
         this.emit('mic-level', { level: Math.min(1, peak * 1.6) });
       }
+      // ── Anti-écho : pendant que l'agent parle, le micro n'est PAS envoyé
+      // au serveur (half-duplex). Sinon le haut-parleur est réinjecté dans le
+      // micro et l'agent « s'entend lui-même » → il se relit et se répond en
+      // boucle après 1 à 2 minutes. L'écoute reprend dès la fin de sa phrase.
+      // On vide aussi l'accumulateur pour ne pas envoyer d'audio périmé.
+      if (this._agentSpeaking) { f32Acc = []; f32Len = 0; return; }
       f32Acc.push(f32);
       f32Len += f32.length;
       while (f32Len >= need) {
@@ -322,7 +332,15 @@ export class GrokVoiceSession {
     src.start(this._oNext);
     this._oNext += buf.duration;
     this._oSources.add(src);
-    src.onended = () => this._oSources.delete(src);
+    // ── L'agent parle : le micro n'est plus envoyé au serveur ──────────────
+    // (half-duplex). Sans cela, le haut-parleur est capté par le micro, le
+    // serveur transcrit la propre voix de l'agent comme parole de l'appelant,
+    // et l'agent finit par « se relire et se répondre à lui-même » en boucle.
+    this._agentSpeaking = true;
+    src.onended = () => {
+      this._oSources.delete(src);
+      if (this._oSources.size === 0) this._agentSpeaking = false;
+    };
     this.emit('speaking', { who: 'agent' });
   }
 
@@ -332,6 +350,7 @@ export class GrokVoiceSession {
       this._oSources.clear();
     }
     this._oNext = 0;
+    this._agentSpeaking = false;
   }
 
   // ── Message de bienvenue : l'agent salue en premier (mode direct) ────────
@@ -460,8 +479,13 @@ export class GrokVoiceSession {
         break;
       }
       // ── Function calling (mode direct) ──
+      // Déduplication : le serveur envoie function_call_arguments.done PUIS
+      // output_item.done pour le MÊME appel — sans garde, create_booking (ou
+      // tout autre outil) s'exécutait deux fois (doublons de réservation).
       case 'response.function_call_arguments.done': {
         const callId = msg.call_id || msg.callId || '';
+        if (callId && this._doneToolCalls.has(callId)) break;
+        if (callId) this._doneToolCalls.add(callId);
         this._runToolCall(msg.name || '', msg.arguments || '{}', callId);
         break;
       }
@@ -469,6 +493,8 @@ export class GrokVoiceSession {
         const item = msg.item || {};
         if (item.type === 'function_call' && this.mode === 'direct') {
           const callId = item.call_id || item.id || '';
+          if (callId && this._doneToolCalls.has(callId)) break;
+          if (callId) this._doneToolCalls.add(callId);
           this._runToolCall(item.name || '', item.arguments || '{}', callId);
         }
         break;
@@ -480,6 +506,8 @@ export class GrokVoiceSession {
 
   async disconnect() {
     this.connected = false;
+    this._agentSpeaking = false;
+    this._doneToolCalls.clear();
     try { clearTimeout(this._speechGuardT); } catch {}
     this._speechGuardT = null;
     try { this.ws?.close(); } catch {}

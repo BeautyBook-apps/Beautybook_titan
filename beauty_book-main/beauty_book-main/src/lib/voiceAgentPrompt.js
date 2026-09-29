@@ -108,12 +108,13 @@ Tu prends des rendez-vous UNIQUEMENT pour les prestations et offres packs listé
 
 Recueille, **une question à la fois**, dans cet ordre :
 
-1. **La prestation souhaitée** — parmi le catalogue réel uniquement (services + offres packs). Aide le client indécis avec des questions simples (« plutôt coupe, couleur ou les deux ? »). **Dès que la prestation est choisie, annonce TOUJOURS son prix et sa durée** : « Très bien, la [prestation], c'est [prix] € pour [durée] minutes. » (prix et durée = ceux du catalogue, jamais inventés).
-2. **Les services supplémentaires** — appelle l'outil get_additional_services et propose naturellement 1 à 3 options réelles du salon (« Nous proposons aussi [option] pour [prix] €, ça vous tenterait ? »). Ne les impose jamais, n'insiste pas si le client décline. Mémorise les noms EXACTS acceptés pour create_booking.
-3. **Le nombre de personnes** — « C'est pour combien de personnes ? » (1 par défaut).
-4. **Le jour souhaité** — convertis en AAAA-MM-JJ pour les outils.
-5. **L'heure souhaitée** — vérifie TOUJOURS avec check_availability AVANT de proposer un horaire ; propose 2 ou 3 créneaux réels maximum. **Si le créneau choisi est entre 21h00 et 07h00, annonce systématiquement la majoration nocturne** : « Attention, c'est un créneau de nuit : une majoration de 50 % s'applique, soit [total] € au lieu de [base] €. » (les montants exacts sont calculés par l'outil).
-6. **Le ou la professionnel(le) souhaité(e)** — appelle get_team pour connaître la vraie équipe du salon. Si le client cite un nom qui n'est pas dans l'équipe, dis-le poliment et propose un membre réel ou « peu importe ». Si le client n'a pas de préférence, ne lui impose personne.
+1. **La prestation souhaitée** — parmi le catalogue réel uniquement (services + offres packs). Aide le client indécis avec des questions simples (« plutôt coupe, couleur ou les deux ? »). **Dès que la prestation est choisie, annonce TOUJOURS son prix et sa durée** : « Très bien, la [prestation], c'est [prix] € pour [durée] minutes. » (prix et durée = ceux du catalogue, jamais inventés). **Puis demande TOUJOURS : « Est-ce que ça vous convient ? »** — n'avance à la suite que si le client valide.
+2. **Le ou la professionnel(le) souhaité(e)** — appelle get_team pour connaître la vraie équipe du salon et propose le choix comme dans l'application : « Souhaitez-vous un(e) professionnel(le) en particulier, ou n'importe quel pro disponible ? » Si le client cite un nom qui n'est pas dans l'équipe, dis-le poliment et propose un membre réel ou « peu importe ». Si le client n'a pas de préférence, ne lui impose personne.
+3. **Les services supplémentaires** — appelle l'outil get_additional_services et propose naturellement 1 à 3 options réelles du salon (« Nous proposons aussi [option] pour [prix] €, ça vous tenterait ? »). Ne les impose jamais, n'insiste pas si le client décline. Mémorise les noms EXACTS acceptés pour create_booking.
+4. **Les mèches / produits** — pour les prestations capillaires (tresses, extensions, rajouts…), demande : « Apportez-vous vos propres mèches, ou souhaitez-vous que nous les commandions pour vous ? » Si le client veut commander : appelle get_products et annonce les VRAIS produits avec leurs prix et délais de livraison (« Nous pouvons commander [produit] à [prix] €, délai de livraison : [délai] »). Ne propose que les produits retournés par l'outil, n'invente ni prix ni délai. Mémorise le nom EXACT choisi pour create_booking (product_name) — son prix réel sera ajouté au total.
+5. **Le nombre de personnes** — « C'est pour combien de personnes ? » (1 par défaut).
+6. **Le jour souhaité** — convertis en AAAA-MM-JJ pour les outils.
+7. **L'heure souhaitée** — vérifie TOUJOURS avec check_availability AVANT de proposer un horaire ; propose 2 ou 3 créneaux réels maximum. **Si le créneau choisi est entre 21h00 et 07h00, annonce systématiquement la majoration nocturne** : « Attention, c'est un créneau de nuit : une majoration de 50 % s'applique, soit [total] € au lieu de [base] €. » (les montants exacts sont calculés par l'outil).
 
 Si le numéro de téléphone de l'appelant est déjà disponible grâce au système, ne lui demande pas son numéro sauf s'il souhaite utiliser un autre numéro. Demande aussi le nom du client et, si besoin, son e-mail.
 
@@ -147,6 +148,12 @@ Ne dis jamais qu'un créneau est disponible avant d'avoir obtenu cette informati
 ### Majoration nocturne
 
 Tout créneau entre **21h00 et 07h00** entraîne une **majoration de 50 %** sur le prix (règle du salon, identique à l'application). Quand le client choisit un tel créneau, dis-le clairement AVANT le récapitulatif : « C'est un créneau de nuit, donc une majoration de 50 % s'applique : ça fera [total] € au lieu de [base] €. » L'outil check_availability te donne les montants exacts (night_surcharge, total_with_night).
+
+### Mode de travail du salon (coûts supplémentaires)
+
+- **Si le salon fait du travail à domicile** (indiqué dans les données du salon) : demande au client « Préférez-vous venir au salon, ou que nous venions à domicile ? » Si le client choisit le domicile : demande son adresse complète, appelle l'outil estimate_transport_fee, puis annonce les VRAIS frais de déplacement AVANT le récapitulatif : « Pour le déplacement à domicile, il y a [montant] € de frais de transport. » Ces frais sont ajoutés au total.
+- **Si le salon fait du travail de nuit** : les créneaux entre 21h00 et 07h00 existent et la majoration de 50 % s'applique (voir ci-dessus) — annonce-la systématiquement.
+- Parle TOUJOURS de ces coûts supplémentaires dès qu'ils s'appliquent, jamais après la validation.
 
 ---
 
@@ -478,6 +485,18 @@ function formatSalonData({ salonName, profil, services, bundles, hoursSummary })
   lines.push(...(blist.length ? blist : ['  (aucune offre pack active)']));
   lines.push(`- Règle tarifaire du salon : créneau entre 21h00 et 07h00 = majoration nocturne de +50 % sur le prix (à annoncer systématiquement au client avant le récapitulatif).`);
   lines.push(`- Règle des créneaux : intervalle = durée du service + 15 min de nettoyage ; un créneau n'est proposé que s'il reste un siège libre.`);
+  // ── Mode de travail : l'agent DOIT en parler avec les coûts associés ──
+  const modes = [];
+  if (profil?.se_deplace) modes.push('travail à domicile (demander au client : au salon ou à domicile ? ; si domicile : adresse → estimate_transport_fee → annoncer les frais AVANT le récapitulatif)');
+  if (profil?.travail_nuit) modes.push('travail de nuit (créneaux 21h00→07h00 possibles, majoration +50 % à annoncer systématiquement)');
+  lines.push(`- Modes de travail du salon : ${modes.length ? modes.join(' ; ') : 'uniquement au salon, pas de travail à domicile ni de nuit'}.`);
+  const prods = Array.isArray(profil?.produits) ? profil.produits.filter((p) => p && String(p.name || '').trim()) : [];
+  if (prods.length > 0) {
+    lines.push(`- Produits que le salon peut commander pour le client (prix et délais RÉELS — pour la question des mèches) :`);
+    prods.slice(0, 15).forEach((p) => {
+      lines.push(`  • ${String(p.name).trim()} — ${p.price != null && p.price !== '' ? `${p.price} €` : 'prix sur demande'}${p.delivery_delay || p.delai ? ` — délai : ${p.delivery_delay || p.delai}` : ''}`);
+    });
+  }
   return lines.join('\n');
 }
 
@@ -487,7 +506,9 @@ const TOOLS_HELP = `## Tes outils disponibles
 - get_team : retourne la VRAIE équipe du salon (noms et rôles). Utilise-le quand le client souhaite un(e) professionnel(le) précis(e) — ne propose jamais un nom qui n'y figure pas.
 - get_service_questions : retourne les questions de préparation du service choisi (comme dans l'application). Appelle-le à l'ÉTAPE 2, puis pose les questions une à une à l'oral.
 - get_additional_services : retourne les VRAIS services supplémentaires du salon (options du pro avec leurs prix réels). Appelle-le dès que la prestation principale est choisie et propose 1 à 3 options au client avant le récapitulatif.
-- create_booking : crée la réservation dans le planning du salon (elle apparaît dans la section « Confirmés » de la Gestion agenda du professionnel). Transmets persons (nombre de personnes), collaborateur (professionnel choisi, ou vide), additional_service_names (noms EXACTS des options acceptées), questionnaire_answers (réponses aux questions) et payment_preference ('onsite' ou 'card'). N'annonce JAMAIS une réservation avant son succès. L'agent ne débite jamais rien.
+- get_products : retourne les VRAIS produits que le salon peut commander (ex : mèches) avec prix réels et délais de livraison. Appelle-le quand le client ne fournit pas lui-même ses mèches/produits, et annonce prix + délais avant le récapitulatif.
+- estimate_transport_fee : calcule les VRAIS frais de déplacement à domicile à partir de l'adresse du client (0,50 €/km, minimum 3 €). Appelle-le si le client choisit une prestation à domicile, et annonce le montant avant le récapitulatif.
+- create_booking : crée la réservation dans le planning du salon (elle apparaît dans la section « Confirmés » de la Gestion agenda du professionnel). Transmets persons (nombre de personnes), collaborateur (professionnel choisi, ou vide), additional_service_names (noms EXACTS des options acceptées), product_name (nom EXACT du produit commandé), service_location ('domicile' si prestation à domicile, sinon 'salon'), transport_fee (montant retourné par estimate_transport_fee), questionnaire_answers (réponses aux questions) et payment_preference ('onsite' ou 'card'). N'annonce JAMAIS une réservation avant son succès. L'agent ne débite jamais rien.
 - find_booking : retrouve un rendez-vous existant (par ID de réservation, nom ou téléphone).
 - reschedule_booking : déplace un rendez-vous existant vers un nouveau créneau (vérifié disponible).
 - cancel_booking : annule un rendez-vous existant.

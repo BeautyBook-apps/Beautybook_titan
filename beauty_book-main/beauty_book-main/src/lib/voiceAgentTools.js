@@ -56,6 +56,46 @@ async function qread(fn, retries = 1) {
   return res;
 }
 
+const MISSING_COL_RE = /Could not find the '([^']+)' column/i;
+
+/**
+ * Select tolérant : si PostgREST rejette la requête parce qu'une colonne
+ * n'existe pas encore (migration non exécutée côté Supabase), la colonne
+ * fautive est retirée et la requête est relancée. L'agent continue de
+ * fonctionner avec les colonnes réellement disponibles — sans jamais
+ * inventer de valeur pour une colonne absente (les valeurs par défaut
+ * explicites sont appliquées par l'appelant).
+ */
+async function lenientSelect(table, columns, buildQuery) {
+  let cols = [...columns];
+  for (let i = 0; i <= columns.length; i++) {
+    const { data, error } = await qread(() => buildQuery(supabase.from(table).select(cols.join(','))));
+    if (!error) return { data, error: null };
+    const m = MISSING_COL_RE.exec(error.message || '');
+    if (!m || !cols.includes(m[1])) return { data: null, error };
+    cols = cols.filter((c) => c !== m[1]);
+  }
+  return { data: null, error: { message: 'Colonnes indisponibles.' } };
+}
+
+/**
+ * Insert tolérant : même principe que lenientSelect. Si une colonne du
+ * payload n'existe pas dans la table de production, elle est retirée et
+ * l'insertion est relancée. La réservation est TOUJOURS créée avec les
+ * colonnes réellement disponibles.
+ */
+async function lenientInsert(table, payload) {
+  let rest = { ...payload };
+  for (let i = 0; i < 15; i++) {
+    const { data, error } = await supabase.from(table).insert(rest).select('id').maybeSingle();
+    if (!error) return { data, kept: rest, error: null };
+    const m = MISSING_COL_RE.exec(error.message || '');
+    if (!m || !(m[1] in rest)) return { data: null, kept: rest, error };
+    delete rest[m[1]];
+  }
+  return { data: null, kept: rest, error: { message: "Échec de la création de la réservation." } };
+}
+
 function parseDate(str) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(str || '').trim());
   if (!m) return null;
@@ -75,18 +115,14 @@ function err(message, code) {
 }
 
 async function getProfil(proEmail) {
-  // Colonnes strictement existantes sur ProfilPro : PostgREST rejette TOUTE la
-  // requête (400) si une seule colonne du select n'existe pas — c'est ce qui
-  // faisait dire à l'agent « je ne parviens pas à accéder au planning ».
+  // Lecture tolérante : seats_count, travail_nuit, se_deplace et produits
+  // peuvent manquer si une migration n'a pas été exécutée — la requête est
+  // relancée sans les colonnes fautives au lieu d'échouer en 400.
   // (Il n'y a pas de colonne `adresse` ni `telephone` sur cette table.)
-  // seats_count + travail_nuit : lus par l'application (StepCalendar) pour le
-  // calcul des créneaux — indispensables pour ne rien inventer.
-  const { data, error } = await qread(() =>
-    supabase
-      .from('ProfilPro')
-      .select('salon_name,address,phone,ouverture,horaires,seats_count,travail_nuit')
-      .eq('user_email', normEmail(proEmail))
-      .maybeSingle()
+  const { data, error } = await lenientSelect(
+    'ProfilPro',
+    ['salon_name', 'address', 'phone', 'ouverture', 'horaires', 'seats_count', 'travail_nuit', 'se_deplace', 'produits'],
+    (q) => q.eq('user_email', normEmail(proEmail)).maybeSingle()
   );
   if (error) return { profil: null, error };
   return { profil: data || null, error: null };
@@ -451,6 +487,30 @@ const DEFINITIONS = [
   },
   {
     type: 'function',
+    name: 'get_products',
+    description:
+      "Retourne les VRAIS produits que le salon peut commander pour le client (ex : mèches, rajouts) avec leurs prix réels et leurs délais de livraison, tels que configurés par le professionnel. À appeler quand le client ne fournit pas lui-même ses mèches/produits, pour lui annoncer les prix et délais AVANT de valider.",
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'estimate_transport_fee',
+    description:
+      "Calcule les VRAIS frais de déplacement pour une prestation à domicile à partir de l'adresse du client (distance réelle depuis le salon × 0,50 €/km, minimum 3 € — même règle que l'application). À appeler uniquement si le salon fait du travail à domicile ET que le client choisit une prestation à domicile.",
+    parameters: {
+      type: 'object',
+      properties: {
+        client_address: { type: 'string', description: "Adresse complète du client (rue, code postal, ville)" },
+      },
+      required: ['client_address'],
+    },
+  },
+  {
+    type: 'function',
     name: 'create_booking',
     description:
       "Crée la réservation dans le planning du salon (prestation OU offre pack). Le rendez-vous apparaît dans la section « Confirmés » de la page Gestion agenda du professionnel.",
@@ -474,6 +534,9 @@ const DEFINITIONS = [
           items: { type: 'string' },
           description: "Noms EXACTS des services supplémentaires acceptés par le client (tels que retournés par get_additional_services). Leurs prix réels sont repris du catalogue et ajoutés au total.",
         },
+        product_name: { type: 'string', description: "Nom EXACT du produit commandé par le client (tel que retourné par get_products, ex : mèches). Son prix réel est ajouté au total et son délai de livraison est noté." },
+        service_location: { type: 'string', description: "Lieu de la prestation : 'salon' (défaut) ou 'domicile' (uniquement si le salon fait du travail à domicile et que le client l'a choisi)" },
+        transport_fee: { type: 'number', description: "Frais de déplacement calculés par estimate_transport_fee (uniquement pour une prestation à domicile)" },
       },
       required: ['date', 'time_slot', 'client_name'],
     },
@@ -694,6 +757,84 @@ function buildExecutors(proEmail) {
     }
   }
 
+  /**
+   * VRAIS produits du salon (configurés par le professionnel dans
+   * « Modifier mon profil » → Produits) : nom, prix réel, délai de
+   * livraison. Utilisés pour la question « apportez-vous vos mèches ou
+   * souhaitez-vous les commander ? ». Jamais inventés.
+   */
+  async function getProducts() {
+    try {
+      const { data, error } = await lenientSelect(
+        'ProfilPro',
+        ['produits'],
+        (q) => q.eq('user_email', email).maybeSingle()
+      );
+      if (error) return err("Je n'arrive pas à lire les produits du salon pour le moment.", 'NO_ACCESS');
+      const raw = data?.produits;
+      const arr = Array.isArray(raw) ? raw : [];
+      const list = arr
+        .filter((p) => p && String(p.name || '').trim())
+        .map((p) => ({
+          name: String(p.name).trim(),
+          price: p.price != null && p.price !== '' ? Number(p.price) : null,
+          delivery_delay: String(p.delivery_delay || p.delai || '').trim() || null,
+        }));
+      if (list.length === 0) {
+        return { status: 'success', products: [], message: "Le salon n'a renseigné aucun produit à commander : si le client ne fournit pas ses mèches, propose-lui d'en parler directement avec le salon." };
+      }
+      return {
+        status: 'success',
+        products: list,
+        hint: "Annonce ces VRAIS produits avec leurs prix et délais de livraison (« Nous pouvons commander … à X €, délai … »). Ne propose que ceux-ci, n'invente ni prix ni délai. Transmets le nom EXACT choisi à create_booking via product_name.",
+      };
+    } catch {
+      return err("Je n'arrive pas à lire les produits du salon pour le moment.", 'NO_ACCESS');
+    }
+  }
+
+  /**
+   * VRAIS frais de déplacement pour une prestation à domicile : distance
+   * réelle salon → adresse du client (géocodage api-adresse.data.gouv.fr,
+   * haversine) × 0,50 €/km, minimum 3 € — EXACTEMENT la même règle que le
+   * parcours de réservation de l'application (StepConfirmation).
+   */
+  async function estimateTransportFee(args) {
+    try {
+      const clientAddress = String(args.client_address || '').trim();
+      if (!clientAddress) return err("J'ai besoin de l'adresse complète du client pour calculer les frais de déplacement.", 'MISSING_ADDRESS');
+      const { profil } = await getProfil(email);
+      const salonAddress = [profil?.address, profil?.postal_code, profil?.city].filter(Boolean).join(', ');
+      if (!salonAddress) return err("Je n'ai pas l'adresse du salon pour calculer le déplacement.", 'NO_SALON_ADDRESS');
+      const geocode = async (address) => {
+        const r = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(address)}&limit=1`);
+        if (!r.ok) throw new Error('geocoding indisponible');
+        const d = await r.json();
+        const c = d.features?.[0]?.geometry?.coordinates || [];
+        return c.length === 2 ? { lat: c[1], lng: c[0] } : null;
+      };
+      const [origin, dest] = await Promise.all([geocode(salonAddress), geocode(clientAddress)]);
+      if (!origin || !dest) {
+        return err("Je n'arrive pas à localiser l'une des adresses : annonce au client qu'un forfait déplacement minimum de 3 € s'appliquera, calculé précisément par le salon.", 'GEOCODE_FAILED');
+      }
+      const R = 6371;
+      const dLat = ((dest.lat - origin.lat) * Math.PI) / 180;
+      const dLng = ((dest.lng - origin.lng) * Math.PI) / 180;
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos((origin.lat * Math.PI) / 180) * Math.cos((dest.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+      const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distance_km = Math.round(dist * 10) / 10;
+      const fee = Math.max(3, Math.round(dist * 0.5 * 100) / 100);
+      return {
+        status: 'success',
+        distance_km,
+        transport_fee: fee,
+        message: `Déplacement à domicile : ${distance_km} km depuis le salon, soit ${fee} € de frais de transport (0,50 €/km, minimum 3 €). Annonce ce montant au client AVANT de valider, et transmets-le à create_booking via transport_fee avec service_location='domicile'.`,
+      };
+    } catch {
+      return err("Je n'arrive pas à calculer les frais de déplacement : annonce au client qu'un forfait déplacement minimum de 3 € s'appliquera.", 'TRANSPORT_FAILED');
+    }
+  }
+
   async function createBooking(args) {
     try {
       const dateStr = String(args.date || '').trim();
@@ -768,11 +909,28 @@ function buildExecutors(proEmail) {
       const collaborateur = String(args.collaborateur || '').trim() || null;
 
       // ── Tarification : base × personnes + majoration nuit (+50 % si 21h→7h)
-      // + services supplémentaires. Même règle que le parcours de l'application.
+      // + services supplémentaires + produit commandé + frais de déplacement.
+      // Même règle que le parcours de l'application.
       const baseTotal = price != null ? price * persons : null;
       const nightSurcharge = nightSurchargeFor(baseTotal, slot);
+      // ── Produit commandé (ex : mèches) : prix réel du catalogue du salon ─
+      let productInfo = null;
+      const wantedProduct = String(args.product_name || '').trim().toLowerCase();
+      if (wantedProduct) {
+        const { data: pdata } = await lenientSelect('ProfilPro', ['produits'], (q) => q.eq('user_email', email).maybeSingle());
+        const plist = Array.isArray(pdata?.produits) ? pdata.produits : [];
+        const found = plist.find((p) => String(p?.name || '').trim().toLowerCase() === wantedProduct);
+        if (found) {
+          const pp = found.price != null && found.price !== '' ? Number(found.price) : 0;
+          productInfo = { name: String(found.name).trim(), price: pp, delivery_delay: String(found.delivery_delay || found.delai || '').trim() || null };
+        }
+      }
+      const productTotal = productInfo ? productInfo.price : 0;
+      // ── Prestation à domicile : frais de transport réels ─────────────────
+      const isHomeService = String(args.service_location || '').trim().toLowerCase() === 'domicile';
+      const transportFee = isHomeService ? (Number(args.transport_fee) || 0) : 0;
       const totalPrice = baseTotal != null
-        ? Math.round((baseTotal + nightSurcharge + addonsTotal) * 100) / 100
+        ? Math.round((baseTotal + nightSurcharge + addonsTotal + productTotal + transportFee) * 100) / 100
         : null;
 
       const notesParts = [];
@@ -780,6 +938,8 @@ function buildExecutors(proEmail) {
       notesParts.push(`[Paiement] préférence du client : ${payLabel}`);
       if (persons > 1) notesParts.push(`[Personnes] ${persons}`);
       if (addons.length > 0) notesParts.push(`[Services supplémentaires] ${addons.map((a) => `${a.name} (${a.price}€)`).join(' ; ')}`);
+      if (productInfo) notesParts.push(`[Produit commandé] ${productInfo.name} (${productInfo.price}€)${productInfo.delivery_delay ? ` — délai de livraison : ${productInfo.delivery_delay}` : ''}`);
+      if (isHomeService) notesParts.push(`[Prestation à domicile] frais de déplacement : ${transportFee}€`);
       if (nightSurcharge > 0) notesParts.push(`[Majoration nuit +50%] ${nightSurcharge}€`);
       const extraNotes = String(args.notes || '').trim();
       if (extraNotes) notesParts.push(extraNotes);
@@ -808,20 +968,20 @@ function buildExecutors(proEmail) {
         notes: notesParts.join('\n'),
         booking_code,
         crg_code,
+        service_location: isHomeService ? 'domicile' : 'salon',
+        transport_fee: transportFee,
       };
-      let insertRes = await supabase.from('Reservation').insert(payload).select().single();
-      if (insertRes.error && /night_surcharge/i.test(insertRes.error.message || '')) {
-        // Colonne `night_surcharge` pas encore migrée : on réessaie sans elle
-        // (la majoration reste notée dans les notes du RDV).
-        const { night_surcharge: _ns, ...retryPayload } = payload;
-        insertRes = await supabase.from('Reservation').insert(retryPayload).select().single();
-      }
-      if (insertRes.error && /collaborateur/i.test(insertRes.error.message || '')) {
-        // Colonne `collaborateur` pas encore migrée : on réessaie sans elle,
-        // en conservant le professionnel souhaité dans les notes du RDV.
-        const { collaborateur: _omit, ...retryPayload } = payload;
-        retryPayload.notes = `${payload.notes}\n[Professionnel souhaité] ${collaborateur}`;
-        insertRes = await supabase.from('Reservation').insert(retryPayload).select().single();
+      // ── Insertion tolérante : si une colonne n'existe pas encore en
+      // production (migration non exécutée), elle est retirée et l'insertion
+      // est relancée — la réservation est TOUJOURS créée avec les colonnes
+      // réellement disponibles. La majoration nuit reste notée dans les notes.
+      let insertRes = await lenientInsert('Reservation', payload);
+      if (insertRes.data && !insertRes.kept.collaborateur && collaborateur) {
+        // La colonne `collaborateur` a dû être retirée : le professionnel
+        // souhaité est conservé dans les notes du RDV.
+        try {
+          await supabase.from('Reservation').update({ notes: `${payload.notes}\n[Professionnel souhaité] ${collaborateur}` }).eq('id', insertRes.data.id);
+        } catch { /* non bloquant */ }
       }
       const { data, error } = insertRes;
       if (error || !data) {
@@ -840,13 +1000,18 @@ function buildExecutors(proEmail) {
         persons,
         collaborateur,
         additional_services: addons,
+        product: productInfo,
         night_surcharge: nightSurcharge,
+        service_location: isHomeService ? 'domicile' : 'salon',
+        transport_fee: transportFee,
         total_price: totalPrice,
         client_name: clientName,
         payment_preference: payPref === 'card' ? 'card' : 'onsite',
         announce:
           `Annonce au client : « ${serviceName}, ${price != null ? `${price} €` : 'tarif sur demande'} pour ${duration} minutes »` +
           (addons.length > 0 ? `, plus ${addons.map((a) => `${a.name} ${a.price} €`).join(', ')}` : '') +
+          (productInfo ? `, plus ${productInfo.name} ${productInfo.price} €${productInfo.delivery_delay ? ` (livraison : ${productInfo.delivery_delay})` : ''}` : '') +
+          (transportFee > 0 ? `, plus ${transportFee} € de frais de déplacement à domicile` : '') +
           (nightSurcharge > 0 ? ` — créneau de nuit : majoration de 50 % soit +${nightSurcharge} €, total ${totalPrice} €` : (totalPrice != null ? `, total ${totalPrice} €` : '')) +
           `.`,
         dictate_to_client:
@@ -973,6 +1138,8 @@ function buildExecutors(proEmail) {
       case 'get_team': return getTeam(a);
       case 'get_service_questions': return getServiceQuestions(a);
       case 'get_additional_services': return getAdditionalServices(a);
+      case 'get_products': return getProducts();
+      case 'estimate_transport_fee': return estimateTransportFee(a);
       case 'create_booking': return createBooking(a);
       case 'find_booking': return findBooking(a);
       case 'reschedule_booking': return rescheduleBooking(a);

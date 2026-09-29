@@ -6,7 +6,7 @@ import {
   Scissors, Clock, Star, Zap, Check, Store, Phone, MapPin,
   Building2, FileText, Image, Palette, Wifi, Car, Snowflake,
   Baby, Coffee, CreditCard, Accessibility, Shirt, Sofa, ShowerHead,
-  Wine, Music, UtensilsCrossed, ArrowRight, CircleDot, Save, Sun, Moon, PawPrint, Copy
+  Wine, Music, UtensilsCrossed, ArrowRight, CircleDot, Save, Sun, Moon, PawPrint, Copy, Home, Package
 } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/api/supabaseClient";
@@ -66,8 +66,9 @@ export default function ModifierProfilPro() {
     salon_name: "", phone: "", address: "", city: "", postal_code: "",
     seats: 1, bio: "", avatar_url: "", cover_url: "",
     specialites: [], commodites: [], hours: {}, conges: [],
-    travail_nuit: false,
+    travail_nuit: false, se_deplace: false,
     menu_restaurant: [], menu_bar: [], additional_services: [],
+    produits: [],
     galerie_urls: [],
     email: "",
   });
@@ -136,6 +137,8 @@ export default function ModifierProfilPro() {
             specialites: profile.specialites || [], commodites: profile.commodites || [],
             hours: h, conges: (src.conges || []),
             travail_nuit: !!profile.travail_nuit,
+            se_deplace: !!profile.se_deplace,
+            produits: Array.isArray(profile.produits) ? profile.produits : [],
             menu_restaurant: profile.menu_restaurant || [], menu_bar: profile.menu_bar || [],
             additional_services: profile.additional_services || [],
             galerie_urls: Array.isArray(profile.galerie_urls) ? profile.galerie_urls : [],
@@ -323,6 +326,7 @@ export default function ModifierProfilPro() {
         avatar_url: data.avatar_url || "",
         cover_url: data.cover_url || "",
         travail_nuit: data.travail_nuit,
+        se_deplace: data.se_deplace,
         ...coords,
       };
 
@@ -353,6 +357,19 @@ export default function ModifierProfilPro() {
       if (existingId) {
         const { error: extraError } = await supabase.from('ProfilPro').update(extra).eq('id', existingId);
         if (extraError) throw extraError;
+      }
+
+      // Produits (mèches à commander…) : colonne récente — mise à jour
+      // tolérante : si la migration n'a pas été exécutée, la sauvegarde
+      // principale n'est pas bloquée (l'agent vocal proposera alors au
+      // client d'en parler directement avec le salon).
+      if (existingId) {
+        try {
+          const { error: prodError } = await supabase.from('ProfilPro').update({ produits: data.produits || [] }).eq('id', existingId);
+          if (prodError && !/Could not find the 'produits' column/i.test(prodError.message || '')) throw prodError;
+        } catch (e) {
+          if (!/Could not find the 'produits' column/i.test(e?.message || '')) throw e;
+        }
       }
 
       try { localStorage.setItem('pro_profile_cache', JSON.stringify(core)); } catch {}
@@ -876,6 +893,101 @@ export default function ModifierProfilPro() {
             </div>
             <ArrowRight className="w-4 h-4 text-gray-300" />
           </button>
+        </div>
+
+        {/* Mode de travail */}
+        <div className={sectionCls}>
+          <button onClick={() => toggleSection('workmode')} className="w-full flex items-center gap-3 p-4">
+            <div className="w-11 h-11 bg-gradient-to-br from-indigo-50 to-violet-50 rounded-xl flex items-center justify-center">
+              <Clock className="w-5 h-5 text-indigo-500" />
+            </div>
+            <p className="flex-1 text-left text-[14px] font-black text-gray-900">Mode de travail</p>
+            {(data.travail_nuit || data.se_deplace) && (
+              <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-full">
+                {[data.se_deplace && "Domicile", data.travail_nuit && "Nuit"].filter(Boolean).join(" · ")}
+              </span>
+            )}
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-transform ${expanded.workmode ? 'rotate-180' : ''}`}>
+              <ChevronDown className="w-4 h-4 text-gray-400" />
+            </div>
+          </button>
+          {expanded.workmode && (
+            <div className="px-4 pb-4 space-y-3">
+              <p className="text-[11px] text-gray-500 font-medium">Ces modes apparaissent sur votre page vue client et sont annoncés par l'assistant vocal (avec les coûts supplémentaires).</p>
+              <button onClick={() => setData(d => ({ ...d, se_deplace: !d.se_deplace }))}
+                className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all active:scale-[0.98] ${data.se_deplace ? "border-[#E8732A] bg-orange-50" : "border-gray-200 bg-white"}`}>
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl flex items-center justify-center">
+                  <Home className="w-5 h-5 text-blue-500" />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-[13px] font-black text-gray-900">Travail à domicile</p>
+                  <p className="text-[11px] text-gray-500 font-medium">Déplacement chez le client (frais de transport calculés au km)</p>
+                </div>
+                <div className={`w-11 h-6 rounded-full transition-colors relative ${data.se_deplace ? "bg-[#E8732A]" : "bg-gray-200"}`}>
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${data.se_deplace ? "left-[22px]" : "left-0.5"}`} />
+                </div>
+              </button>
+              <button onClick={() => handleToggleNuit(!data.travail_nuit)}
+                className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all active:scale-[0.98] ${data.travail_nuit ? "border-[#E8732A] bg-orange-50" : "border-gray-200 bg-white"}`}>
+                <div className="w-10 h-10 bg-gradient-to-br from-indigo-50 to-violet-50 rounded-xl flex items-center justify-center">
+                  <Moon className="w-5 h-5 text-indigo-500" />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-[13px] font-black text-gray-900">Travail de nuit</p>
+                  <p className="text-[11px] text-gray-500 font-medium">Horaires 09h00 → 07h00, majoration de 50 % entre 21h et 7h</p>
+                </div>
+                <div className={`w-11 h-6 rounded-full transition-colors relative ${data.travail_nuit ? "bg-[#E8732A]" : "bg-gray-200"}`}>
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${data.travail_nuit ? "left-[22px]" : "left-0.5"}`} />
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Produits à commander (mèches…) */}
+        <div className={sectionCls}>
+          <button onClick={() => toggleSection('produits')} className="w-full flex items-center gap-3 p-4">
+            <div className="w-11 h-11 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl flex items-center justify-center">
+              <Package className="w-5 h-5 text-emerald-500" />
+            </div>
+            <p className="flex-1 text-left text-[14px] font-black text-gray-900">Produits à commander</p>
+            {data.produits.length > 0 && (
+              <span className="bg-emerald-100 text-emerald-700 text-[10px] font-black px-2 py-0.5 rounded-full">{data.produits.length}</span>
+            )}
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-transform ${expanded.produits ? 'rotate-180' : ''}`}>
+              <ChevronDown className="w-4 h-4 text-gray-400" />
+            </div>
+          </button>
+          {expanded.produits && (
+            <div className="px-4 pb-4 space-y-3">
+              <p className="text-[11px] text-gray-500 font-medium">Mèches et produits que vous pouvez commander pour vos clientes. L'assistant vocal annoncera ces prix et délais réels au téléphone.</p>
+              {(data.produits || []).map((p, i) => (
+                <div key={i} className="p-3 rounded-2xl border-2 border-gray-100 bg-white space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input value={p.name || ""} onChange={(e) => { const a = [...data.produits]; a[i] = { ...a[i], name: e.target.value }; setData(d => ({ ...d, produits: a })); }}
+                      placeholder="Nom du produit (ex : Mèches brésiliennes)" className="flex-1 min-w-0 px-3 py-2 rounded-xl border border-gray-200 text-[13px] font-bold text-gray-900 placeholder:text-gray-300 placeholder:font-medium" />
+                    <button onClick={() => setData(d => ({ ...d, produits: d.produits.filter((_, j) => j !== i) }))} className="w-8 h-8 bg-red-50 rounded-full flex items-center justify-center active:scale-95 shrink-0">
+                      <Trash2 className="w-4 h-4 text-red-400" />
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <input type="number" min="0" step="0.01" value={p.price ?? ""} onChange={(e) => { const a = [...data.produits]; a[i] = { ...a[i], price: e.target.value }; setData(d => ({ ...d, produits: a })); }}
+                        placeholder="Prix (€)" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-[13px] font-bold text-gray-900 placeholder:text-gray-300 placeholder:font-medium" />
+                    </div>
+                    <div className="flex-1">
+                      <input value={p.delivery_delay || ""} onChange={(e) => { const a = [...data.produits]; a[i] = { ...a[i], delivery_delay: e.target.value }; setData(d => ({ ...d, produits: a })); }}
+                        placeholder="Délai (ex : 3 à 5 jours)" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-[13px] font-bold text-gray-900 placeholder:text-gray-300 placeholder:font-medium" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <button onClick={() => setData(d => ({ ...d, produits: [...(d.produits || []), { name: "", price: "", delivery_delay: "" }] }))}
+                className="w-full py-3.5 rounded-2xl border-2 border-dashed border-gray-200 text-[12px] font-black text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2 active:scale-95 transition-all">
+                <Plus className="w-4 h-4" /> Ajouter un produit
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Supprimer mon compte */}

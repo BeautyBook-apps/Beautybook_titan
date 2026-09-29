@@ -333,6 +333,11 @@ export default function ReceptionnistIA() {
         customInstructions,
         todayLabel,
       });
+      // ── Jamais deux sessions en même temps : l'ancienne est fermée avant
+      // d'en créer une nouvelle (sinon deux agents écoutent et parlent en
+      // même temps → écho et réponses en boucle).
+      sessionRef.current?.disconnect();
+      sessionRef.current = null;
       const session = new GrokVoiceSession({
         token,
         agentId,
