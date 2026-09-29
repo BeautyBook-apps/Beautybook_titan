@@ -251,6 +251,7 @@ async function getServiceRowForQuestions(email, { service_id, service_name }) {
   };
   let res = await qread(() => run('id,title,name,category,subcategory,questions'));
   if (res.error) res = await qread(() => run('id,title,name,category,subcategory'));
+  if (res.error) res = await qread(() => run('id,title,name,category')); // colonnes optionnelles absentes (migrations non exécutées)
   return res.data || null;
 }
 
@@ -464,7 +465,7 @@ const DEFINITIONS = [
     type: 'function',
     name: 'get_service_questions',
     description:
-      "Retourne les questions de préparation du service choisi (les mêmes que dans l'application : d'abord celles personnalisées par le professionnel, sinon celles de la catégorie du service). À appeler dès que la prestation est choisie, AVANT de proposer les créneaux.",
+      "Retourne les questions de préparation du service choisi (les mêmes que dans l'application : d'abord celles personnalisées par le professionnel, sinon celles de la catégorie du service). À appeler UNIQUEMENT quand l'ÉTAPE 1 est complète (le client a répondu à la question des services supplémentaires), JAMAIS avant — ne jamais enchaîner cet appel juste après get_additional_services sans attendre la réponse du client.",
     parameters: {
       type: 'object',
       properties: {

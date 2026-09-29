@@ -65,6 +65,13 @@ export class GrokVoiceSession {
     // ── Anti-boucle écho ──
     this._agentSpeaking = false; // true pendant la lecture audio de l'agent
     this._doneToolCalls = new Set(); // call_id déjà exécutés (anti-doublons)
+    // ── Tour de parole ──
+    // Horodatage de la dernière parole transcrite du client et du dernier
+    // appel d'outil : si l'agent enchaîne deux outils SANS que le client ait
+    // parlé entre les deux, c'est qu'il pose des questions en rafale sans
+    // attendre les réponses → on lui injecte une consigne d'arrêt.
+    this._lastUserSpeechAt = 0;
+    this._lastToolCallAt = 0;
   }
 
   emit(type, payload = {}) {
@@ -385,12 +392,31 @@ export class GrokVoiceSession {
       result = { status: 'error', message: 'Échec de l\'outil.' };
     }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    // ── Tour de parole ──────────────────────────────────────────────────
+    // Si cet appel d'outil suit un précédent appel SANS parole du client
+    // entre les deux, l'agent est en train d'enchaîner (ex : il a proposé
+    // les services supplémentaires puis appelle get_service_questions sans
+    // attendre la réponse). On lui impose, pour CETTE réponse uniquement :
+    // une seule question maximum, puis silence jusqu'à la réponse du client.
+    const chained = this._lastToolCallAt > 0 &&
+      this._lastToolCallAt >= this._lastUserSpeechAt;
+    this._lastToolCallAt = Date.now();
     // Renvoie le résultat à l'agent, qui le formulera en français.
     this.ws.send(JSON.stringify({
       type: 'conversation.item.create',
       item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(result) },
     }));
-    this.ws.send(JSON.stringify({ type: 'response.create' }));
+    const createMsg = { type: 'response.create' };
+    if (chained && this.mode === 'direct') {
+      createMsg.response = {
+        instructions:
+          `Tu es Maria, l'assistante vocale du salon, tu parles uniquement français. ` +
+          `RÈGLE DE TOUR DE PAROLE ABSOLUE : tu viens d'enchaîner plusieurs actions sans que le client ait parlé. ` +
+          `Dans cette réponse, pose AU MAXIMUM une seule question courte, puis TAIS-TOI et attends sa réponse. ` +
+          `N'appelle AUCUN autre outil avant qu'il ait répondu.`,
+      };
+    }
+    this.ws.send(JSON.stringify(createMsg));
     // end_call : l'agent a déjà dit au revoir avant d'appeler l'outil.
     if (name === 'end_call') {
       setTimeout(() => {
@@ -448,7 +474,11 @@ export class GrokVoiceSession {
       case 'conversation.item.input_audio_transcription.updated':
       case 'conversation.item.input_audio_transcription.completed': {
         const text = msg.transcript || '';
-        if (text) this.emit('user-transcript', { text, final: msg.type.endsWith('completed') });
+        if (text) {
+          // Le client a réellement parlé → réarme le tour de parole.
+          if (msg.type.endsWith('completed')) this._lastUserSpeechAt = Date.now();
+          this.emit('user-transcript', { text, final: msg.type.endsWith('completed') });
+        }
         break;
       }
       case 'response.output_audio_transcript.delta': {
@@ -508,6 +538,8 @@ export class GrokVoiceSession {
     this.connected = false;
     this._agentSpeaking = false;
     this._doneToolCalls.clear();
+    this._lastUserSpeechAt = 0;
+    this._lastToolCallAt = 0;
     try { clearTimeout(this._speechGuardT); } catch {}
     this._speechGuardT = null;
     try { this.ws?.close(); } catch {}
