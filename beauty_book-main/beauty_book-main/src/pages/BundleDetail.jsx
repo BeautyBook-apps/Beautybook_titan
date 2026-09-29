@@ -8,6 +8,7 @@ import {
 import { entities } from "@/api/entities";
 import { supabase } from "@/api/supabaseClient";
 import { readPageCache, mergePageCache, useCachedState } from "@/hooks/usePageCache";
+import ShowcaseSection from "@/components/showcase/ShowcaseSection";
 
 function ServiceImageSlider({ images }) {
   const validImages = (images || []).filter(Boolean);
@@ -326,6 +327,11 @@ export default function BundleDetail() {
               </p>
             </div>
           )}
+        </div>
+
+        {/* Prestations réalisées — vitrine photo du bundle */}
+        <div className="mx-4 mt-7">
+          <ShowcaseSection serviceId={id} isBundle={true} />
         </div>
 
         {/* Avis clients section — ALWAYS VISIBLE */}

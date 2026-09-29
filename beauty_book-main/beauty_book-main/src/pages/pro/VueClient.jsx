@@ -1,14 +1,15 @@
 import BeautyImage from '@/components/ui/BeautyImage';
+import Lightbox from '@/components/ui/Lightbox';
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   ArrowLeft, Share2, Phone, MessageCircle, Calendar, MapPin,
   User, Scissors, Image, Star, Home, Moon, Wifi, Car,
   Coffee, Wind, ChevronRight, MoreVertical, CheckCircle2, Heart,
-  Flag, UserMinus, X, PhoneCall, PhoneOff, Video, Mic, MicOff,
+  Flag, UserMinus, PhoneCall, PhoneOff, Video, Mic, MicOff,
   Baby, CreditCard, Accessibility, Shirt, Sofa, Music, PawPrint,
   Snowflake, Sparkles, Clock, Zap, Droplets, Flower2, Brush,
-  ChevronLeft, Play, Volume2, VolumeX, Maximize2, Palette, RotateCw,
+  Play, Maximize2, Palette, RotateCw,
   Instagram, Facebook, Globe
 } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
@@ -354,8 +355,6 @@ function VisiteVirtuelle3D({ proEmail }) {
 function GalerieSection({ gallery }) {
   const [lightboxIdx, setLightboxIdx] = useState(null);
   const [showAll, setShowAll] = useState(false);
-  const [muted, setMuted] = useState(true);
-  const videoRefs = useRef({});
 
   if (!gallery?.length) return null;
 
@@ -363,12 +362,6 @@ function GalerieSection({ gallery }) {
   const MAX_VISIBLE = 6; // 2 lignes de 3
   const visible = showAll ? gallery : gallery.slice(0, MAX_VISIBLE);
   const hasMore = gallery.length > MAX_VISIBLE;
-
-  const goNext = (e) => { e.stopPropagation(); setLightboxIdx(i => (i + 1) % gallery.length); };
-  const goPrev = (e) => { e.stopPropagation(); setLightboxIdx(i => (i - 1 + gallery.length) % gallery.length); };
-
-  const currentUrl = lightboxIdx !== null ? gallery[lightboxIdx] : null;
-  const currentIsVideo = isVideo(currentUrl);
 
   return (
     <div className="px-4 pt-4 pb-4 border-b border-gray-100">
@@ -410,57 +403,9 @@ function GalerieSection({ gallery }) {
         </button>
       )}
 
-      {/* Lightbox */}
+      {/* Lightbox plein écran (partagée) */}
       {lightboxIdx !== null && (
-        <div className="fixed inset-0 z-[600] bg-black flex items-center justify-center" onClick={() => setLightboxIdx(null)}>
-          <button onClick={(e) => { e.stopPropagation(); setLightboxIdx(null); }}
-            className="absolute top-5 right-5 w-10 h-10 bg-white/10 rounded-full flex items-center justify-center z-10">
-            <X className="w-5 h-5 text-white" />
-          </button>
-
-          {/* Navigation */}
-          {gallery.length > 1 && (
-            <>
-              <button onClick={goPrev} className="absolute left-3 w-10 h-10 bg-white/10 rounded-full flex items-center justify-center z-10 active:scale-95">
-                <ChevronLeft className="w-5 h-5 text-white" />
-              </button>
-              <button onClick={goNext} className="absolute right-3 w-10 h-10 bg-white/10 rounded-full flex items-center justify-center z-10 active:scale-95">
-                <ChevronRight className="w-5 h-5 text-white" />
-              </button>
-            </>
-          )}
-
-          {/* Media */}
-          <div className="w-full max-h-screen flex items-center justify-center px-14" onClick={e => e.stopPropagation()}>
-            {currentIsVideo ? (
-              <div className="relative w-full">
-                <video
-                  key={currentUrl}
-                  src={currentUrl}
-                  autoPlay
-                  loop
-                  muted={muted}
-                  playsInline
-                  controls={false}
-                  className="w-full max-h-[85vh] object-contain rounded-xl"
-                />
-                <button
-                  onClick={() => setMuted(m => !m)}
-                  className="absolute bottom-4 right-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center active:scale-95"
-                >
-                  {muted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
-                </button>
-              </div>
-            ) : (
-              <BeautyImage src={currentUrl} alt="" className="max-w-full max-h-[85vh] object-contain rounded-xl" />
-            )}
-          </div>
-
-          {/* Compteur */}
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/50 rounded-full px-4 py-1.5">
-            <span className="text-white text-[12px] font-black">{lightboxIdx + 1} / {gallery.length}</span>
-          </div>
-        </div>
+        <Lightbox images={gallery} initialIndex={lightboxIdx} onClose={() => setLightboxIdx(null)} />
       )}
     </div>
   );

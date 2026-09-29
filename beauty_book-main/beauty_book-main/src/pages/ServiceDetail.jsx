@@ -1,12 +1,14 @@
 import BeautyImage from '@/components/ui/BeautyImage';
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, Share2, Heart, MapPin, Clock, Star, CheckCircle, ShoppingCart, Play, Calendar, ChevronRight, ChevronDown, Scissors, Sparkles, Wand2, X, ChevronLeft, ArrowUp, Wifi, Car, Thermometer, CreditCard, Accessibility, PawPrint, Baby, Coffee, Package } from "lucide-react";
+import { ArrowLeft, Share2, Heart, MapPin, Clock, Star, CheckCircle, ShoppingCart, Play, Calendar, ChevronRight, ChevronDown, Scissors, Sparkles, Wand2, ArrowUp, Wifi, Car, Thermometer, CreditCard, Accessibility, PawPrint, Baby, Coffee, Package } from "lucide-react";
 import VTCSection from "@/components/service/VTCSection";
 import SalonMap from "@/components/map/SalonMap";
 import CommandeModal from "@/components/restaurant/CommandeModal";
 import PostServiceReview from "@/components/reservation/PostServiceReview";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
+import Lightbox from "@/components/ui/Lightbox";
+import ShowcaseSection from "@/components/showcase/ShowcaseSection";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useLocale } from "@/hooks/useLocale";
@@ -88,103 +90,16 @@ function ScrollToTopButton() {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
   if (!visible) return null;
+  // Positionné AU-DESSUS de la barre sticky « Réserver » (bottom-28 + ~100px de haut, z-90)
+  // pour ne pas être masqué derrière elle.
   return (
     <button onClick={() => { const el = document.getElementById("app-content"); if (el) el.scrollTo({ top: 0, behavior: "smooth" }); }}
-      className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 px-5 py-2.5 bg-primary/80 backdrop-blur-sm rounded-full flex items-center gap-2 shadow-lg shadow-primary/30 active:scale-90 transition-all">
+      className="fixed bottom-[228px] left-1/2 -translate-x-1/2 z-40 px-5 py-2.5 bg-primary/90 backdrop-blur-sm rounded-full flex items-center gap-2 shadow-lg shadow-primary/30 active:scale-90 transition-all">
       <ArrowUp className="w-4 h-4 text-white" />
       <span className="text-[12px] font-black text-white uppercase tracking-wide">Retour en haut</span>
     </button>
   );
 }
-
-/* ── Image Lightbox ─────────────────────────────────────────────── */
-function ImageLightbox({ images, initialIndex, onClose }) {
-  const [idx, setIdx] = useState(initialIndex || 0);
-  const touchStartX = useRef(null);
-
-  const goNext = useCallback(() => setIdx(i => Math.min(i + 1, images.length - 1)), [images.length]);
-  const goPrev = useCallback(() => setIdx(i => Math.max(i - 1, 0)), []);
-
-  useEffect(() => {
-    const handleKey = (e) => {
-      if (e.key === "ArrowRight") goNext();
-      else if (e.key === "ArrowLeft") goPrev();
-      else if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [goNext, goPrev, onClose]);
-
-  const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
-  const handleTouchEnd = (e) => {
-    if (touchStartX.current === null) return;
-    const diff = touchStartX.current - e.changedTouches[0].clientX;
-    if (Math.abs(diff) > 50) {
-      if (diff > 0) goNext();
-      else goPrev();
-    }
-    touchStartX.current = null;
-  };
-
-  const imagesOnly = images.filter(m => m.type !== "video");
-
-  return (
-    <div className="fixed inset-0 z-[9999] bg-black flex flex-col" onClick={onClose}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 shrink-0" onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} className="w-9 h-9 bg-white/10 rounded-full flex items-center justify-center">
-          <X className="w-5 h-5 text-white" />
-        </button>
-        <span className="text-white text-[13px] font-black">{idx + 1} / {images.length}</span>
-        <div className="w-9" />
-      </div>
-
-      {/* Image */}
-      <div className="flex-1 flex items-center justify-center min-h-0"
-        onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}
-        onClick={e => e.stopPropagation()}>
-        {images[idx]?.type === "video" ? (
-          <video src={images[idx].url} controls autoPlay className="w-full h-full object-contain" />
-        ) : (
-          <BeautyImage src={images[idx]?.url} alt="" className="w-full h-full object-contain" />
-        )}
-      </div>
-
-      {/* Navigation arrows */}
-      {images.length > 1 && (
-        <>
-          {idx > 0 && (
-            <button onClick={(e) => { e.stopPropagation(); goPrev(); }}
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/10 backdrop-blur-sm rounded-full flex items-center justify-center z-10">
-              <ChevronLeft className="w-6 h-6 text-white" />
-            </button>
-          )}
-          {idx < images.length - 1 && (
-            <button onClick={(e) => { e.stopPropagation(); goNext(); }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/10 backdrop-blur-sm rounded-full flex items-center justify-center z-10">
-              <ChevronRight className="w-6 h-6 text-white" />
-            </button>
-          )}
-        </>
-      )}
-
-      {/* Thumbnails */}
-      {images.length > 1 && (
-        <div className="shrink-0 px-4 py-3 flex gap-2 overflow-x-auto justify-center" onClick={e => e.stopPropagation()}>
-          {images.map((m, i) => (
-            <button key={i} onClick={() => setIdx(i)}
-              className={`w-12 h-12 rounded-xl overflow-hidden shrink-0 border-2 transition-all ${i === idx ? "border-white scale-110" : "border-transparent opacity-50"}`}>
-              {m.type === "video"
-                ? <div className="w-full h-full bg-gray-800 flex items-center justify-center"><Play className="w-4 h-4 text-white" /></div>
-                : <BeautyImage src={m.url} alt="" className="w-full h-full object-cover" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ── Section title ─────────────────────────────────────────────────── */
 function SectionTitle({ children, badge }) {
   return (
@@ -905,6 +820,11 @@ export default function ServiceDetail() {
           </div>
         )}
 
+        {/* Prestations réalisées — vitrine photo du service */}
+        <div className="px-4">
+          <ShowcaseSection serviceId={serviceId} isBundle={false} />
+        </div>
+
         {/* Avis clients */}
         <div>
           <SectionTitle badge={avis.length > 0 ? `${avis.length} AVIS` : undefined}>Avis clients</SectionTitle>
@@ -1144,9 +1064,9 @@ export default function ServiceDetail() {
         />
       )}
 
-      {/* Image Lightbox */}
+      {/* Image Lightbox (plein écran) */}
       {lightboxIdx !== null && media.length > 0 && (
-        <ImageLightbox images={media} initialIndex={lightboxIdx} onClose={() => setLightboxIdx(null)} />
+        <Lightbox images={media} initialIndex={lightboxIdx} onClose={() => setLightboxIdx(null)} />
       )}
 
       {/* ── Sticky CTA (positioned above bottom navigation bar — nav is 68px + safe-area) ── */}

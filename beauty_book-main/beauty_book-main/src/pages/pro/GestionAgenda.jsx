@@ -27,6 +27,7 @@ import {
 import { format, addDays, startOfWeek, isSameDay, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import { summarizeHours, hasHoursData, applyNightMode } from "@/lib/hours";
+import ShowcasePhotoStep from "@/components/showcase/ShowcasePhotoStep";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function buildWeek(baseDate) {
@@ -61,6 +62,7 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
   const [codeInput, setCodeInput] = useState(["", "", "", ""]);
   const [codeError, setCodeError] = useState(false);
   const [showReliability, setShowReliability] = useState(false);
+  const [showShowcase, setShowShowcase] = useState(false);
   const [reliabilityChoice, setReliabilityChoice] = useState(null);
   const [savingScore, setSavingScore] = useState(false);
   const codeRefs = [useRef(), useRef(), useRef(), useRef()];
@@ -209,7 +211,8 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
         await supabase.from("Reservation").update({ reliability_score: score }).eq("id", rdv.id);
       } catch {}
       setShowReliability(false);
-      onClose();
+      // Étape photos « Prestations réalisées » après la validation
+      setShowShowcase(true);
     } catch (e) { console.error("Reliability error:", e); }
     setSavingScore(false);
   };
@@ -490,6 +493,15 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Étape photos « Prestations réalisées » — après validation */}
+      {showShowcase && (
+        <ShowcasePhotoStep
+          rdv={rdv}
+          onDone={() => { setShowShowcase(false); onClose(); }}
+          onSkip={() => { setShowShowcase(false); onClose(); }}
+        />
       )}
 
     </div>
