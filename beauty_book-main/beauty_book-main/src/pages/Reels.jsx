@@ -899,6 +899,9 @@ export default function Reels() {
   const [repubToast, setRepubToast] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [feedError, setFeedError] = useState(null);
+  const [feedAttempt, setFeedAttempt] = useState(0);
   const scrollRef = useRef(null);
   const observerRef = useRef(null);
 
@@ -948,6 +951,8 @@ export default function Reels() {
 
   useEffect(() => {
     setCurrentIdx(0);
+    setFeedLoading(true);
+    setFeedError(null);
 
     const filters = activeTab !== "Réels" ? { category: activeTab, status: "publie" } : { status: "publie" };
 
@@ -1025,8 +1030,13 @@ export default function Reels() {
           reels.forEach(r => { lkm[r.id] = r.likes ?? 0; });
           setReelLikeCounts(lkm);
         }
+        setFeedLoading(false);
       })
-      .catch(() => {});
+      .catch((e) => {
+        console.error("[Reels] chargement du fil:", e);
+        setFeedLoading(false);
+        setFeedError("Impossible de charger les réels. Vérifie ta connexion puis réessaie.");
+      });
 
     entities.Annonce.filter({ status: 'actif' }, '-created_at', 20)
       .then(data => {
@@ -1039,7 +1049,7 @@ export default function Reels() {
         mergePageCache("reels_page", { annonces: list });
       })
       .catch(() => {});
-  }, [activeTab]);
+  }, [activeTab, feedAttempt]);
 
   // ── Realtime: like counts updates ──
   useEffect(() => {
@@ -1257,6 +1267,9 @@ export default function Reels() {
           if (item.type === "ad") {
             const adKey = item.adKey;
             if (hiddenAds.includes(adKey)) return null;
+            // Annonce malformée (ni image ni vidéo) → on n'affiche pas un
+            // emplacement noir vide, on saute simplement cet emplacement.
+            if (!item.annonce || (!item.annonce.image_url && !item.annonce.video_url)) return null;
             return (
               <div key={adKey} data-idx={feedIdx}
                 className="relative bg-black flex flex-col items-center"
@@ -1296,6 +1309,33 @@ export default function Reels() {
             </div>
           );
         })}
+        {/* ── États honnêtes du fil : jamais d'écran noir silencieux ── */}
+        {filteredFeed.length === 0 && (
+          <div className="w-full flex flex-col items-center justify-center gap-4 px-10 text-center"
+            style={{ height: "100dvh", paddingTop: "calc(56px + env(safe-area-inset-top, 0px))", paddingBottom: "calc(70px + env(safe-area-inset-bottom, 16px))" }}>
+            {feedLoading ? (
+              <>
+                <div className="w-10 h-10 rounded-full border-4 border-white/20 border-t-primary animate-spin" />
+                <p className="text-white/70 text-[14px] font-semibold">Chargement des réels…</p>
+              </>
+            ) : feedError ? (
+              <>
+                <p className="text-[40px]">📡</p>
+                <p className="text-white text-[15px] font-bold leading-snug">{feedError}</p>
+                <button onClick={() => setFeedAttempt(k => k + 1)}
+                  className="px-6 py-3 bg-primary text-white text-[14px] font-black rounded-full active:scale-95">
+                  Réessayer
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-[40px]">🎬</p>
+                <p className="text-white text-[15px] font-bold">Aucun réel pour le moment</p>
+                <p className="text-white/50 text-[13px]">Les nouvelles vidéos apparaîtront ici.</p>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Top Header (overlay) ── */}

@@ -86,7 +86,14 @@ export default async function handler(req, res) {
       return res.status(upstream.status === 401 ? 503 : 502).json({ error: msg, code: 'XAI_UPSTREAM_ERROR' });
     }
     const content = data?.choices?.[0]?.message?.content || '';
-    return res.status(200).json({ content, model: data?.model || model });
+    const usage = data?.usage && typeof data.usage === 'object'
+      ? {
+          prompt_tokens: Number(data.usage.prompt_tokens) || 0,
+          completion_tokens: Number(data.usage.completion_tokens) || 0,
+          total_tokens: Number(data.usage.total_tokens) || 0,
+        }
+      : null;
+    return res.status(200).json({ content, model: data?.model || model, usage });
   } catch (e) {
     return res.status(502).json({ error: 'Impossible de joindre le service IA.', code: 'XAI_UNREACHABLE' });
   }

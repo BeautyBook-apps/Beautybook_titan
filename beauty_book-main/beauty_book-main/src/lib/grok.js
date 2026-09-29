@@ -1,6 +1,7 @@
 // ─── Client Grok (xAI) — chatbot texte ────────────────────────────────────────
 // Le front n'appelle JAMAIS api.x.ai directement : tout passe par /api/xai-chat
 // (fonction Vercel qui garde XAI_API_KEY côté serveur).
+import { recordChatUsage } from './apiUsage';
 const LS_AGENT_ID = 'bb_grok_agent_id';
 export const DEFAULT_AGENT_ID = 'agent_xGMVEL6cEMKtWzG8';
 
@@ -21,7 +22,9 @@ export function setGrokAgentId(id) {
 /**
  * Envoie une conversation à Grok et renvoie le texte de réponse.
  * @param {Array<{role:string, content:string}>} messages
- * @param {{system?:string, model?:string, max_tokens?:number}} opts
+ * @param {{system?:string, model?:string, max_tokens?:number, feature?:string}} opts
+ *   feature : 'maria' | 'global' | 'vocal' | 'social' | 'other' — pour le suivi
+ *   d'utilisation (onglet Utilisation de la Réceptionniste IA).
  * @returns {Promise<string>}
  */
 export async function grokChat(messages, opts = {}) {
@@ -46,6 +49,17 @@ export async function grokChat(messages, opts = {}) {
   }
   const content = (data && data.content) || '';
   if (!content.trim()) throw new Error('Réponse IA vide.');
+  // ── Suivi d'utilisation (tokens → coût estimé), jamais bloquant ──
+  try {
+    if (data && data.usage) {
+      recordChatUsage({
+        model: (data && data.model) || opts.model || 'grok-4-1-fast-non-reasoning',
+        promptTokens: data.usage.prompt_tokens,
+        completionTokens: data.usage.completion_tokens,
+        feature: opts.feature || 'other',
+      });
+    }
+  } catch { /* suivi optionnel */ }
   return content;
 }
 

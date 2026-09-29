@@ -125,6 +125,19 @@ export default function Boutique() {
     setActiveSub("Tout");
   };
 
+  // Recherche pilotée par Global (agent vocal) : remplit réellement la recherche.
+  useEffect(() => {
+    const handler = (e) => {
+      const q = e?.detail?.query;
+      if (typeof q === "string" && q.trim()) {
+        setSearch(q.trim());
+        setImageSearchResults(null);
+      }
+    };
+    window.addEventListener("bb:global-search", handler);
+    return () => window.removeEventListener("bb:global-search", handler);
+  }, []);
+
   useEffect(() => {
     entities.AppConfig.filter({ key: "boutique_banners" }, "-created_at", 50)
       .then(rows => {

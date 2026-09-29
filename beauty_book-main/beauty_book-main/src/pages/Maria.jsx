@@ -368,7 +368,9 @@ function DictateButton({ onDictate, isDark, onError }) {
     const r = new SR();
     r.lang = "fr-FR"; r.continuous = false; r.interimResults = false; r.maxAlternatives = 1;
     let gotResult = false;
-    r.onstart = () => setDictating(true);
+    let started = false;
+    let errorSeen = false;
+    r.onstart = () => { started = true; setDictating(true); };
     r.onresult = (e) => {
       gotResult = true;
       const text = e.results?.[0]?.[0]?.transcript?.trim();
@@ -376,13 +378,22 @@ function DictateButton({ onDictate, isDark, onError }) {
       setDictating(false);
     };
     r.onerror = (e) => {
+      errorSeen = true;
       setDictating(false);
       const err = e?.error;
       if (err === "aborted") return;
       if (err === "no-speech" && gotResult) return;
       onError?.(dictationErrorMessage(err));
     };
-    r.onend = () => setDictating(false);
+    // Sur certains Android, onend arrive sans onstart ni onerror (capture
+    // audio jamais démarrée : micro tenu par une autre app, état incohérent).
+    // Sans ce garde-fou, le micro « ne fait rien » en silence.
+    r.onend = () => {
+      setDictating(false);
+      if (!started && !gotResult && !errorSeen) {
+        onError?.(dictationErrorMessage("audio-capture"));
+      }
+    };
     recRef.current = r;
     try {
       r.start();
@@ -897,6 +908,27 @@ AUTRES ACTIONS DISPONIBLES
 - SERVICE_RECAP: {"type": "SERVICE_RECAP", "data": {"service_name": "...", "date": "...", "time_slot": "...", "duration_min": ..., "price": "...", "salon_name": "...", "pro_name": "...", "notes": "..."}}
 
 ══════════════════════════════════════════════════════════
+GRAPHIQUES — RENDS TES CHIFFRES VISUELS
+══════════════════════════════════════════════════════════
+Quand tu présentes des CHIFFRES (activité du salon, CA, RDV, clientes, comparaisons, objectifs, statistiques), ne les noie pas dans du texte : ajoute un bloc \`\`\`chart avec du JSON — il sera transformé en vrai graphique coloré dans le chat.
+
+Format exact :
+\`\`\`chart
+{"type": "kpi", "title": "Mon activité", "unit": "€", "data": [{"label": "CA", "value": 3200, "delta": "+12%"}, {"label": "RDV", "value": 48}]}
+\`\`\`
+
+Types disponibles :
+- "kpi" : cartes de chiffres clés (CA, RDV, clientes, note moyenne…) — "delta" optionnel ("+12%", "-3%")
+- "hbar" : barres horizontales — PARFAIT sur mobile (top services, comparaisons)
+- "bar" : barres verticales (évolution par mois, par jour)
+- "donut" : répartition en parts (types de prestations, sources de clients)
+- "progress" : progression vers un objectif — ajoute "target" : {"label": "CA mensuel", "value": 3200, "target": 5000, "unit": "€"}
+- "unit" : "€", "%" ou "" — affiché après chaque valeur
+- 8 données maximum, labels courts, "color" hex optionnel par donnée
+
+RÈGLE D'OR : ne mets en graphique QUE des chiffres RÉELS — ceux des statistiques du salon qu'on te fournit, ou que tu viens de calculer. N'invente JAMAIS de chiffres pour remplir un graphique. Pas de chiffres réels = pas de graphique, juste du texte.
+
+══════════════════════════════════════════════════════════
 EXEMPLES DE FLUX
 ══════════════════════════════════════════════════════════
 User: "Je veux réserver un brushing"
@@ -941,7 +973,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
       
       const rawReply = await grokChat(
         [...historyMsgs, { role: 'user', content: userContent }],
-        { system: MARIA_SYSTEM_PROMPT + (extraSystem ? `\n\n${extraSystem}` : ""), max_tokens: 800 }
+        { system: MARIA_SYSTEM_PROMPT + (extraSystem ? `\n\n${extraSystem}` : ""), max_tokens: 800, feature: "maria" }
       );
       reply = rawReply || reply;
       // Les blocs d'action ```json émis par Grok (NAVIGATE, SERVICE_RECAP…)

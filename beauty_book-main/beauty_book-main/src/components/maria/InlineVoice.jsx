@@ -171,7 +171,9 @@ export default function InlineVoice({
     r.interimResults = false;
     r.maxAlternatives = 1;
     let gotResult = false;
-    r.onstart = () => setDictating(true);
+    let started = false;
+    let errorSeen = false;
+    r.onstart = () => { started = true; setDictating(true); };
     r.onresult = (e) => {
       gotResult = true;
       const text = e.results?.[0]?.[0]?.transcript?.trim();
@@ -182,13 +184,20 @@ export default function InlineVoice({
       setDictating(false);
     };
     r.onerror = (e) => {
+      errorSeen = true;
       setDictating(false);
       const err = e?.error;
       if (err === "aborted") return; // arrêt volontaire, silencieux
       if (err === "no-speech" && gotResult) return;
       onDictationError?.(dictationErrorMessage(err));
     };
-    r.onend = () => setDictating(false);
+    // Garde-fou Android : onend sans onstart ni onerror → message au lieu du silence.
+    r.onend = () => {
+      setDictating(false);
+      if (!started && !gotResult && !errorSeen) {
+        onDictationError?.(dictationErrorMessage("audio-capture"));
+      }
+    };
     dictRecRef.current = r;
     try {
       r.start();

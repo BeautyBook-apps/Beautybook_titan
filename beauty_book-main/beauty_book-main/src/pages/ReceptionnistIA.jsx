@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, PhoneCall, Mic, MicOff, PhoneOff, BookOpen, Settings,
   Bot, CheckCircle2, AlertCircle, RefreshCw, Loader2, Sparkles,
-  Scissors, KeyRound, ExternalLink, Volume2, MessageCircle, Power,
+  Scissors, KeyRound, ExternalLink, Volume2, MessageCircle, Power, Activity,
 } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { entities } from '@/api/entities';
@@ -12,8 +12,10 @@ import { GrokVoiceSession } from '@/lib/grokVoice';
 import { mintVoiceToken, DEFAULT_AGENT_ID } from '@/lib/grok';
 import { getSalonAISettings, saveSalonAISettings } from '@/lib/salonAI';
 import { buildVoiceInstructions, resolveWelcomeMessage, DEFAULT_INSTRUCTIONS, DEFAULT_WELCOME_MESSAGE } from '@/lib/voiceAgentPrompt';
-import { buildVoiceTools } from '@/lib/voiceAgentTools';
+import { buildVoiceTools, testVoiceDataAccess } from '@/lib/voiceAgentTools';
 import { summarizeHours } from '@/lib/hours';
+import { recordVoiceMinutes, getUsageSummary, getCredit, setCredit, getRates, setRates, DEFAULT_RATES, fmtUSD, fmtTokens, FEATURE_LABELS } from '@/lib/apiUsage';
+import ApiUsageTab from '@/components/voice/ApiUsageTab';
 import './ReceptionnistIA.css';
 
 const GROK_VOICES = [
@@ -52,6 +54,7 @@ export default function ReceptionnistIA() {
   const [profil, setProfil] = useState(null); // ProfilPro complet (adresse, téléphone, horaires…)
   const [proEmail, setProEmail] = useState('');
   const [services, setServices] = useState([]);
+  const [bundles, setBundles] = useState([]);
   const [loadingServices, setLoadingServices] = useState(true);
 
   // Réglages IA du salon (agent vocal + chatbot propres à chaque salon)
@@ -71,6 +74,8 @@ export default function ReceptionnistIA() {
   const [instructionsDraft, setInstructionsDraft] = useState('');
   const [connectionMode, setConnectionMode] = useState('direct');
   const [kbSaved, setKbSaved] = useState(false);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagResult, setDiagResult] = useState(null);
 
   // État du service (test réel du endpoint de token)
   const [svcState, setSvcState] = useState('unknown'); // unknown | checking | ok | error
@@ -89,6 +94,15 @@ export default function ReceptionnistIA() {
   const [transcript, setTranscript] = useState([]); // [{who, text, done}]
   const sessionRef = useRef(null);
   const transcriptEndRef = useRef(null);
+  // Début de l'appel vocal en cours (pour le suivi des minutes → onglet Utilisation)
+  const callStartRef = useRef(null);
+  const recordCallMinutes = useCallback(() => {
+    if (callStartRef.current) {
+      const mins = (Date.now() - callStartRef.current) / 60000;
+      callStartRef.current = null;
+      recordVoiceMinutes(mins, 'vocal');
+    }
+  }, []);
 
   // ─── Test réel du service vocal (mint d'un token éphémère) ───────────────
   const checkService = useCallback(async () => {
@@ -139,6 +153,14 @@ export default function ReceptionnistIA() {
             .order('created_at', { ascending: false })
             .limit(100);
           if (alive) setServices(svcs || []);
+          const { data: bnds } = await supabase
+            .from('ServiceBundle')
+            .select('id,name,description,bundle_price,service_ids,is_active')
+            .eq('pro_email', email)
+            .eq('is_active', true)
+            .order('created_at', { ascending: false })
+            .limit(40);
+          if (alive) setBundles(bnds || []);
         }
       } catch (e) {
         console.warn('[Réceptionniste IA] chargement salon :', e);
@@ -187,6 +209,7 @@ export default function ReceptionnistIA() {
         setSpeaking(null);
         setMicLevel(0);
         setPipeStage(null);
+        recordCallMinutes();
       } else if (p.state === 'error') {
         setVoiceState('error');
       }
@@ -261,6 +284,7 @@ export default function ReceptionnistIA() {
       const { token } = await mintVoiceToken();
       // ── Données du salon RELUES À CHAQUE APPEL (temps réel) ──
       let liveServices = services;
+      let liveBundles = bundles;
       let liveProfil = profil;
       try {
         const { data: svcs } = await supabase
@@ -270,6 +294,14 @@ export default function ReceptionnistIA() {
           .order('created_at', { ascending: false })
           .limit(100);
         if (svcs) { liveServices = svcs; setServices(svcs); }
+        const { data: bnds } = await supabase
+          .from('ServiceBundle')
+          .select('id,name,description,bundle_price,service_ids,is_active')
+          .eq('pro_email', proEmail)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(40);
+        if (bnds) { liveBundles = bnds; setBundles(bnds); }
         const profiles = await entities.ProfilPro.filter({ user_email: proEmail }, '-created_at', 1).catch(() => []);
         if (profiles && profiles.length > 0) {
           liveProfil = profiles[0];
@@ -288,6 +320,7 @@ export default function ReceptionnistIA() {
       const instructions = buildVoiceInstructions({
         salonName: name,
         services: liveServices,
+        bundles: liveBundles,
         profil: liveProfil,
         hoursSummary,
         customInstructions,
@@ -306,6 +339,7 @@ export default function ReceptionnistIA() {
       });
       sessionRef.current = session;
       await session.connect();
+      callStartRef.current = Date.now();
     } catch (e) {
       setVoiceState('error');
       setVoiceError(e.message || "Impossible de démarrer l'appel vocal.");
@@ -318,6 +352,7 @@ export default function ReceptionnistIA() {
     setMuted(false);
     setMicLevel(0);
     setPipeStage(null);
+    recordCallMinutes();
   };
 
   const toggleMute = () => {
@@ -372,11 +407,28 @@ export default function ReceptionnistIA() {
     flashSaved();
   };
 
+  // ─── Diagnostic : vérifie que l'agent vocal peut VRAIMENT lire ──────────
+  // le profil, les horaires, les prestations, les bundles et le planning.
+  const runDiagnostics = async () => {
+    if (diagLoading) return;
+    setDiagLoading(true);
+    setDiagResult(null);
+    try {
+      const report = await testVoiceDataAccess(proEmail);
+      setDiagResult(report);
+    } catch (e) {
+      setDiagResult({ email: proEmail || '(vide)', ok: false, checks: [{ label: 'Test', ok: false, detail: e?.message || 'Erreur inconnue' }] });
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
   const copyForXaiConsole = async () => {
     const name = profil?.salon_name || salonName || 'votre salon';
     const text = buildVoiceInstructions({
       salonName: name,
       services,
+      bundles,
       profil,
       hoursSummary: '',
       customInstructions: instructionsDraft,
@@ -469,6 +521,7 @@ export default function ReceptionnistIA() {
         <div className="rp-tab-bar">
           {[
             { id: 'vocal', label: 'Agent Vocal', icon: PhoneCall },
+            { id: 'usage', label: 'Utilisation', icon: Activity },
             { id: 'knowledge', label: 'Base de Connaissances', icon: BookOpen },
             { id: 'config', label: 'Configuration', icon: Settings },
           ].map(({ id, label, icon: Icon }) => (
@@ -636,6 +689,9 @@ export default function ReceptionnistIA() {
           </div>
         )}
 
+        {/* ══════════ ONGLET : UTILISATION API ══════════ */}
+        {tab === 'usage' && <ApiUsageTab />}
+
         {/* ══════════ ONGLET : BASE DE CONNAISSANCES ══════════ */}
         {tab === 'knowledge' && (
           <div className="space-y-4">
@@ -693,7 +749,7 @@ export default function ReceptionnistIA() {
               </div>
               <p className="rp-card-sub">
                 À chaque appel, l'agent relit <strong>en temps réel</strong> vos données BeautyBook :
-                prestations, tarifs, durées, horaires, adresse et téléphone.
+                prestations, offres packs, tarifs, durées, horaires, adresse et téléphone.
                 Modifiez-les dans votre profil ou votre catalogue : l'agent utilisera
                 automatiquement les nouvelles informations, sans rien reconfigurer.
               </p>
@@ -705,12 +761,14 @@ export default function ReceptionnistIA() {
                 } catch { /* horaires non configurés */ }
                 const addr = profil?.address || profil?.adresse || '';
                 const phone = profil?.phone || profil?.telephone || '';
-                if (!hoursTxt && !addr && !phone) return null;
+                if (!hoursTxt && !addr && !phone && services.length === 0 && bundles.length === 0) return null;
                 return (
                   <div className="rp-kb-data">
                     {hoursTxt ? <div className="rp-kb-data-row"><strong>Horaires :</strong><span>{hoursTxt}</span></div> : null}
                     {addr ? <div className="rp-kb-data-row"><strong>Adresse :</strong><span>{addr}</span></div> : null}
                     {phone ? <div className="rp-kb-data-row"><strong>Téléphone :</strong><span>{phone}</span></div> : null}
+                    <div className="rp-kb-data-row"><strong>Prestations :</strong><span>{services.length} au catalogue</span></div>
+                    <div className="rp-kb-data-row"><strong>Offres packs :</strong><span>{bundles.length} actif(s)</span></div>
                     <button className="rp-btn-ghost full" onClick={() => navigate('/pro/profil')}>
                       Modifier dans mon profil pro
                     </button>
@@ -780,10 +838,44 @@ export default function ReceptionnistIA() {
               <p className="rp-card-sub">
                 Chaque salon a son propre agent. Les instructions et le message de bienvenue
                 ci-dessous sont utilisés <strong>en français</strong>, avec vos prestations,
-                tarifs, horaires, adresse et téléphone relus <strong>en temps réel</strong> à
+                offres packs, tarifs, horaires, adresse et téléphone relus <strong>en temps réel</strong> à
                 chaque appel. Modifiez votre profil ou votre catalogue : l'agent suit
                 automatiquement, sans reconfiguration.
               </p>
+
+              <div className="rp-field">
+                <label className="rp-label">Diagnostic d'accès aux données</label>
+                <p className="rp-field-help">
+                  Vérifie que l'agent vocal peut vraiment lire votre profil, vos horaires,
+                  vos prestations, vos offres packs et votre planning (aucune donnée n'est modifiée).
+                </p>
+                <button className="rp-btn-ghost" onClick={runDiagnostics} disabled={diagLoading}>
+                  <Activity size={13} /> {diagLoading ? 'Test en cours…' : "Tester l'accès aux données"}
+                </button>
+              </div>
+              {diagResult && (
+                <div className={`rp-alert ${diagResult.ok ? 'ok' : 'error'}`} style={{ marginTop: 10, display: 'block' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    {diagResult.ok ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+                    <span><strong>{diagResult.ok ? "L'agent peut accéder à vos données." : "L'agent ne peut pas tout lire — voir ci-dessous."}</strong></span>
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>Email du salon testé : {diagResult.email}</div>
+                  <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>
+                    Mode actuel : <strong>{connectionMode === 'agent' ? 'Agent xAI' : 'Direct'}</strong>
+                    {connectionMode === 'agent'
+                      ? " — attention : l'agent configuré dans la console xAI n'a AUCUN accès à vos données BeautyBook (aucun outil). Passez en mode Direct pour la prise de RDV."
+                      : " — l'agent utilise les instructions et les outils de l'application."}
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+                    {diagResult.checks.map((c, i) => (
+                      <li key={i}>
+                        <span style={{ marginRight: 6 }}>{c.ok ? '✅' : '❌'}</span>
+                        <strong>{c.label}</strong> — {c.detail}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div className="rp-field">
                 <label className="rp-label">Mode de connexion</label>

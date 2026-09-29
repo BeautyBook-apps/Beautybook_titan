@@ -1,27 +1,31 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Supabase Edge Function : social-webhook
-// Reçoit les événements Meta (Instagram / Facebook) et fait tourner les
-// automatisations de l'assistant conversationnel Maria EN CONDITIONS RÉELLES.
+// Reçoit les événements Meta (Instagram / Facebook / WhatsApp) et fait répondre
+// l'AGENT SOCIAL GROK aux DMs et commentaires EN CONDITIONS RÉELLES.
+//
+// Nouveau principe (2026-09-30) : PLUS AUCUN mot-clé, PLUS AUCUNE automatisation.
+// Grok SUIT les INSTRUCTIONS du salon (table `social_agent_config`, configurées
+// dans la page « Agent Social IA »), avec les VRAIES données du salon
+// (prestations, tarifs, durées, horaires, adresse, FAQ) — jamais d'invention.
 //
 // Routes :
 //   GET  /                        -> vérification du webhook Meta
 //                                    (hub.mode=subscribe, hub.verify_token)
-//   POST /                        -> événements Instagram/Facebook
+//   POST /                        -> événements Instagram/Facebook/WhatsApp
 //                                    (commentaires + messages)
 //   POST /followup                -> envoie les relances dues
 //                                    (à appeler via cron, ex. toutes les heures)
 //
 // Secrets requis (supabase secrets set) :
-//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VERIFY_TOKEN
+//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VERIFY_TOKEN, XAI_API_KEY
 //   (optionnel) VOICE_SERVER_URL, VOICE_SERVER_ADMIN_TOKEN
 //   → pour pousser les réservations vers Google Agenda via le serveur vocal.
 //
-// Principe : chaque message entrant passe D'ABORD par le moteur de réponses
-// (questions libres → vraies données du salon, jamais d'invention). Si une
-// intention de réservation est détectée, la machine à états de réservation
-// démarre : service → date → heure → prénom/téléphone → création RÉELLE de
-// la réservation (table Reservation, source 'maria_assistant', visible dans
-// « Gestion agenda ») + Google Agenda si connecté.
+// Parcours réservation : quand Grok détecte une intention de réservation, il
+// préfixe sa réponse par [RÉSERVER] ; la machine à états prend alors le relais
+// (service → questionnaire optionnel → date → heure → prénom/téléphone) puis
+// crée la RÉSERVATION RÉELLE (table Reservation, source 'maria_assistant',
+// visible dans « Gestion agenda ») + Google Agenda si connecté.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
@@ -30,11 +34,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const VERIFY_TOKEN = Deno.env.get("VERIFY_TOKEN") ?? "";
+const XAI_API_KEY = Deno.env.get("XAI_API_KEY") ?? "";
 const VOICE_SERVER_URL = (Deno.env.get("VOICE_SERVER_URL") || "").replace(/\/+$/, "");
 const VOICE_ADMIN_TOKEN = Deno.env.get("VOICE_SERVER_ADMIN_TOKEN") ?? "";
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 const GRAPH = "https://graph.facebook.com/v21.0";
+const XAI_URL = "https://api.x.ai/v1/chat/completions";
+const GROK_MODEL = "grok-4-1-fast-non-reasoning";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -49,12 +56,7 @@ const json = (data: unknown, status = 200) =>
 function norm(s: string): string {
   return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-function detectBookingIntent(text: string): boolean {
-  const t = norm(text);
-  return /(reserver|reservation|rendez-vous|\brdv\b|prendre.*(rendez|creaneau|rdv)|je veux.*(venir|passer)|disponib|creaneau|book)/.test(t);
-}
+const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]{2,}/;
 
 function addMinutes(time: string, mins: number): string {
   const [h, m] = time.split(":").map(Number);
@@ -74,6 +76,133 @@ async function logEvent(row: Record<string, unknown>) {
   } catch (e) {
     console.error("logEvent:", e);
   }
+}
+
+/* ───────────────────────── Config de l'agent social ───────────────────────── */
+
+type AgentConfig = {
+  enabled: boolean;
+  instructions: string;
+  tone: string;
+  dm: Record<string, boolean>;
+  comments: Record<string, boolean>;
+};
+
+const DEFAULT_AGENT_CONFIG: AgentConfig = {
+  enabled: true,
+  instructions: "",
+  tone: "chaleureux",
+  dm: { instagram: true, facebook: true, whatsapp: true },
+  comments: { instagram: true, facebook: true },
+};
+
+async function loadAgentConfig(userEmail: string): Promise<AgentConfig> {
+  try {
+    const { data } = await supabase
+      .from("social_agent_config")
+      .select("enabled, instructions, tone, dm_enabled, comments_enabled, platforms")
+      .eq("pro_email", userEmail.toLowerCase())
+      .maybeSingle();
+    if (!data) return { ...DEFAULT_AGENT_CONFIG };
+    const plats = (data.platforms || {}) as { dm?: Record<string, boolean>; comments?: Record<string, boolean> };
+    return {
+      enabled: data.enabled !== false,
+      instructions: String(data.instructions || ""),
+      tone: String(data.tone || "chaleureux"),
+      dm: plats.dm || { instagram: !!data.dm_enabled, facebook: !!data.dm_enabled, whatsapp: !!data.dm_enabled },
+      comments: plats.comments || { instagram: !!data.comments_enabled, facebook: !!data.comments_enabled },
+    };
+  } catch {
+    // Table absente (migration non exécutée) : agent actif avec instructions par défaut.
+    return { ...DEFAULT_AGENT_CONFIG };
+  }
+}
+
+const TONE_LABELS: Record<string, string> = {
+  chaleureux: "Chaleureux & convivial",
+  pro: "Professionnel & rassurant",
+  fun: "Fun & décontracté",
+  luxe: "Premium & raffiné",
+};
+
+function defaultSocialInstructions(salonName: string): string {
+  return `Tu es Maria, la community manager IA du salon « ${salonName || "notre salon"} ».
+Tu réponds aux messages privés (DM) et aux commentaires Instagram / Facebook / WhatsApp du salon.
+
+RÈGLES D'OR
+- Réponds TOUJOURS en français, de façon naturelle comme un humain.
+- Réponses COURTES, style message : 1 à 4 phrases maximum. Jamais de pavé.
+- Utilise UNIQUEMENT les informations fournies ci-dessous (prestations, tarifs, durées, horaires, adresse, FAQ).
+  Si tu ne sais pas, dis-le honnêtement et propose de demander directement au salon — n'invente JAMAIS un prix, un créneau ou une information.
+- Si la personne veut réserver ou demande un créneau : annonce le VRAI tarif de la prestation, puis guide-la étape par étape (quel service ? quelle date ? quelle heure ?) comme une vraie réceptionniste.
+- Pour un COMMENTAIRE public : réponds publiquement avec chaleur et invite à continuer en message privé pour les détails (« je vous écris en DM »).
+- Pour un DM : réponds directement, pose UNE question à la fois pour faire avancer la conversation.
+- N'utilise les emojis qu'avec modération. Pas de hashtags sauf si la personne en met.
+- Ne demande JAMAIS de mot de passe, de code ou d'information bancaire.
+- Si quelqu'un est agressif ou insultant, reste polie et propose de passer au salon.`;
+}
+
+/** Construit le prompt système de l'agent : instructions du salon + VRAIES données. */
+function buildSystemPrompt(cfg: AgentConfig, k: Knowledge, isComment: boolean): string {
+  const base = cfg.instructions.trim() || defaultSocialInstructions(k.salonName);
+  const tone = TONE_LABELS[cfg.tone] || TONE_LABELS.chaleureux;
+
+  const svcLines = k.services.slice(0, 40).map((s) =>
+    `- ${s.name}${s.price != null ? ` : ${s.price}€` : ""}${s.duration ? ` (${s.duration} min)` : ""}`
+  );
+  const faqLines = k.faq.slice(0, 20).map((f) => `Q: ${f.question}\nR: ${f.answer}`);
+  const infoBits: string[] = [];
+  if (k.address || k.city) infoBits.push(`Adresse : ${[k.address, k.city].filter(Boolean).join(", ")}`);
+  if (k.phone) infoBits.push(`Téléphone : ${k.phone}`);
+  if (k.hoursText) infoBits.push(`Horaires :\n${k.hoursText}`);
+
+  const todayFr = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  return `${base}
+
+TONALITÉ SOUHAITÉE : ${tone}.
+
+DONNÉES RÉELLES DU SALON (à utiliser telles quelles, ne rien inventer) :
+${svcLines.length ? `Prestations :\n${svcLines.join("\n")}` : "Prestations : non renseignées — invite à demander au salon."}
+${faqLines.length ? `\nQuestions fréquentes :\n${faqLines.join("\n")}` : ""}
+${infoBits.length ? `\n${infoBits.join("\n")}` : ""}
+
+Date du jour : ${todayFr}.
+
+MODE OPÉRATOIRE (à suivre impérativement) :
+- ${isComment ? "Ceci est un COMMENTAIRE PUBLIC : réponds avec chaleur et invite à continuer en message privé pour les détails." : "Ceci est un MESSAGE PRIVÉ : réponds directement et pose UNE question à la fois."}
+- Si la personne veut réserver, demande un créneau ou des disponibilités, commence ta réponse par [RÉSERVER] puis réponds normalement.
+- Ne mets JAMAIS [RÉSERVER] pour une simple question d'information (prix, horaires, adresse).
+- Si la personne donne son email, remercie-la simplement (la capture est gérée par le salon).`;
+}
+
+/** Appelle Grok avec les instructions du salon + l'historique de conversation. */
+async function callGrok(system: string, history: { role: string; text: string }[], message: string): Promise<string> {
+  if (!XAI_API_KEY) {
+    throw new Error("XAI_API_KEY manquant : ajoutez-le via `supabase secrets set XAI_API_KEY=...` puis redéployez la fonction.");
+  }
+  const res = await fetch(XAI_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${XAI_API_KEY}` },
+    body: JSON.stringify({
+      model: GROK_MODEL,
+      temperature: 0.7,
+      max_tokens: 400,
+      messages: [
+        { role: "system", content: system },
+        ...history.slice(-8).map((h) => ({ role: h.role === "user" ? "user" : "assistant", content: h.text })),
+        { role: "user", content: message },
+      ],
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data?.error?.message || data?.error || `HTTP ${res.status}`;
+    throw new Error(`Grok indisponible (${detail}). Réessayez dans un moment.`);
+  }
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text || !String(text).trim()) throw new Error("Grok n'a pas généré de réponse. Réessayez.");
+  return String(text).trim();
 }
 
 /* ───────────────────────── Base de connaissances (côté serveur) ───────────────────────── */
@@ -156,61 +285,6 @@ async function buildKnowledge(userEmail: string): Promise<Knowledge> {
   return k;
 }
 
-/** Répond avec les vraies données du salon (portage serveur du moteur partagé). */
-function answerQuestion(text: string, k: Knowledge): { type: string; text: string } {
-  const salon = k.salonName || "notre salon";
-  const t = norm(text || "");
-  if (!t.trim()) {
-    return { type: "fallback", text: "Dites-moi ce que vous cherchez 🙂 Je peux vous renseigner sur nos prestations, nos horaires, ou vous aider à réserver." };
-  }
-  // FAQ en priorité
-  const words = t.split(/[^a-z0-9]+/).filter((w) => w.length > 3);
-  let best: { question: string; answer: string } | null = null;
-  let bestScore = 0;
-  for (const f of k.faq) {
-    const qWords = new Set(norm(f.question).split(/[^a-z0-9]+/).filter((w) => w.length > 3));
-    let score = 0;
-    for (const w of words) if (qWords.has(w)) score++;
-    if (score > bestScore) { bestScore = score; best = f; }
-  }
-  if (best && bestScore >= 2) return { type: "faq", text: best.answer };
-
-  if (detectBookingIntent(text)) return { type: "booking", text: "Avec plaisir ! Je peux vous réserver un créneau tout de suite 💛" };
-  if (/^(bonjour|salut|coucou|hello|bonsoir|yo)\b/.test(t)) {
-    return { type: "greeting", text: `Bonjour et bienvenue chez ${salon} ! 👋 Je suis Maria, l'assistante du salon. Posez-moi vos questions ou dites-moi « je veux réserver ».` };
-  }
-  if (/(prix|tarif|combien|coute|price)/.test(t)) {
-    if (k.services.length) {
-      const list = k.services.slice(0, 8).map((s) => `• ${s.name}${s.price != null ? ` — ${s.price}€` : ""}`).join("\n");
-      return { type: "prices", text: `Voici nos tarifs 💅\n${list}\n\nDites-moi ce qui vous plaît, je peux vous réserver un créneau !` };
-    }
-    return { type: "prices", text: "Nos tarifs sont affichés sur la page du salon. Dites-moi quelle prestation vous intéresse !" };
-  }
-  if (/(horaire|ouvert|ferme|heure|quand)/.test(t)) {
-    if (k.hoursText) return { type: "hours", text: `Nos horaires 🕐\n${k.hoursText}` };
-    return { type: "hours", text: "Nos horaires sont affichés sur la page du salon. Voulez-vous que je vous réserve un créneau ?" };
-  }
-  if (/(adresse|ou etes|situe|venir|acces|localisation)/.test(t)) {
-    const where = [k.address, k.city].filter(Boolean).join(", ");
-    if (where) return { type: "address", text: `Vous nous trouverez ici 📍\n${where}` };
-    return { type: "address", text: "Notre adresse est indiquée sur la page du salon 📍" };
-  }
-  if (/(telephone|tel\b|contact|appeler|numero|joindre)/.test(t)) {
-    if (k.phone) return { type: "phone", text: `Vous pouvez nous joindre au ${k.phone} 📞` };
-    return { type: "phone", text: "Écrivez-moi ici, je réponds tout de suite 💬" };
-  }
-  if (/(service|prestation|propose|faites|coiffure|ongle|soin|massage|beaute)/.test(t)) {
-    if (k.services.length) {
-      const list = k.services.slice(0, 10).map((s) => `• ${s.name}`).join("\n");
-      return { type: "services", text: `Voici ce que nous proposons ✨\n${list}\n\nLequel vous tente ? Je peux vous réserver un créneau tout de suite.` };
-    }
-    return { type: "services", text: "Toutes nos prestations sont listées sur la page du salon ✨" };
-  }
-  if (/(merci|thanks)/.test(t)) return { type: "thanks", text: `Avec grand plaisir ! 💛 À très vite chez ${salon}.` };
-  const contact = k.phone ? ` ou appelez-nous au ${k.phone}` : "";
-  return { type: "fallback", text: `Hmm, je ne suis pas sûre de bien comprendre 🤔 Je peux vous renseigner sur nos prestations, nos tarifs et nos horaires — ou vous aider à réserver un créneau${contact}.` };
-}
-
 /* ───────────────────────── Envoi de messages Meta ───────────────────────── */
 
 const pageTokenCache = new Map<string, string>();
@@ -263,6 +337,29 @@ async function sendPrivateReply(userToken: string, commentId: string, text: stri
   }
 }
 
+/** Envoie un message WhatsApp via l'API Cloud. */
+async function sendWhatsAppMessage(userToken: string, phoneNumberId: string, to: string, text: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${GRAPH}/${encodeURIComponent(phoneNumberId)}/messages?access_token=${encodeURIComponent(userToken)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "text",
+        text: { preview_url: false, body: text },
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) console.error("sendWhatsAppMessage:", JSON.stringify(data));
+    return res.ok;
+  } catch (e) {
+    console.error("sendWhatsAppMessage:", e);
+    return false;
+  }
+}
+
 /* ───────────────────────── Réservation réelle ───────────────────────── */
 
 async function createReservation(k: Knowledge, service: Knowledge["services"][number], date: string, time: string, clientName: string, clientPhone: string, clientEmail?: string, answersText?: string) {
@@ -284,7 +381,7 @@ async function createReservation(k: Knowledge, service: Knowledge["services"][nu
     payment_type: "surplace",
     payment_status: "non_paye",
     status: "en_attente",
-    notes: `RDV pris via l'assistant conversationnel Maria (DM/commentaire). Tél client : ${clientPhone}.${answersText ? ` Réponses questionnaire : ${answersText}.` : ""}`,
+    notes: `RDV pris via l'agent social IA (DM/commentaire). Tél client : ${clientPhone}.${answersText ? ` Réponses questionnaire : ${answersText}.` : ""}`,
     salon_name: k.salonName,
     source: "maria_assistant",
   };
@@ -309,7 +406,7 @@ async function pushGoogleCalendar(k: Knowledge, date: string, time: string, endT
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify({
         salon_id: salon.id, summary,
-        description: "Réservation prise via l'assistant conversationnel Maria (BeautyBook).",
+        description: "Réservation prise via l'agent social IA (BeautyBook).",
         date, start_time: time, end_time: endTime, client_phone: clientPhone,
       }),
     });
@@ -319,71 +416,6 @@ async function pushGoogleCalendar(k: Knowledge, date: string, time: string, endT
     console.error("pushGoogleCalendar:", e);
     return false;
   }
-}
-
-/* ───────────────────────── Machine à états ───────────────────────── */
-
-type ConvState = {
-  stage: string;
-  automationId: string | null;
-  senderId: string;
-  senderName: string;
-  commentId: string | null; // pour répondre en privé au commentaire
-  data: Record<string, unknown>;
-};
-
-async function getConvState(userEmail: string, senderId: string): Promise<ConvState | null> {
-  const { data } = await supabase
-    .from("social_events")
-    .select("meta")
-    .eq("user_email", userEmail)
-    .eq("event_type", "conv_state")
-    .order("created_at", { ascending: false })
-    .limit(50);
-  for (const row of data || []) {
-    const m = row.meta as ConvState;
-    if (m?.senderId === senderId && m?.stage !== "done") return m;
-  }
-  return null;
-}
-
-async function setConvState(userEmail: string, platform: string, state: ConvState) {
-  await logEvent({ user_email: userEmail, platform, automation_id: state.automationId, event_type: "conv_state", meta: state });
-}
-
-function parseDateFr(text: string): string | null {
-  const t = norm(text).trim();
-  const today = new Date();
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  if (/aujourd/.test(t)) return iso(today);
-  if (/demain/.test(t)) { const d = new Date(today); d.setDate(d.getDate() + 1); return iso(d); }
-  const m = t.match(/(\d{4})-(\d{2})-(\d{2})/) || t.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
-  if (m) {
-    if (m[0].includes("-")) return `${m[1]}-${m[2]}-${m[3]}`;
-    const y = m[3] ? (m[3].length === 2 ? `20${m[3]}` : m[3]) : String(today.getFullYear());
-    const cand = `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
-    if (cand >= iso(today)) return cand;
-  }
-  return null;
-}
-
-function parseTimeFr(text: string): string | null {
-  const m = norm(text).match(/(\d{1,2})[:hH](\d{2})?/);
-  if (!m) return null;
-  const h = Number(m[1]);
-  const min = m[2] ? Number(m[2]) : 0;
-  if (h > 23 || min > 59) return null;
-  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-}
-
-function parseContact(text: string): { name: string; phone: string } | null {
-  const tokens = text.trim().split(/\s+/);
-  const phoneIdx = tokens.findIndex((tk) => tk.replace(/\D/g, "").length >= 8);
-  if (phoneIdx === -1) return null;
-  const phone = tokens[phoneIdx].replace(/\D/g, "");
-  const name = tokens.filter((_, i) => i !== phoneIdx).join(" ").trim();
-  if (!name) return null;
-  return { name, phone };
 }
 
 /* ───────── Questionnaires par catégorie (synchro étape 2 web) ───────── */
@@ -396,11 +428,6 @@ type QuestionnaireCategory = { label: string; tip?: string; questions: Questionn
 
 let qCache: { at: number; data: Record<string, QuestionnaireCategory> } | null = null;
 
-/**
- * Récupère les questionnaires par catégorie depuis le site web (même source
- * que l'étape 2 du parcours de réservation). Cache mémoire 6 h.
- * Repli silencieux : retourne {} si le JSON est injoignable — ne bloque jamais.
- */
 async function fetchQuestionnaires(): Promise<Record<string, QuestionnaireCategory>> {
   const now = Date.now();
   if (qCache && now - qCache.at < Q_CACHE_TTL) return qCache.data;
@@ -440,10 +467,6 @@ async function fetchQuestionnaires(): Promise<Record<string, QuestionnaireCatego
   }
 }
 
-/**
- * Détecte la clé de catégorie du questionnaire pour un service
- * (insensible aux accents — même logique que l'étape 2 du parcours web).
- */
 function detectCategoryKey(
   category: string,
   serviceName: string,
@@ -490,71 +513,178 @@ function formatQuestionMessage(q: QuestionnaireQuestion, idx: number, total: num
   return t;
 }
 
-/** Envoie un message au bon canal (DM Instagram ou réponse privée au commentaire). */
-async function replyToSender(conn: { access_token: string }, state: ConvState, text: string, platform: string): Promise<void> {
-  if (platform === "instagram" && state.commentId) {
-    // Commentaire → réponse privée (le visiteur reçoit un DM)
+/* ───────────────────────── État de conversation + historique ───────────────────────── */
+
+type ConvState = {
+  stage: string;
+  automationId: string | null;
+  senderId: string;
+  senderName: string;
+  commentId: string | null; // pour répondre en privé au commentaire
+  data: Record<string, unknown>;
+};
+
+async function getConvState(userEmail: string, senderId: string): Promise<ConvState | null> {
+  const { data } = await supabase
+    .from("social_events")
+    .select("meta")
+    .eq("user_email", userEmail)
+    .eq("event_type", "conv_state")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  for (const row of data || []) {
+    const m = row.meta as ConvState;
+    if (m?.senderId === senderId && m?.stage !== "done") return m;
+  }
+  return null;
+}
+
+async function setConvState(userEmail: string, platform: string, state: ConvState) {
+  await logEvent({ user_email: userEmail, platform, automation_id: state.automationId, event_type: "conv_state", meta: state });
+}
+
+/** Historique récent des échanges avec cet expéditeur (pour Grok). */
+async function getHistory(userEmail: string, senderId: string): Promise<{ role: string; text: string }[]> {
+  try {
+    const { data } = await supabase
+      .from("social_events")
+      .select("event_type, meta")
+      .eq("user_email", userEmail)
+      .in("event_type", ["message_in", "agent_reply"])
+      .order("created_at", { ascending: false })
+      .limit(60);
+    const out: { role: string; text: string }[] = [];
+    for (const row of (data || []).reverse()) {
+      const m = (row.meta || {}) as { sender_id?: string; text?: string };
+      if (m.sender_id !== senderId || !m.text) continue;
+      out.push({ role: row.event_type === "message_in" ? "user" : "assistant", text: m.text });
+      if (out.length >= 10) out.shift();
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function parseDateFr(text: string): string | null {
+  const t = norm(text).trim();
+  const today = new Date();
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  if (/aujourd/.test(t)) return iso(today);
+  if (/demain/.test(t)) { const d = new Date(today); d.setDate(d.getDate() + 1); return iso(d); }
+  const m = t.match(/(\d{4})-(\d{2})-(\d{2})/) || t.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+  if (m) {
+    if (m[0].includes("-")) return `${m[1]}-${m[2]}-${m[3]}`;
+    const y = m[3] ? (m[3].length === 2 ? `20${m[3]}` : m[3]) : String(today.getFullYear());
+    const cand = `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+    if (cand >= iso(today)) return cand;
+  }
+  return null;
+}
+
+function parseTimeFr(text: string): string | null {
+  const m = norm(text).match(/(\d{1,2})[:hH](\d{2})?/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = m[2] ? Number(m[2]) : 0;
+  if (h > 23 || min > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+function parseContact(text: string): { name: string; phone: string } | null {
+  const tokens = text.trim().split(/\s+/);
+  const phoneIdx = tokens.findIndex((tk) => tk.replace(/\D/g, "").length >= 8);
+  if (phoneIdx === -1) return null;
+  const phone = tokens[phoneIdx].replace(/\D/g, "");
+  const name = tokens.filter((_, i) => i !== phoneIdx).join(" ").trim();
+  if (!name) return null;
+  return { name, phone };
+}
+
+/* ───────────────────────── Traitement d'un message entrant ───────────────────────── */
+
+type Conn = { access_token: string; user_email: string; phone_number_id?: string };
+
+/** Envoie un message au bon canal (DM Instagram / réponse privée au commentaire / WhatsApp). */
+async function replyToSender(conn: Conn, state: ConvState, text: string, platform: "instagram" | "facebook" | "whatsapp"): Promise<void> {
+  if (platform === "whatsapp" && conn.phone_number_id) {
+    await sendWhatsAppMessage(conn.access_token, conn.phone_number_id, state.senderId, text);
+  } else if (platform === "instagram" && state.commentId) {
     await sendPrivateReply(conn.access_token, state.commentId, text);
   } else {
     await sendInstagramDM(conn.access_token, state.senderId, text);
   }
 }
 
+/** Capture un email donné spontanément dans un message (lead réel). */
+async function captureEmailFromText(userEmail: string, platform: string, senderId: string, senderName: string, text: string): Promise<boolean> {
+  const m = text.match(EMAIL_RE);
+  if (!m) return false;
+  try {
+    const { data: existing } = await supabase
+      .from("social_leads")
+      .select("id")
+      .eq("user_email", userEmail)
+      .eq("email", m[0])
+      .limit(1);
+    if (!existing || existing.length === 0) {
+      await supabase.from("social_leads").insert({
+        user_email: userEmail, platform, automation_id: null,
+        email: m[0], pseudo: senderName || null,
+      });
+      await logEvent({ user_email: userEmail, platform, automation_id: null, event_type: "email_captured", meta: { email: m[0], sender_id: senderId } });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function serviceListText(services: Knowledge["services"]): string {
+  return services.slice(0, 10).map((s, i) => `${i + 1}. ${s.name}${s.price != null ? ` (${s.price}€)` : ""}`).join("\n");
+}
+
 async function handleIncoming(
-  conn: { access_token: string; user_email: string },
-  platform: "instagram" | "facebook",
+  conn: Conn,
+  platform: "instagram" | "facebook" | "whatsapp",
   senderId: string,
   senderName: string,
   text: string,
   commentId: string | null
 ) {
   const userEmail = conn.user_email;
+  const isComment = !!commentId;
   const k = await buildKnowledge(userEmail);
+  const cfg = await loadAgentConfig(userEmail);
+
+  await logEvent({ user_email: userEmail, platform, automation_id: null, event_type: "message_in", meta: { sender_id: senderId, sender_name: senderName, text: text.slice(0, 500), comment_id: commentId } });
+
+  // Agent en pause ou canal désactivé → on ne répond pas (reprise manuelle).
+  const channelOk = isComment ? cfg.comments[platform] !== false : cfg.dm[platform] !== false;
+  if (!cfg.enabled || !channelOk) return;
+
+  // Capture d'email spontanée (lead réel), quel que soit le contexte.
+  const gotEmail = await captureEmailFromText(userEmail, platform, senderId, senderName, text);
+
   const state = await getConvState(userEmail, senderId);
-
   const say = (t: string) => replyToSender(conn, { ...(state as ConvState), senderId, commentId: state?.commentId ?? commentId } as ConvState, t, platform);
+  const logReply = (t: string) => logEvent({ user_email: userEmail, platform, automation_id: null, event_type: "agent_reply", meta: { sender_id: senderId, text: t.slice(0, 500), via: "grok" } });
 
-  // ── Suite d'une conversation en cours (machine à états) ──
-  if (state) {
+  // ── Suite d'un parcours de réservation en cours (machine à états) ──
+  if (state && state.stage !== "done") {
     const d = state.data;
-    // Étape email : on attend un email valide
-    if (state.stage === "awaiting_email") {
-      const m = text.match(/[^\s@]+@[^\s@]+\.[^\s@]{2,}/);
-      if (m) {
-        await supabase.from("social_leads").insert({
-          user_email: userEmail, platform,
-          automation_id: state.automationId,
-          email: m[0], pseudo: senderName || null,
-        });
-        await logEvent({ user_email: userEmail, platform, automation_id: state.automationId, event_type: "email_captured", meta: { email: m[0] } });
-        state.stage = "booking_service";
-        state.data = {};
-        await setConvState(userEmail, platform, state);
-        if (k.services.length) {
-          const list = k.services.slice(0, 10).map((s, i) => `${i + 1}. ${s.name}${s.price != null ? ` (${s.price}€)` : ""}`).join("\n");
-          await say(`Merci, c'est noté ✅\n\nQuel service vous intéresse ? Répondez par le numéro :\n${list}`);
-        } else {
-          state.stage = "booking_date";
-          await setConvState(userEmail, platform, state);
-          await say("Merci, c'est noté ✅\n\nPour quelle date souhaitez-vous réserver ? (ex : 2026-10-05, ou « demain »)");
-        }
-      } else {
-        await say("Hmm, cet email ne semble pas valide — pouvez-vous le vérifier ? 🙂");
-      }
-      return;
-    }
     // Choix du service
     if (state.stage === "booking_service") {
       const n = parseInt(norm(text), 10);
-      let svc = null;
+      let svc: Knowledge["services"][number] | null = null;
       if (n >= 1 && n <= k.services.length) svc = k.services[n - 1];
-      else svc = k.services.find((s) => norm(s.name).includes(norm(text)) || norm(text).includes(norm(s.name)));
+      else svc = k.services.find((s) => norm(s.name).includes(norm(text)) || norm(text).includes(norm(s.name))) || null;
       if (!svc) {
-        await say("Je n'ai pas bien compris — répondez par le numéro du service 🙂");
+        const t = "Je n'ai pas bien compris — répondez par le numéro du service 🙂";
+        await say(t); await logReply(t);
         return;
       }
       d.service = svc;
-      // ── Questionnaire de la catégorie (optionnel, synchro étape 2 web) ──
       const questionnaires = await fetchQuestionnaires();
       const qKey = detectCategoryKey(svc.category, svc.name, questionnaires);
       const qs = (qKey && questionnaires[qKey] ? questionnaires[qKey].questions : []) || [];
@@ -562,18 +692,17 @@ async function handleIncoming(
         d.questionnaire = { key: qKey, index: 0, answers: [] as { question: string; answer: string }[] };
         state.stage = "booking_questions";
         await setConvState(userEmail, platform, state);
-        await say(
-          `Parfait, ${svc.name} ✅\n\nPour bien préparer votre rendez-vous, voici ${qs.length} petites questions (vous pouvez écrire « passer » à tout moment) :\n\n` +
-          formatQuestionMessage(qs[0], 0, qs.length)
-        );
+        const t = `Parfait, ${svc.name} ✅\n\nPour bien préparer votre rendez-vous, voici ${qs.length} petites questions (écrivez « passer » pour ignorer) :\n\n` + formatQuestionMessage(qs[0], 0, qs.length);
+        await say(t); await logReply(t);
       } else {
         state.stage = "booking_date";
         await setConvState(userEmail, platform, state);
-        await say(`Parfait, ${svc.name} ✅\n\nPour quelle date ? (ex : 2026-10-05, ou « demain »)`);
+        const t = `Parfait, ${svc.name} ✅\n\nPour quelle date ? (ex : 2026-10-05, ou « demain »)`;
+        await say(t); await logReply(t);
       }
       return;
     }
-    // Questionnaire par catégorie : questions posées UNE PAR UNE (optionnelles)
+    // Questionnaire (optionnel)
     if (state.stage === "booking_questions") {
       const questionnaires = await fetchQuestionnaires();
       const qd = d.questionnaire as { key: string; index: number; answers: { question: string; answer: string }[] } | undefined;
@@ -584,60 +713,62 @@ async function handleIncoming(
         if (done.length) d.questionnaireAnswers = done;
         state.stage = "booking_date";
         await setConvState(userEmail, platform, state);
-        await say("Merci ! ✅\n\nPour quelle date souhaitez-vous réserver ? (ex : 2026-10-05, ou « demain »)");
+        const t = "Merci ! ✅\n\nPour quelle date souhaitez-vous réserver ? (ex : 2026-10-05, ou « demain »)";
+        await say(t); await logReply(t);
       };
       const current = qd ? qs[qd.index] : undefined;
       if (!qd || !current) { await goToDate(); return; }
-      const t = norm(text).trim();
-      if (/^(passer|suivant|suivante|skip|aucune|non merci|pas de question)/.test(t)) {
-        await goToDate();
-        return;
-      }
-      // Réponse libre ; si la cliente répond par un numéro et que la question
-      // a des options, on mappe le numéro vers l'option correspondante.
+      const tn = norm(text).trim();
+      if (/^(passer|suivant|suivante|skip|aucune|non merci|pas de question)/.test(tn)) { await goToDate(); return; }
       let answer = text.trim().slice(0, 300);
-      if (current.options.length && /^\d+$/.test(t)) {
-        const n = parseInt(t, 10);
+      if (current.options.length && /^\d+$/.test(tn)) {
+        const n = parseInt(tn, 10);
         if (n >= 1 && n <= current.options.length) answer = current.options[n - 1];
       }
       if (answer) qd.answers.push({ question: current.question, answer });
       qd.index += 1;
       if (qd.index >= qs.length) { await goToDate(); return; }
       await setConvState(userEmail, platform, state);
-      await say(formatQuestionMessage(qs[qd.index], qd.index, qs.length));
+      const t = formatQuestionMessage(qs[qd.index], qd.index, qs.length);
+      await say(t); await logReply(t);
       return;
     }
     // Date
     if (state.stage === "booking_date") {
       const date = parseDateFr(text);
       if (!date) {
-        await say("Je n'ai pas compris la date — donnez-la au format AAAA-MM-JJ (ex : 2026-10-05), ou dites « demain » 🙂");
+        const t = "Je n'ai pas compris la date — donnez-la au format AAAA-MM-JJ (ex : 2026-10-05), ou dites « demain » 🙂";
+        await say(t); await logReply(t);
         return;
       }
       d.date = date;
       state.stage = "booking_time";
       await setConvState(userEmail, platform, state);
-      await say("À quelle heure ? (ex : 14:30)");
+      const t = "À quelle heure ? (ex : 14:30)";
+      await say(t); await logReply(t);
       return;
     }
     // Heure
     if (state.stage === "booking_time") {
       const time = parseTimeFr(text);
       if (!time) {
-        await say("Je n'ai pas compris l'heure — donnez-la au format HH:MM (ex : 14:30) 🙂");
+        const t = "Je n'ai pas compris l'heure — donnez-la au format HH:MM (ex : 14:30) 🙂";
+        await say(t); await logReply(t);
         return;
       }
       d.time = time;
       state.stage = "booking_contact";
       await setConvState(userEmail, platform, state);
-      await say("Très bien ✅ Dernière étape : votre prénom et votre téléphone (ex : Aïcha 0612345678)");
+      const t = "Très bien ✅ Dernière étape : votre prénom et votre téléphone (ex : Aïcha 0612345678)";
+      await say(t); await logReply(t);
       return;
     }
     // Prénom + téléphone → création RÉELLE
     if (state.stage === "booking_contact") {
       const contact = parseContact(text);
       if (!contact) {
-        await say("Il me faut votre prénom et un numéro de téléphone (ex : Aïcha 0612345678) 🙂");
+        const t = "Il me faut votre prénom et un numéro de téléphone (ex : Aïcha 0612345678) 🙂";
+        await say(t); await logReply(t);
         return;
       }
       const svc = d.service as Knowledge["services"][number];
@@ -649,18 +780,18 @@ async function handleIncoming(
         const reservation = await createReservation(k, svc, date, time, contact.name, contact.phone, d.email as string | undefined, answersText || undefined);
         const gOk = await pushGoogleCalendar(k, date, time, reservation.end_time_slot, `${svc.name} — ${contact.name} (via Maria)`, contact.phone);
         await logEvent({
-          user_email: userEmail, platform, automation_id: state.automationId,
+          user_email: userEmail, platform, automation_id: null,
           event_type: "booking_confirmed",
           meta: { service: svc.name, date, time, google: gOk, via: "webhook" },
         });
         const dateFr = new Date(`${date}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-        await say(
-          `C'est réservé ✅\n${svc.name} — ${dateFr} à ${time}\n\n` +
-          (gOk ? "Ajouté à votre Google Agenda 📅 À très vite !" : "Réservation enregistrée dans votre agenda BeautyBook (Google Agenda non connecté)")
-        );
+        const t = `C'est réservé ✅\n${svc.name} — ${dateFr} à ${time}\n\n` +
+          (gOk ? "Ajouté à votre Google Agenda 📅 À très vite !" : "Réservation enregistrée dans votre agenda BeautyBook (Google Agenda non connecté)");
+        await say(t); await logReply(t);
       } catch (e) {
         console.error("booking webhook:", e);
-        await say("Oups, la réservation n'a pas pu être enregistrée 😔 Réessayez ou contactez directement le salon.");
+        const t = "Oups, la réservation n'a pas pu être enregistrée 😔 Réessayez ou contactez directement le salon.";
+        await say(t); await logReply(t);
       }
       state.stage = "done";
       await setConvState(userEmail, platform, state);
@@ -668,101 +799,66 @@ async function handleIncoming(
     }
   }
 
-  // ── Nouveau message : cherche une automatisation correspondante ──
-  const { data: autos } = await supabase
-    .from("social_automations")
-    .select("*")
-    .eq("user_email", userEmail)
-    .eq("platform", platform)
-    .eq("enabled", true);
+  // ── Nouveau message : Grok répond avec les instructions du salon ──
+  try {
+    const system = buildSystemPrompt(cfg, k, isComment);
+    const history = await getHistory(userEmail, senderId);
+    const raw = await callGrok(system, history, text);
 
-  let matched: Record<string, unknown> | null = null;
-  const triggerKind = commentId ? "comment_keyword" : "dm_keyword";
-  for (const a of autos || []) {
-    const tt = a.trigger_type as string;
-    if (tt === triggerKind) {
-      const kw = norm(a.trigger_keyword as string);
-      if (kw && norm(text).includes(kw)) { matched = a; break; }
+    let reply = raw;
+    let wantsBooking = false;
+    if (/^\s*\[RÉSERVER\]/i.test(reply)) {
+      wantsBooking = true;
+      reply = reply.replace(/^\s*\[RÉSERVER\]\s*/i, "");
     }
-  }
+    if (!reply.trim()) reply = "Dites-moi ce que vous cherchez 🙂 Je peux vous renseigner sur nos prestations, nos horaires, ou vous aider à réserver.";
+    if (gotEmail) reply += "\n\nVotre email est bien noté ✅ Je vous recontacterai si besoin.";
 
-  if (matched) {
-    const steps = (matched.steps || {}) as Record<string, { enabled?: boolean; message?: string; button_label?: string }>;
-    const newState: ConvState = {
-      stage: "awaiting_reply",
-      automationId: matched.id as string,
-      senderId,
-      senderName,
-      commentId,
-      data: {},
-    };
-    // 1) DM d'ouverture
-    if (steps.opening?.enabled && steps.opening.message) {
-      await say(steps.opening.message);
-    }
-    // 2) Demande de follow (message seul)
-    if (steps.follow_ask?.enabled && steps.follow_ask.message) {
-      await say(steps.follow_ask.message);
-    }
-    // 3) Demande d'email → on attend la réponse
-    if (steps.email_ask?.enabled && steps.email_ask.message) {
-      newState.stage = "awaiting_email";
+    await say(reply);
+    await logReply(reply);
+
+    // Grok a détecté une intention de réservation → parcours guidé réel.
+    if (wantsBooking && k.services.length) {
+      const newState: ConvState = {
+        stage: "booking_service", automationId: null, senderId,
+        senderName, commentId, data: {},
+      };
       await setConvState(userEmail, platform, newState);
-      await say(steps.email_ask.message);
-      return;
+      const t = `Quel service vous intéresse ? Répondez par le numéro :\n${serviceListText(k.services)}`;
+      await say(t); await logReply(t);
     }
-    // Pas d'étape email : on passe direct à la réservation si active
-    if (steps.booking?.enabled) {
-      newState.stage = "booking_service";
-      await setConvState(userEmail, platform, newState);
-      const intro = steps.booking.message || "Je peux vous réserver un créneau tout de suite — quel service vous intéresse ?";
-      if (k.services.length) {
-        const list = k.services.slice(0, 10).map((s, i) => `${i + 1}. ${s.name}${s.price != null ? ` (${s.price}€)` : ""}`).join("\n");
-        await say(`${intro}\n${list}`);
-      } else {
-        await say(intro);
-      }
-      return;
-    }
-    // Sinon : envoi du lien configuré
-    if (steps.link?.enabled) {
-      const lk = steps.link as { message?: string; link_type?: string; link_url?: string; service_id?: string; button_label?: string };
-      let url = (lk.link_url || "").trim();
-      if (lk.link_type === "service" && lk.service_id) {
-        url = `${Deno.env.get("APP_URL") || "https://thelastjiren.vercel.app"}/service/${lk.service_id}`;
-      }
-      await say(`${lk.message || "Voici votre lien 👇"}${url ? `\n${url}` : ""}`);
-    }
-    // Relance programmée
-    if (steps.followup?.enabled && steps.followup.message) {
-      const delayH = steps.followup.delay === "1h" ? 1 : 24;
-      const runAt = new Date(Date.now() + delayH * 3600 * 1000).toISOString();
-      await logEvent({
-        user_email: userEmail, platform, automation_id: matched.id,
-        event_type: "pending_followup",
-        meta: { sender_id: senderId, sender_name: senderName, comment_id: commentId, run_at: runAt, message: steps.followup.message, done: false },
-      });
-    }
-    newState.stage = "done";
-    await setConvState(userEmail, platform, newState);
-    return;
-  }
-
-  // ── Aucune automatisation : réponse libre via le moteur (vraies données) ──
-  const ans = answerQuestion(text, k);
-  await say(ans.text);
-  if (ans.type === "booking" && k.services.length) {
-    const newState: ConvState = {
-      stage: "booking_service", automationId: null, senderId,
-      senderName, commentId, data: {},
-    };
-    await setConvState(userEmail, platform, newState);
-    const list = k.services.slice(0, 10).map((s, i) => `${i + 1}. ${s.name}${s.price != null ? ` (${s.price}€)` : ""}`).join("\n");
-    await say(`Quel service vous intéresse ? Répondez par le numéro :\n${list}`);
+  } catch (e) {
+    console.error("grok reply:", e);
+    // Échec honnête : on ne prétend pas avoir répondu, on le dit.
+    const t = e instanceof Error && e.message.includes("XAI_API_KEY")
+      ? "Bonjour ! 👋 L'assistant IA n'est pas encore configuré (clé XAI manquante). Écrivez-nous directement, on vous répond très vite."
+      : "Oups, je suis momentanément indisponible 😔 Réessayez dans un instant, ou contactez directement le salon.";
+    try { await say(t); await logReply(t); } catch { /* ignore */ }
   }
 }
 
 /* ───────────────────────── Serveur HTTP ───────────────────────── */
+
+async function findConn(platform: string, entryId: string, phoneNumberId?: string): Promise<Conn | null> {
+  try {
+    let query = supabase
+      .from("social_connections")
+      .select("access_token, user_email, platform_user_id")
+      .eq("platform", platform)
+      .limit(1);
+    if (phoneNumberId) {
+      query = query.eq("platform_user_id", phoneNumberId);
+    } else {
+      query = query.or(`platform_user_id.eq.${entryId},account_id.eq.${entryId}`);
+    }
+    const { data: conns } = await query;
+    const c = conns?.[0];
+    if (!c) return null;
+    return { access_token: c.access_token, user_email: c.user_email, phone_number_id: c.platform_user_id };
+  } catch {
+    return null;
+  }
+}
 
 serve(async (req) => {
   const url = new URL(req.url);
@@ -793,19 +889,19 @@ serve(async (req) => {
       const now = new Date().toISOString();
       let sent = 0;
       for (const row of data || []) {
-        const m = row.meta as { run_at?: string; done?: boolean; sender_id?: string; message?: string; comment_id?: string };
+        const m = row.meta as { run_at?: string; done?: boolean; sender_id?: string; message?: string; comment_id?: string; phone_number_id?: string };
         if (!m || m.done || !m.run_at || m.run_at > now) continue;
-        const { data: conns } = await supabase
-          .from("social_connections")
-          .select("access_token")
-          .eq("user_email", row.user_email)
-          .eq("platform", row.platform)
-          .limit(1);
-        const token = conns?.[0]?.access_token;
+        const conn = await findConn(row.platform, "", m.phone_number_id);
+        const token = conn?.access_token;
         if (token && m.sender_id && m.message) {
-          const ok = row.platform === "instagram" && m.comment_id
-            ? await sendPrivateReply(token, m.comment_id, m.message)
-            : await sendInstagramDM(token, m.sender_id, m.message);
+          let ok = false;
+          if (row.platform === "whatsapp" && m.phone_number_id) {
+            ok = await sendWhatsAppMessage(token, m.phone_number_id, m.sender_id, m.message);
+          } else if (row.platform === "instagram" && m.comment_id) {
+            ok = await sendPrivateReply(token, m.comment_id, m.message);
+          } else {
+            ok = await sendInstagramDM(token, m.sender_id, m.message);
+          }
           if (ok) sent++;
         }
         await supabase.from("social_events").update({ meta: { ...m, done: true } }).eq("id", row.id);
@@ -821,11 +917,33 @@ serve(async (req) => {
   if (req.method === "POST") {
     try {
       const body = await req.json().catch(() => ({}));
-      const object = body.object as string; // "instagram" | "page"
-      const platform: "instagram" | "facebook" = object === "page" ? "facebook" : "instagram";
+      const object = body.object as string; // "instagram" | "page" | "whatsapp_business_account"
+      const platform: "instagram" | "facebook" | "whatsapp" =
+        object === "page" ? "facebook" : object === "whatsapp_business_account" ? "whatsapp" : "instagram";
 
       for (const entry of body.entry || []) {
         const entryId = String(entry.id || "");
+
+        // 0) WhatsApp : entry.changes[] (field === "messages")
+        if (platform === "whatsapp") {
+          for (const change of entry.changes || []) {
+            if (change.field !== "messages") continue;
+            const v = change.value || {};
+            const phoneNumberId: string = v.metadata?.phone_number_id || "";
+            if (!phoneNumberId) continue;
+            const conn = await findConn("whatsapp", entryId, phoneNumberId);
+            if (!conn) { console.error(`Aucune connexion whatsapp pour ${phoneNumberId}`); continue; }
+            for (const m of v.messages || []) {
+              const from: string = m.from || "";
+              const text: string = m.text?.body || "";
+              if (!from || !text) continue;
+              if (m.type === "text") {
+                await handleIncoming(conn, "whatsapp", from, "", text, null);
+              }
+            }
+          }
+          continue;
+        }
 
         // 1) Commentaires : entry.changes[] (field === "comments")
         for (const change of entry.changes || []) {
@@ -836,13 +954,7 @@ serve(async (req) => {
           const senderName: string = v.from?.username || v.from?.id || "visiteur";
           if (!text || !commentId) continue;
 
-          const { data: conns } = await supabase
-            .from("social_connections")
-            .select("access_token, user_email")
-            .or(`platform_user_id.eq.${entryId},account_id.eq.${entryId}`)
-            .eq("platform", platform)
-            .limit(1);
-          const conn = conns?.[0];
+          const conn = await findConn(platform, entryId);
           if (!conn) { console.error(`Aucune connexion ${platform} pour entry ${entryId}`); continue; }
 
           await handleIncoming(conn, platform, `comment:${commentId}`, senderName, text, commentId);
@@ -857,13 +969,7 @@ serve(async (req) => {
           // Ignore nos propres messages (echo)
           if (msg.message?.is_echo) continue;
 
-          const { data: conns } = await supabase
-            .from("social_connections")
-            .select("access_token, user_email")
-            .or(`platform_user_id.eq.${entryId},account_id.eq.${entryId}`)
-            .eq("platform", platform)
-            .limit(1);
-          const conn = conns?.[0];
+          const conn = await findConn(platform, entryId);
           if (!conn) { console.error(`Aucune connexion ${platform} pour entry ${entryId}`); continue; }
 
           await handleIncoming(conn, platform, senderId, "", text || payload, null);

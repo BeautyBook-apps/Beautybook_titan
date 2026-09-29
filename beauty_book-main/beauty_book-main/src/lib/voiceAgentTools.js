@@ -21,6 +21,31 @@ function normEmail(e) {
   return String(e || '').trim().toLowerCase();
 }
 
+// ─── Lecture Supabase robuste ─────────────────────────────────────────────
+// supabase-js ne lève PAS d'exception sur une erreur RLS/schéma : elle arrive
+// dans le champ `error` avec `data: null`. L'ancien code ignorait `error` et
+// traitait ça comme « zéro donnée » — l'agent voyait alors un planning VIDE
+// au lieu d'une erreur d'accès. Ici on renvoie toujours { data, error }.
+//
+// + 1 tentative en cas d'échec : les micro-coupures réseau (l'agent « n'arrive
+// PAS TOUJOURS » à accéder au planning) sont la cause n°1 des accès
+// intermittents. On ne retente que les LECTURES, jamais les écritures.
+async function readOnce(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    return { data: null, error: e };
+  }
+}
+async function qread(fn, retries = 1) {
+  let res = await readOnce(fn);
+  if (res.error && retries > 0) {
+    await new Promise((r) => setTimeout(r, 700));
+    res = await readOnce(fn);
+  }
+  return res;
+}
+
 function parseDate(str) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(str || '').trim());
   if (!m) return null;
@@ -40,44 +65,128 @@ function err(message, code) {
 }
 
 async function getProfil(proEmail) {
-  try {
-    const { data } = await supabase
+  const { data, error } = await qread(() =>
+    supabase
       .from('ProfilPro')
       .select('salon_name,address,adresse,phone,telephone,ouverture,horaires')
       .eq('user_email', normEmail(proEmail))
-      .maybeSingle();
-    return data || null;
-  } catch {
-    return null;
-  }
+      .maybeSingle()
+  );
+  if (error) return { profil: null, error };
+  return { profil: data || null, error: null };
 }
 
 async function getService(proEmail, serviceId) {
   if (!serviceId) return null;
-  try {
-    const { data } = await supabase
+  const { data, error } = await qread(() =>
+    supabase
       .from('Service')
       .select('id,title,name,price,duration,duration_min')
       .eq('pro_email', normEmail(proEmail))
       .eq('id', serviceId)
-      .maybeSingle();
-    return data || null;
-  } catch {
-    return null;
+      .maybeSingle()
+  );
+  if (error) return null;
+  return data || null;
+}
+
+async function getBundles(proEmail) {
+  const { data, error } = await qread(() =>
+    supabase
+      .from('ServiceBundle')
+      .select('id,name,description,bundle_price,service_ids,is_active')
+      .eq('pro_email', normEmail(proEmail))
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(40)
+  );
+  if (error) return [];
+  return data || [];
+}
+
+/**
+ * Résout une prestation : d'abord dans `Service` (par id), puis dans
+ * `ServiceBundle` (par id), puis par nom (insensible à la casse) dans les
+ * deux tables. Retourne { id, name, price, duration, kind } ou null.
+ */
+async function resolvePrestation(proEmail, { service_id, service_name }) {
+  const email = normEmail(proEmail);
+  const svc = await getService(email, service_id);
+  if (svc) {
+    return { id: svc.id, name: svc.title || svc.name || 'Prestation', price: svc.price != null ? Number(svc.price) : null, duration: Number(svc.duration || svc.duration_min || 60), kind: 'service' };
   }
+  if (service_id) {
+    const { data: b, error: bErr } = await qread(() =>
+      supabase
+        .from('ServiceBundle')
+        .select('id,name,description,bundle_price,service_ids')
+        .eq('pro_email', email)
+        .eq('id', service_id)
+        .maybeSingle()
+    );
+    if (!bErr && b) return await bundleToPrestation(email, b);
+  }
+  const nameQ = String(service_name || '').trim();
+  if (nameQ) {
+    const { data: svcs, error: sErr } = await qread(() =>
+      supabase
+        .from('Service')
+        .select('id,title,name,price,duration,duration_min')
+        .eq('pro_email', email)
+        .or(`title.ilike.%${nameQ}%,name.ilike.%${nameQ}%`)
+        .limit(1)
+    );
+    if (!sErr && svcs && svcs[0]) {
+      const s = svcs[0];
+      return { id: s.id, name: s.title || s.name || 'Prestation', price: s.price != null ? Number(s.price) : null, duration: Number(s.duration || s.duration_min || 60), kind: 'service' };
+    }
+    const { data: bnds, error: bErr } = await qread(() =>
+      supabase
+        .from('ServiceBundle')
+        .select('id,name,description,bundle_price,service_ids')
+        .eq('pro_email', email)
+        .ilike('name', `%${nameQ}%`)
+        .limit(1)
+    );
+    if (!bErr && bnds && bnds[0]) return await bundleToPrestation(email, bnds[0]);
+  }
+  return null;
+}
+
+async function bundleToPrestation(email, b) {
+  let duration = 60;
+  const ids = Array.isArray(b.service_ids) ? b.service_ids : [];
+  if (ids.length > 0) {
+    const { data: svcs, error } = await qread(() =>
+      supabase
+        .from('Service')
+        .select('duration,duration_min')
+        .eq('pro_email', email)
+        .in('id', ids)
+    );
+    if (!error && svcs && svcs.length > 0) {
+      duration = svcs.reduce((sum, s) => sum + Number(s.duration || s.duration_min || 60), 0);
+    }
+  }
+  return {
+    id: b.id,
+    name: b.name || 'Offre pack',
+    price: b.bundle_price != null ? Number(b.bundle_price) : null,
+    duration,
+    kind: 'bundle',
+  };
 }
 
 async function getBookings(proEmail, dateStr) {
-  try {
-    const { data } = await supabase
+  const { data, error } = await qread(() =>
+    supabase
       .from('Reservation')
       .select('time_slot,duration_min,end_time_slot,status')
       .eq('pro_email', normEmail(proEmail))
-      .eq('date', dateStr);
-    return (data || []).filter((r) => r.status !== 'annule');
-  } catch {
-    return null; // erreur réseau → l'appelant renverra une erreur honnête
-  }
+      .eq('date', dateStr)
+  );
+  if (error) return null; // erreur d'accès → l'appelant renverra une erreur honnête
+  return (data || []).filter((r) => r.status !== 'annule');
 }
 
 /**
@@ -87,7 +196,13 @@ async function getBookings(proEmail, dateStr) {
 async function findFreeSlots(proEmail, dateStr, durationMin) {
   const d = parseDate(dateStr);
   if (!d) return { ok: false, reason: 'Date invalide (format attendu : AAAA-MM-JJ).' };
-  const profil = await getProfil(proEmail);
+  // On distingue « erreur d'accès au profil » (réseau/RLS → réessayer plus
+  // tard) de « horaires réellement non configurés » : les deux donnaient
+  // avant le même message trompeur.
+  const { profil, error: profilErr } = await getProfil(proEmail);
+  if (profilErr) {
+    return { ok: false, reason: 'IMPOSSIBLE_DE_LIRE_LE_PLANNING' };
+  }
   const opening = getEffectiveOpening(profil, null);
   if (!opening) {
     return { ok: false, reason: 'HORAIRES_NON_CONFIGURES' };
@@ -151,7 +266,7 @@ const DEFINITIONS = [
     type: 'function',
     name: 'create_booking',
     description:
-      "Crée la réservation dans le planning du salon. Le rendez-vous apparaît dans la page Gestion agenda du professionnel.",
+      "Crée la réservation dans le planning du salon (prestation OU offre pack). Le rendez-vous apparaît dans la page Gestion agenda du professionnel.",
     parameters: {
       type: 'object',
       properties: {
@@ -227,9 +342,16 @@ function buildExecutors(proEmail) {
   async function checkAvailability(args) {
     try {
       const dateStr = String(args.date || '').trim();
-      const svc = await getService(email, args.service_id);
-      const serviceName = svc?.title || svc?.name || args.service_name || 'prestation';
-      const duration = Number(svc?.duration || svc?.duration_min || 60);
+      const presta = await resolvePrestation(email, { service_id: args.service_id, service_name: args.service_name });
+      const askedService = String(args.service_id || args.service_name || '').trim();
+      if (askedService && !presta) {
+        return err(
+          `La prestation « ${askedService} » est introuvable dans le catalogue du salon. Demande au client de préciser ou propose-lui les prestations disponibles.`,
+          'SERVICE_NOT_FOUND'
+        );
+      }
+      const serviceName = presta?.name || 'prestation';
+      const duration = Number(presta?.duration || 60);
       const res = await findFreeSlots(email, dateStr, duration);
       if (!res.ok) {
         if (res.reason === 'HORAIRES_NON_CONFIGURES') {
@@ -264,10 +386,17 @@ function buildExecutors(proEmail) {
       if (!parseDate(dateStr) || !/^\d{2}:\d{2}$/.test(slot) || !clientName) {
         return err('Informations incomplètes : il me faut le nom du client, une date valide (AAAA-MM-JJ) et une heure (HH:MM).', 'MISSING_INFO');
       }
-      const svc = await getService(email, args.service_id);
-      const serviceName = svc?.title || svc?.name || String(args.service_name || 'Prestation').trim() || 'Prestation';
-      const duration = Number(svc?.duration || svc?.duration_min || 60);
-      const price = svc?.price != null ? Number(svc.price) : null;
+      const presta = await resolvePrestation(email, { service_id: args.service_id, service_name: args.service_name });
+      const askedService = String(args.service_id || args.service_name || '').trim();
+      if (askedService && !presta) {
+        return err(
+          `La prestation « ${askedService} » est introuvable dans le catalogue du salon. Demande au client de préciser la prestation souhaitée.`,
+          'SERVICE_NOT_FOUND'
+        );
+      }
+      const serviceName = presta?.name || 'Prestation';
+      const duration = Number(presta?.duration || 60);
+      const price = presta?.price != null ? Number(presta.price) : null;
 
       // Re-vérification défensive du créneau juste avant création.
       const check = await findFreeSlots(email, dateStr, duration);
@@ -282,7 +411,7 @@ function buildExecutors(proEmail) {
         };
       }
 
-      const profil = await getProfil(email);
+      const { profil } = await getProfil(email);
       const booking_code = generateBookingCode();
       const crg_code = generateClientCode();
       const [hh, mm] = slot.split(':').map(Number);
@@ -292,7 +421,7 @@ function buildExecutors(proEmail) {
         client_name: clientName,
         client_phone: String(args.client_phone || '').trim(),
         client_email: String(args.client_email || '').trim(),
-        service_id: svc?.id || args.service_id || null,
+        service_id: presta?.id || args.service_id || null,
         service_name: serviceName,
         service_price: price,
         total_price: price,
@@ -460,4 +589,85 @@ function buildExecutors(proEmail) {
 export function buildVoiceTools({ proEmail }) {
   const { execute } = buildExecutors(proEmail);
   return { definitions: DEFINITIONS, execute };
+}
+
+/**
+ * Diagnostic d'accès aux données du salon — utilisé par le bouton
+ * « Tester l'accès aux données » de la page Réceptionniste IA.
+ * Exécute les VRAIES lectures Supabase (aucune écriture) et renvoie un
+ * rapport honnête : { email, ok, checks: [{ label, ok, detail }] }.
+ */
+export async function testVoiceDataAccess(proEmail) {
+  const email = normEmail(proEmail);
+  const report = { email: email || '(vide — email du salon introuvable)', ok: true, checks: [] };
+  const push = (label, ok, detail) => {
+    report.checks.push({ label, ok: !!ok, detail: String(detail || '') });
+    if (!ok) report.ok = false;
+  };
+
+  const { profil, error: profilErr } = await getProfil(email);
+  push(
+    'Profil du salon',
+    !!profil,
+    profilErr
+      ? `lecture impossible : ${profilErr?.message || 'erreur réseau/accès'} — c'est exactement ce qui fait échouer l'agent de temps en temps`
+      : (profil ? `trouvé : ${profil.salon_name || 'sans nom'}` : 'introuvable pour cet email')
+  );
+
+  let opening = null;
+  try { opening = getEffectiveOpening(profil, null); } catch { opening = null; }
+  push(
+    'Horaires du salon',
+    !!opening,
+    opening
+      ? 'horaires lus (base du calcul des créneaux)'
+      : (profilErr
+          ? 'non vérifiables — la lecture du profil a échoué (voir ci-dessus)'
+          : 'aucun horaire configuré — les créneaux ne peuvent pas être calculés')
+  );
+
+  let services = [];
+  let servicesErr = null;
+  {
+    const res = await qread(() =>
+      supabase
+        .from('Service')
+        .select('id,title,name,price')
+        .eq('pro_email', email)
+        .limit(100)
+    );
+    services = res.data || [];
+    servicesErr = res.error || null;
+  }
+  push(
+    'Prestations',
+    !servicesErr && services.length > 0,
+    servicesErr
+      ? `lecture impossible : ${servicesErr?.message || 'erreur réseau/accès'}`
+      : `${services.length} prestation(s) dans le catalogue`
+  );
+
+  const bundles = await getBundles(email);
+  push('Offres / packs (bundles)', true, `${bundles.length} bundle(s) actif(s)`);
+
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dateStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+  const res = await findFreeSlots(email, dateStr, 60);
+  push(
+    `Créneaux libres demain (${dateStr})`,
+    res.ok,
+    res.ok
+      ? (res.closed ? 'salon fermé ce jour-là' : `${res.slots.length} créneau(x) libre(s)${res.slots.length ? ` — ex : ${res.slots.slice(0, 3).join(', ')}` : ''}`)
+      : `échec : ${res.reason === 'HORAIRES_NON_CONFIGURES' ? 'horaires non configurés' : res.reason}`
+  );
+
+  const bookings = await getBookings(email, dateStr);
+  push(
+    'Lecture du planning (réservations)',
+    bookings !== null,
+    bookings === null ? 'lecture impossible' : `${bookings.length} réservation(s) existante(s) demain`
+  );
+
+  return report;
 }

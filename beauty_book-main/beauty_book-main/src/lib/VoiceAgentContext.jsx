@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useRef, useCallback, useEffect } f
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { grokChat } from './grok';
+import { isKnownAction, actionNeedsConfirm, runAppAction, describeAppActions } from './appControl';
 
 const VoiceAgentContext = createContext(null);
 
@@ -9,19 +10,27 @@ export function useVoiceAgent() {
   return useContext(VoiceAgentContext);
 }
 
-// ── Route map pour navigation auto après action ─────────────────────────────
-const ACTION_ROUTES = {
-  NAVIGATE: (action) => action.path || action.route,
-  RESERVATION_CREATED: () => "/rendez-vous",
-  ROUTINE_CREATED: () => "/profil",
-  OPEN_PRO_FORM: () => "/devenir-pro",
-  SEARCH_PRODUCTS: () => "/boutique",
-  ROUTINE_SUMMARY: () => null,
-  BOOKING_SUMMARY: () => null,
-  SERVICE_FORM: () => "/pro/catalogue-services",
-  SEND_MESSAGE: () => "/messages",
-  REDIRECT_TO_PRO: () => "/devenir-pro",
-};
+// ── Prompt système de Global : il peut RÉELLEMENT agir dans l'application ──
+const GLOBAL_SYSTEM_PROMPT = `Tu es Global, l'assistante IA de l'application BeautyBook.
+Tu es une experte en coiffure, soins capillaires, skincare, maquillage et bien-être.
+Tu parles de manière chaleureuse, professionnelle et personnalisée.
+Tu réponds toujours en français. Tu es concise mais complète.
+
+POUVOIR D'ACTION RÉEL : quand l'utilisateur te demande de FAIRE quelque chose dans l'application
+(ouvrir une page, changer le thème, chercher un produit, appeler, itinéraire), tu réponds
+UNIQUEMENT avec un bloc JSON d'action, sans aucun autre texte :
+\`\`\`json
+{"type": "NAVIGATE", "path": "/boutique"}
+\`\`\`
+
+Actions disponibles :
+${describeAppActions()}
+
+Règles :
+- N'utilise une action QUE si l'utilisateur demande explicitement de faire quelque chose.
+- Pour une simple question, réponds normalement en texte, sans JSON.
+- Pour CALL_SALON et OPEN_DIRECTIONS : tu dois connaître le numéro ou l'adresse. Si l'utilisateur ne l'a pas donné, demande-le en texte simple (sans JSON), n'invente jamais un numéro ou une adresse.
+- Ne prétends jamais avoir fait une action : c'est l'application qui l'exécute et confirme le résultat.`;
 
 // ── Détection fallback par mots-clés (si l'IA ne retourne pas de JSON action)
 function detectActionFromText(userText, aiReply) {
@@ -106,6 +115,10 @@ export function VoiceAgentProvider({ children }) {
   const speakQueueRef = useRef([]);
   const isSpeakingRef = useRef(false);
   const abortSpeakRef = useRef(false);
+  const msgIdRef = useRef(0);
+  const [pendingAction, setPendingAction] = useState(null); // {msgId, type, params, label}
+
+  const nextMsgId = () => { msgIdRef.current += 1; return msgIdRef.current; };
 
   const stop = useCallback(() => {
     setActive(false);
@@ -209,6 +222,36 @@ export function VoiceAgentProvider({ children }) {
     setSpeaking(false);
   }, []);
 
+  // ── Exécute une action du bus applicatif, résultat honnête (jamais de faux succès) ──
+  const executeAction = useCallback(async (action, msgId) => {
+    const { type, ...params } = action;
+    try {
+      const result = await runAppAction(type, params, { navigate: navigateRef.current });
+      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, content: result.message, action, actionResult: result } : m)));
+      return result;
+    } catch (e) {
+      const result = { ok: false, message: e.message || "L'action n'a pas pu être exécutée." };
+      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, content: result.message, action, actionResult: result } : m)));
+      return result;
+    }
+  }, []);
+
+  // ── Confirmation d'une action sensible (appel, itinéraire) ────────────────
+  const confirmPendingAction = useCallback(async (ok) => {
+    const p = pendingAction;
+    if (!p) return;
+    setPendingAction(null);
+    if (!ok) {
+      setMessages((prev) => prev.map((m) =>
+        m.id === p.msgId ? { ...m, content: "Très bien, j'annule.", actionResult: { ok: false, message: "Action annulée." } } : m
+      ));
+      await speakText("Très bien, j'annule.");
+      return;
+    }
+    const result = await executeAction({ type: p.type, ...p.params }, p.msgId);
+    await speakText(result.message);
+  }, [pendingAction, executeAction, speakText]);
+
   // ── Envoi d'un message vocal ─────────────────────────────────────────────
   const sendVoiceMessage = useCallback(async (text) => {
     if (!text?.trim() || loadingRef.current) return;
@@ -219,68 +262,73 @@ export function VoiceAgentProvider({ children }) {
     loadingRef.current = true;
     setLoading(true);
 
-    const userMsg = { role: "user", content: text, ts: Date.now() };
+    const userMsg = { role: "user", content: text, ts: Date.now(), id: nextMsgId() };
     setMessages((prev) => [...prev, userMsg]);
 
     let reply = "Désolée, une erreur s'est produite.";
     let action = null;
 
-    const MARIA_SYSTEM_PROMPT = `Tu es Maria, l'assistante IA beauté de l'application BeautyBook.
-Tu es une experte en coiffure, soins capillaires, skincare, maquillage et bien-être.
-Tu parles de manière chaleureuse, professionnelle et personnalisée.
-Tu réponds toujours en français. Tu es concise mais complète.
-Quand l'utilisateur te demande d'ouvrir une page, retourne un bloc JSON d'action:
-\`\`\`json
-{"type": "NAVIGATE", "path": "/chemin"}
-\`\`\``;
-
     try {
       const rawReply = await grokChat(
         [{ role: 'user', content: text }],
-        { system: MARIA_SYSTEM_PROMPT, max_tokens: 300 }
+        { system: GLOBAL_SYSTEM_PROMPT, max_tokens: 300, feature: "global" }
       );
       reply = rawReply || reply;
       const jsonMatch = rawReply.match(/```json\s*({[^`]+})\s*```/);
       if (jsonMatch) {
-        try { action = JSON.parse(jsonMatch[1]); } catch {}
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          if (parsed && isKnownAction(parsed.type)) action = parsed;
+        } catch {}
       }
     } catch (err2) {
       console.error("[VoiceAgent] Grok failed:", err2);
       reply = "Désolée, je rencontre un problème technique. Réessaie dans quelques instants ! 💫";
     }
 
-    // Fallback: détecter l'action par mots-clés si l'IA n'a pas retourné de JSON
+    // Fallback: détecter une navigation par mots-clés si l'IA n'a pas retourné d'action
     if (!action) {
-      action = detectActionFromText(text, reply);
+      const fallback = detectActionFromText(text, reply);
+      if (fallback && isKnownAction(fallback.type)) action = fallback;
     }
 
     // Mettre fin au loading AVANT de parler pour que le micro puisse redémarrer
     loadingRef.current = false;
     setLoading(false);
 
-    const assistantMsg = { role: "assistant", content: reply, action, ts: Date.now() };
-    setMessages((prev) => [...prev, assistantMsg]);
+    const msgId = nextMsgId();
 
-    // ── Navigation IMMÉDIATE (pas après le TTS) ──
-    if (action && navigateRef.current && !abortSpeakRef.current) {
-      const getRoute = ACTION_ROUTES[action.type];
-      if (getRoute) {
-        const route = getRoute(action);
-        if (route) {
-          // Parler brièvement la confirmation puis naviguer
-          speakText(reply).then(() => {});
-          setTimeout(() => {
-            navigateRef.current?.(route);
-            setExpanded(false); // Réduire le panneau, garder le bouton flottant
-          }, 600);
-          return;
-        }
+    // ── Une action a été demandée ──
+    if (action) {
+      const { type, ...params } = action;
+      if (actionNeedsConfirm(type)) {
+        // Action sensible : on demande confirmation, on n'exécute RIEN pour l'instant.
+        const label = type === "CALL_SALON"
+          ? `appeler le ${params.phone || "numéro"}`
+          : `ouvrir l'itinéraire vers « ${params.address || ""} »`;
+        setPendingAction({ msgId, type, params, label });
+        const confirmText = `Voulez-vous vraiment que je ${label} ? Confirmez dans le panneau.`;
+        setMessages((prev) => [...prev, { role: "assistant", content: confirmText, action, pendingConfirm: true, ts: Date.now(), id: msgId }]);
+        setExpanded(true);
+        await speakText(confirmText);
+        return;
       }
+      // Action directe : exécution réelle, résultat honnête.
+      setMessages((prev) => [...prev, { role: "assistant", content: "…", action, ts: Date.now(), id: msgId }]);
+      const result = await executeAction(action, msgId);
+      if (type === "NAVIGATE") {
+        setExpanded(false); // Réduire le panneau après navigation
+      }
+      await speakText(result.message);
+      return;
     }
+
+    const assistantMsg = { role: "assistant", content: reply, action, ts: Date.now(), id: msgId };
+    setMessages((prev) => [...prev, assistantMsg]);
 
     // Pas d'action → juste parler la réponse
     await speakText(reply);
-  }, [speakText, interruptSpeech]);
+  }, [speakText, interruptSpeech, executeAction]);
 
   return (
     <VoiceAgentContext.Provider
@@ -290,6 +338,7 @@ Quand l'utilisateur te demande d'ouvrir une page, retourne un bloc JSON d'action
         sendVoiceMessage, interruptSpeech,
         audioRef, navigateRef,
         expanded, setExpanded,
+        pendingAction, confirmPendingAction,
       }}
     >
       {children}

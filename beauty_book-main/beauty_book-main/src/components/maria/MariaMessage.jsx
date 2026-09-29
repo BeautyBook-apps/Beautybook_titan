@@ -1,9 +1,11 @@
 import ReactMarkdown from "react-markdown";
 import { Volume2, VolumeX } from "lucide-react";
+import MariaChart, { parseChartSpec } from "./MariaChart";
 
 /**
  * Rendu markdown ultra-soigné pour les messages de Maria.
  * Gras en orange · listes belles · titres élégants · emojis intégrés
+ * + blocs ```chart → vrais graphiques colorés (barres, donut, KPI…)
  */
 export default function MariaMessage({ content, onSpeak, muted, onToggleMuted, voiceUrl }) {
   const playVoicebox = () => {
@@ -97,9 +99,17 @@ export default function MariaMessage({ content, onSpeak, muted, onToggleMuted, v
             <td className="px-3 py-2 text-gray-700">{children}</td>
           ),
 
-          // Code inline
-          code: ({ inline, children }) =>
-            inline ? (
+          // Code inline — et blocs ```chart → graphique réel
+          code: ({ inline, className, children }) => {
+            const lang = /language-(\w+)/.exec(String(className || ""))?.[1];
+            if (lang === "chart") {
+              // Bloc incomplet (frappe en cours) ou JSON invalide → on
+              // n'affiche rien plutôt qu'un graphique faux ou du JSON brut.
+              const spec = parseChartSpec(String(children ?? ""));
+              if (!spec) return null;
+              return <MariaChart spec={spec} />;
+            }
+            return inline ? (
               <code className="bg-orange-50 text-primary px-1.5 py-0.5 rounded-lg font-mono text-[11px] border border-orange-100">
                 {children}
               </code>
@@ -107,7 +117,8 @@ export default function MariaMessage({ content, onSpeak, muted, onToggleMuted, v
               <pre className="bg-gray-900 text-emerald-400 rounded-2xl p-3.5 my-3 overflow-x-auto text-[11px] font-mono shadow-lg">
                 <code>{children}</code>
               </pre>
-            ),
+            );
+          },
 
           // Blockquote — effet carte conseil
           blockquote: ({ children }) => (

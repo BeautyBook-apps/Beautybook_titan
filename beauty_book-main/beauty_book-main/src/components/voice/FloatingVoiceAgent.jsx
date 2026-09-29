@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { X, Mic, MicOff, Bot, Minimize2, Loader2, Volume2, Send } from "lucide-react";
+import { X, Mic, MicOff, Bot, Minimize2, Loader2, Volume2, Send, Phone, MapPin } from "lucide-react";
 import { useVoiceAgent } from "@/lib/VoiceAgentContext";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -97,7 +97,7 @@ function useSpeechRec({ onTranscript, enabled, isSpeaking }) {
 export default function FloatingVoiceAgent() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { active, stop, messages, loading, speaking, sendVoiceMessage, interruptSpeech, navigateRef, expanded, setExpanded } = useVoiceAgent();
+  const { active, stop, messages, loading, speaking, sendVoiceMessage, interruptSpeech, navigateRef, expanded, setExpanded, pendingAction, confirmPendingAction } = useVoiceAgent();
   const [micEnabled, setMicEnabled] = useState(true);
   const [textInput, setTextInput] = useState("");
   const messagesEndRef = useRef(null);
@@ -198,19 +198,44 @@ export default function FloatingVoiceAgent() {
                   <p className="text-[13px] font-black text-gray-400">Parlez ou écrivez</p>
                   <div className="text-[11px] text-gray-300 space-y-1">
                     <p>« Ouvre la boutique »</p>
-                    <p>« Prends un rendez-vous »</p>
+                    <p>« Mets le thème nuit »</p>
+                    <p>« Cherche un shampoing hydratant »</p>
                     <p>« Montre mes réservations »</p>
                   </div>
                 </div>
               )}
               {lastMessages.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div key={msg.id || i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[85%] px-3 py-2 rounded-2xl text-[12px] font-medium leading-relaxed ${
                     msg.role === "user"
                       ? "bg-gradient-to-r from-primary to-orange-400 text-white rounded-tr-sm"
                       : "bg-gray-100 text-gray-800 rounded-tl-sm"
                   }`}>
+                    {msg.actionResult && !msg.actionResult.ok && msg.actionResult.message !== "Action annulée." && (
+                      <span className="block text-[10px] font-black text-red-500 mb-1">⚠️ ÉCHEC DE L'ACTION</span>
+                    )}
+                    {msg.actionResult && msg.actionResult.ok && msg.action && (
+                      <span className="block text-[10px] font-black text-green-600 mb-1">✓ ACTION EXÉCUTÉE</span>
+                    )}
                     {msg.content}
+                    {msg.pendingConfirm && pendingAction && pendingAction.msgId === msg.id && (
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => confirmPendingAction(true)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-500 text-white text-[12px] font-black rounded-xl active:scale-95"
+                        >
+                          {pendingAction.type === "CALL_SALON" ? <Phone className="w-3.5 h-3.5" /> : <MapPin className="w-3.5 h-3.5" />}
+                          Confirmer
+                        </button>
+                        <button
+                          onClick={() => confirmPendingAction(false)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-gray-200 text-gray-700 text-[12px] font-black rounded-xl active:scale-95"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Annuler
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
