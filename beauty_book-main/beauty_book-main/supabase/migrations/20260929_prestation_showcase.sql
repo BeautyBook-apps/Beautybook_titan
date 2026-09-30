@@ -28,3 +28,12 @@ create policy "Pro gère sa vitrine"
   on public.prestation_showcase for all
   using (auth.role() = 'authenticated')
   with check (auth.role() = 'authenticated');
+
+-- ── Lien avec l'avis du client : chaque photo est associée à la réservation
+-- (et donc à l'avis laissé par le client pour ce RDV).
+alter table public.prestation_showcase
+  add column if not exists reservation_id text default '';
+alter table public.prestation_showcase
+  add column if not exists client_name text default '';
+create index if not exists idx_prestation_showcase_reservation
+  on public.prestation_showcase (reservation_id);

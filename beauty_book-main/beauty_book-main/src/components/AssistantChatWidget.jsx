@@ -5,13 +5,15 @@
 // réservation RÉEL (table Reservation → Gestion agenda + Google Agenda).
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef } from "react";
-import { X, Send, Calendar, Clock, Sparkles, Phone, ChevronRight, MoreHorizontal } from "lucide-react";
+import { X, Send, Calendar, Clock, Sparkles, Phone, ChevronRight, MoreHorizontal, CalendarClock, MapPin, Star } from "lucide-react";
 import {
   buildKnowledge, answerQuestion, detectBookingIntent, EMAIL_RE,
   createAssistantReservation, pushToGoogleCalendar, bookingConfirmationText,
   formatDateFr,
 } from "@/lib/mariaAssistant";
 import { getQuestionnaireForService } from "@/lib/questionnaires";
+import { getSalonAISettings } from "@/lib/salonAI";
+import { fillSalonVars } from "@/lib/voiceAgentPrompt";
 import "./AssistantChatWidget.css";
 
 const AVATAR = "/maria-avatar.png";
@@ -26,7 +28,20 @@ const QUICK_ACTIONS = [
   { id: "slots", label: "Voir disponibilités", Icon: Clock },
   { id: "services", label: "Nos services", Icon: Sparkles },
   { id: "call", label: "Appeler le salon", Icon: Phone },
+  { id: "hours", label: "Horaires d'ouverture", Icon: CalendarClock },
+  { id: "address", label: "Adresse & itinéraire", Icon: MapPin },
+  { id: "review", label: "Laisser un avis", Icon: Star },
 ];
+
+// Réponse "adresse" construite sur les VRAIES données du profil (jamais inventée).
+function addressAnswer(kb) {
+  const bits = [kb.address, kb.city].filter(Boolean).join(", ");
+  if (!bits) return null;
+  return (
+    `📍 ${kb.salonName} se trouve au ${bits}.` +
+    `\n\nhttps://www.google.com/maps/search/?api=1&query=${encodeURIComponent(bits)}`
+  );
+}
 
 const SUGGESTIONS = [
   { id: "book", label: "Réserver", Icon: Calendar },
@@ -40,6 +55,8 @@ const nowTime = () =>
 export default function AssistantChatWidget({ proEmail, salonName }) {
   const [open, setOpen] = useState(false);
   const [knowledge, setKnowledge] = useState(null);
+  // Réglages IA propres à CE salon (toggle chatbot + message d'accueil perso)
+  const [aiSettings, setAiSettings] = useState(null);
   const [msgs, setMsgs] = useState([]);
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState("");
@@ -65,10 +82,20 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
       let k = null;
       try { k = await buildKnowledge(proEmail); } catch { /* ignore */ }
       setKnowledge(k);
+      let ai = null;
+      try { ai = await getSalonAISettings(proEmail); } catch { /* ignore */ }
+      setAiSettings(ai);
       setTyping(true);
       await later(800);
       setTyping(false);
-      push({ from: "bot", text: GREETING(k?.salonName || salonName), actions: QUICK_ACTIONS });
+      // Message d'accueil PERSONNALISÉ du salon s'il est configuré, sinon modèle par défaut.
+      const hello = (ai?.welcome_message || "").trim();
+      const salon = k?.salonName || salonName;
+      push({
+        from: "bot",
+        text: hello ? fillSalonVars(hello, salon) : GREETING(salon),
+        actions: QUICK_ACTIONS,
+      });
     })();
     return () => { timers.current.forEach(clearTimeout); timers.current = []; };
   }, [open, proEmail]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -77,6 +104,10 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [msgs, typing, showBooking]);
+
+  // Le pro peut désactiver le chatbot de SON salon → la bulle disparaît.
+  // (placé APRÈS tous les hooks : pas de retour conditionnel avant un hook)
+  if (aiSettings && aiSettings.chatbot_enabled === false) return null;
 
   const botAnswer = async (text) => {
     setTyping(true);
@@ -149,6 +180,35 @@ export default function AssistantChatWidget({ proEmail, salonName }) {
       } else {
         push({ from: "bot", text: "Le salon vous répondra ici même — laissez votre question, je transmets 💛" });
       }
+      return;
+    }
+    if (id === "hours") {
+      push({ from: "me", text: "Quels sont vos horaires d'ouverture ?" });
+      await botAnswer("quels sont vos horaires d'ouverture");
+      return;
+    }
+    if (id === "address") {
+      push({ from: "me", text: "Où se trouve le salon ?" });
+      setTyping(true);
+      await later(700);
+      setTyping(false);
+      const answer = knowledge ? addressAnswer(knowledge) : null;
+      push({
+        from: "bot",
+        text: answer || "L'adresse du salon n'est pas encore renseignée — le salon vous répondra ici même 💛",
+      });
+      return;
+    }
+    if (id === "review") {
+      push({ from: "me", text: "Je veux laisser un avis" });
+      setTyping(true);
+      await later(700);
+      setTyping(false);
+      push({
+        from: "bot",
+        text: "Merci, votre avis compte beaucoup ! ⭐\n\nAprès votre rendez-vous, rendez-vous dans « Mes réservations » : un bouton vous permettra de noter et commenter votre expérience. Votre avis apparaîtra avec les photos de la prestation réalisée 💛",
+      });
+      return;
     }
   };
 

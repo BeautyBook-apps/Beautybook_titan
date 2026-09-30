@@ -1358,7 +1358,9 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
                   const includedSvcs = services.filter(s => b.service_ids?.includes(s.id));
                   const regularTotal = includedSvcs.reduce((sum, s) => sum + (parseFloat(s.price) || 0), 0);
                   return (
-                    <div key={b.id} className="bg-gradient-to-br from-pink-50 to-rose-50 rounded-3xl overflow-hidden border border-pink-100 shadow-sm">
+                    <div key={b.id} onClick={() => navigate(`/bundle/${b.id}`)} role="button" tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === "Enter") navigate(`/bundle/${b.id}`); }}
+                      className="bg-gradient-to-br from-pink-50 to-rose-50 rounded-3xl overflow-hidden border border-pink-100 shadow-sm cursor-pointer active:scale-[0.99] transition-transform">
                       {b.image_url && <BeautyImage src={b.image_url} alt="" className="w-full h-36 object-cover" />}
                       <div className="p-4">
                         <div className="flex items-center gap-2 mb-2">
@@ -1381,7 +1383,8 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
                             {regularTotal > 0 && <span className="text-[13px] text-gray-400 line-through">{regularTotal}€</span>}
                             <span className="text-[22px] font-black text-[#E8732A]">{b.bundle_price}€</span>
                           </div>
-                          <button onClick={() => {
+                          <button onClick={(e) => {
+                            e.stopPropagation();
                             const bundleServices = includedSvcs.map(s => ({ ...s, persons: 1 }));
                             navigate(`/reservation?pro=${targetEmail}&bundle=${b.id}`, { state: { services: bundleServices, bundle: b } });
                           }} className="bg-[#E8732A] text-white px-5 py-2.5 rounded-2xl text-[12px] font-black active:scale-95 transition-transform">

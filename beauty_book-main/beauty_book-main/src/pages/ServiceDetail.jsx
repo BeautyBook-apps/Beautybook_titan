@@ -519,7 +519,7 @@ export default function ServiceDetail() {
                 return (
                   <button
                     key={b.id}
-                    onClick={() => navigate("/reservation", { state: { bundle: b, services: includedServices, service: { ...s, price: b.price, addons: [], pro_name: proData?.salon_name, pro_avatar: proData?.avatar_url, pro_city: proData?.city } } })}
+                    onClick={() => navigate(`/bundle/${b.id}`)}
                     className="w-full flex items-center gap-3 p-3 bg-gradient-to-br from-orange-50 to-white border border-orange-100 rounded-2xl active:scale-[0.98] transition-all"
                   >
                     {b.image_url ? (

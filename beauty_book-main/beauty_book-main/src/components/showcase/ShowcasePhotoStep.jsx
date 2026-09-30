@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Camera, ImagePlus, GripVertical, Trash2, Pencil, Check, X, ArrowRight, Loader2 } from "lucide-react";
 import { uploadFile } from "@/api/entities";
-import { addShowcasePhotos, resolveShowcaseTarget } from "@/lib/showcase";
+import { addShowcasePhotos, resolveShowcaseTarget, showcaseTableExists, SHOWCASE_MIGRATION_HELP } from "@/lib/showcase";
 
 // ── Étape « Photos de la prestation » ─────────────────────────────────
 // Affichée après validation du code client. Le pro peut :
@@ -17,6 +17,7 @@ export default function ShowcasePhotoStep({ rdv = {}, onDone, onSkip }) {
   const [replaceId, setReplaceId] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState("");
+  const [tableError, setTableError] = useState("");
 
   const cardEls = useRef({});
   const dragState = useRef(null);
@@ -127,8 +128,15 @@ export default function ShowcasePhotoStep({ rdv = {}, onDone, onSkip }) {
   const handleNext = async () => {
     const selected = photos.filter(p => p.selected);
     if (selected.length === 0) { onDone?.([]); return; }
+    setTableError("");
     setUploading(true);
     try {
+      // La table existe-t-elle ? (migration exécutée ?) — vérifié AVANT l'envoi.
+      if (!(await showcaseTableExists())) {
+        setTableError(SHOWCASE_MIGRATION_HELP);
+        setUploading(false);
+        return;
+      }
       const uploaded = [];
       for (let i = 0; i < selected.length; i++) {
         setProgress(`Envoi ${i + 1} / ${selected.length}…`);
@@ -140,10 +148,21 @@ export default function ShowcasePhotoStep({ rdv = {}, onDone, onSkip }) {
       const { serviceId, isBundle } = await resolveShowcaseTarget(rdv);
       if (!serviceId) throw new Error("Service introuvable");
       setProgress("Publication…");
-      await addShowcasePhotos({ serviceId, isBundle, proEmail: rdv.pro_email || "", photos: uploaded });
+      await addShowcasePhotos({
+        serviceId,
+        isBundle,
+        proEmail: rdv.pro_email || "",
+        reservationId: rdv.id || rdv.reservation_id || "",
+        clientName: rdv.client_name || rdv.clientName || "",
+        photos: uploaded,
+      });
       onDone?.(uploaded);
     } catch (err) {
-      alert(`Échec de la publication : ${err?.message || "réessayez"}`);
+      if (err?.code === "SHOWCASE_TABLE_MISSING") {
+        setTableError(err.message);
+      } else {
+        alert(`Échec de la publication : ${err?.message || "réessayez"}`);
+      }
     } finally {
       setUploading(false);
       setProgress("");
@@ -284,6 +303,11 @@ export default function ShowcasePhotoStep({ rdv = {}, onDone, onSkip }) {
 
       {/* CTA fixe */}
       <div className="shrink-0 bg-white border-t border-gray-100 px-5" style={{ paddingTop: "12px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
+        {tableError && (
+          <div className="mb-3 bg-amber-50 border border-amber-200 rounded-2xl p-3.5">
+            <p className="text-[12.5px] font-bold text-amber-900 leading-relaxed">⚠️ {tableError}</p>
+          </div>
+        )}
         <button onClick={handleNext} disabled={uploading}
           className="w-full bg-primary text-white font-black text-[14px] uppercase tracking-widest py-4 rounded-3xl shadow-xl shadow-primary/40 flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-70">
           {uploading ? (
