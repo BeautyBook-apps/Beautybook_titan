@@ -59,7 +59,7 @@ export default function ReceptionnistIA() {
 
   // Réglages IA du salon (agent vocal + chatbot propres à chaque salon)
   const [vocalEnabled, setVocalEnabled] = useState(true);
-  const [chatbotEnabled, setChatbotEnabled] = useState(true);
+  const [appelInterne, setAppelInterne] = useState(false);
   const [aiReady, setAiReady] = useState(false);
 
   // Configuration vocale du salon
@@ -127,11 +127,11 @@ export default function ReceptionnistIA() {
         const { data: authData } = await supabase.auth.getUser();
         const email = authData?.user?.email || '';
         if (alive) setProEmail(email);
-        // Réglages IA propres à ce salon (agent vocal + chatbot + agent_id + voix + base de connaissances)
+        // Réglages IA propres à ce salon (agent vocal + appel interne + agent_id + voix + base de connaissances)
         const ai = await getSalonAISettings(email);
         if (!alive) return;
         setVocalEnabled(ai.vocal_enabled !== false);
-        setChatbotEnabled(ai.chatbot_enabled !== false);
+        setAppelInterne(ai.appel_interne === true);
         setAgentId(ai.agent_id || DEFAULT_AGENT_ID);
         setAgentDraft(ai.agent_id || DEFAULT_AGENT_ID);
         setVoice(ai.voice || 'ara');
@@ -206,10 +206,11 @@ export default function ReceptionnistIA() {
     if (proEmail) await saveSalonAISettings(proEmail, { vocal_enabled: on });
   }, [proEmail]);
 
-  // ─── Interrupteur chatbot (par salon : bulle « Réserver avec MARIA » sur la page du salon)
-  const toggleChatbot = useCallback(async (on) => {
-    setChatbotEnabled(on);
-    if (proEmail) await saveSalonAISettings(proEmail, { chatbot_enabled: on });
+  // ─── Interrupteur « appel interne » : l'agent vocal IA décroche les appels
+  // passés dans l'application (si l'agent vocal est activé)
+  const toggleAppelInterne = useCallback(async (on) => {
+    setAppelInterne(on);
+    if (proEmail) await saveSalonAISettings(proEmail, { appel_interne: on });
   }, [proEmail]);
 
   // ─── Session voix ────────────────────────────────────────────────────────
@@ -536,11 +537,11 @@ export default function ReceptionnistIA() {
             <div className="rp-master-info">
               <div className="rp-master-ico"><MessageCircle size={16} /></div>
               <div>
-                <strong>Chatbot IA</strong>
-                <span>Maria discute avec les visiteurs sur la page de votre salon</span>
+                <strong>Appel interne</strong>
+                <span>Quand un client appuie sur « Appeler » dans l'application, c'est l'agent vocal IA qui décroche (si l'agent vocal est activé)</span>
               </div>
             </div>
-            <Toggle checked={chatbotEnabled} onChange={toggleChatbot} label="Activer ou désactiver le chatbot IA" />
+            <Toggle checked={appelInterne} onChange={toggleAppelInterne} label="Activer ou désactiver l'appel interne" />
           </div>
           {!aiReady && (
             <p className="rp-card-sub" style={{ marginTop: 8 }}>Chargement des réglages du salon…</p>

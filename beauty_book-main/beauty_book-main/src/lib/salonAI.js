@@ -1,7 +1,9 @@
 // ─── Réglages IA par salon ──────────────────────────────────────────────────
 // Chaque salon (pro_email) possède ses propres réglages :
 //   - vocal_enabled   : l'agent vocal « Parler à l'agent » est actif ou non
-//   - chatbot_enabled : le widget « Discuter avec Maria » visible par les visiteurs
+//   - chatbot_enabled : le widget « Discuter avec Maria » (site web du pro)
+//   - appel_interne   : si actif, les appels passés DANS l'application sont
+//                       décrochés par l'agent vocal IA (si vocal_enabled)
 //   - agent_id        : identifiant de l'agent vocal distant du salon (console du fournisseur)
 //   - voice           : voix utilisée en mode direct
 //
@@ -20,6 +22,7 @@ const TABLE = "salon_ai_settings";
 export const DEFAULT_AI_SETTINGS = {
   vocal_enabled: true,
   chatbot_enabled: true,
+  appel_interne: false,
   agent_id: "",
   voice: "ara",
   // Agent vocal : base de connaissances propre au salon
@@ -65,6 +68,7 @@ function fromRow(row) {
   return {
     vocal_enabled: row.vocal_enabled !== false,
     chatbot_enabled: row.chatbot_enabled !== false,
+    appel_interne: row.appel_interne === true,
     agent_id: row.agent_id || "",
     voice: row.voice || "ara",
     welcome_message: row.welcome_message || "",
@@ -81,7 +85,7 @@ function newer(a, b) {
 }
 
 const BASE_COLS = "pro_email,vocal_enabled,chatbot_enabled,agent_id,voice";
-const OPT_COLS = ["welcome_message", "custom_instructions", "connection_mode"];
+const OPT_COLS = ["welcome_message", "custom_instructions", "connection_mode", "appel_interne"];
 
 async function readRow(email) {
   // Lecture en DEUX temps, déterministe : les colonnes de base existent
@@ -143,6 +147,7 @@ export async function saveSalonAISettings(proEmail, patch) {
       pro_email: email,
       vocal_enabled: !!next.vocal_enabled,
       chatbot_enabled: !!next.chatbot_enabled,
+      appel_interne: !!next.appel_interne,
       agent_id: next.agent_id || "",
       voice: next.voice || "ara",
       welcome_message: next.welcome_message || "",
@@ -152,8 +157,8 @@ export async function saveSalonAISettings(proEmail, patch) {
     };
     const r = await supabase.from(TABLE).upsert(fullPayload, { onConflict: "pro_email" });
     if (r.error) {
-      // Migration non exécutée → repli sur les colonnes de base
-      const { welcome_message, custom_instructions, connection_mode, updated_at, ...basePayload } = fullPayload;
+      // Migration non exécutée → repli sans les colonnes optionnelles récentes
+      const { welcome_message, custom_instructions, connection_mode, appel_interne, updated_at, ...basePayload } = fullPayload;
       await supabase.from(TABLE).upsert(basePayload, { onConflict: "pro_email" });
     }
   } catch { /* RLS ou table absente → le local fait foi */ }

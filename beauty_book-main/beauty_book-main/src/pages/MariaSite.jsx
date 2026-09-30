@@ -16,7 +16,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { Send, MessageCircle, X, Calendar, RotateCcw, Bot } from "lucide-react";
+import {
+  Send, X, Calendar, RotateCcw, Phone, MapPin, Clock, Tag,
+} from "lucide-react";
 import { WidgetBookingForm } from "@/components/AssistantChatWidget";
 import {
   buildKnowledge, detectBookingIntent, createAssistantReservation,
@@ -26,6 +28,7 @@ import { grokChat } from "@/lib/grok";
 import "./MariaSite.css";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const AVATAR = "/maria-avatar.png";
 
 /** code base64url -> email pro (ou null si invalide). */
 function decodeCode(code) {
@@ -73,6 +76,15 @@ function buildSystemPrompt(k) {
   return lines.join("\n");
 }
 
+/** Liste tarifs réelle (6 premiers services) pour l'action rapide « Tarifs ». */
+function priceListText(services) {
+  const list = (services || []).slice(0, 6);
+  if (!list.length) return "Les tarifs du salon ne sont pas encore renseignés — contactez directement le salon pour un devis.";
+  return list
+    .map((s) => `• ${s.name}${s.price != null ? ` — ${s.price}€` : ""}${s.duration ? ` (${s.duration} min)` : ""}`)
+    .join("\n");
+}
+
 export default function MariaSite() {
   const { code } = useParams();
   const [email, setEmail] = useState(null);
@@ -84,6 +96,7 @@ export default function MariaSite() {
   const [input, setInput] = useState("");
   const [showBooking, setShowBooking] = useState(false);
   const [bookingDone, setBookingDone] = useState(false);
+  const [showQuick, setShowQuick] = useState(false);
   const idRef = useRef(0);
   const scrollRef = useRef(null);
   const loaded = useRef(false);
@@ -128,26 +141,108 @@ export default function MariaSite() {
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [msgs, typing, showBooking, open]);
+  }, [msgs, typing, showBooking, open, showQuick]);
+
+  const greet = () => {
+    setTyping(true);
+    setTimeout(() => {
+      setTyping(false);
+      push({
+        from: "bot",
+        text: `Bonjour 👋 Bienvenue chez ${knowledge?.salonName || "notre salon"} ! Je suis Maria, l'assistante du salon. Comment puis-je vous aider ?`,
+      });
+      setShowQuick(true);
+    }, 700);
+  };
 
   const toggle = () => {
     const next = !open;
     setOpen(next);
     postResize(next);
-    if (next && msgs.length === 0 && knowledge) {
-      setTyping(true);
-      setTimeout(() => {
-        setTyping(false);
-        push({
-          from: "bot",
-          text: `Bonjour 👋 Bienvenue chez ${knowledge.salonName || "notre salon"} ! Je suis Maria, l'assistante du salon. Posez-moi vos questions ou dites-moi « je veux réserver ».`,
-        });
-        if ((knowledge.services || []).length > 0) {
-          push({ from: "bot", text: "", action: { id: "book", label: "📅 Réserver un créneau" } });
-        }
-      }, 700);
-    }
+    if (next && msgs.length === 0 && knowledge) greet();
   };
+
+  // ── Actions rapides : que des VRAIES données du salon ─────────────────────
+  const quickActions = [
+    {
+      id: "book",
+      label: "Réserver",
+      icon: Calendar,
+      run: () => {
+        push({ from: "me", text: "Je veux réserver" });
+        setShowBooking(true);
+      },
+    },
+    {
+      id: "prices",
+      label: "Tarifs",
+      icon: Tag,
+      run: () => {
+        push({ from: "me", text: "Quels sont vos tarifs ?" });
+        setTyping(true);
+        setTimeout(() => {
+          setTyping(false);
+          push({ from: "bot", text: `Voici nos prestations 💅\n${priceListText(knowledge?.services)}` });
+        }, 600);
+      },
+    },
+    {
+      id: "hours",
+      label: "Horaires",
+      icon: Clock,
+      run: () => {
+        push({ from: "me", text: "Quels sont vos horaires ?" });
+        setTyping(true);
+        setTimeout(() => {
+          setTyping(false);
+          push({
+            from: "bot",
+            text: knowledge?.hoursText
+              ? `Nos horaires d'ouverture 🕐\n${knowledge.hoursText}`
+              : "Nos horaires ne sont pas encore renseignés — contactez-nous directement pour connaître nos disponibilités.",
+          });
+        }, 600);
+      },
+    },
+    {
+      id: "address",
+      label: "Adresse",
+      icon: MapPin,
+      run: () => {
+        push({ from: "me", text: "Où se trouve le salon ?" });
+        const addr = [knowledge?.address, knowledge?.city].filter(Boolean).join(", ");
+        setTyping(true);
+        setTimeout(() => {
+          setTyping(false);
+          push({
+            from: "bot",
+            text: addr ? `Nous sommes situés ici 📍\n${addr}` : "Notre adresse n'est pas encore renseignée.",
+            action: addr
+              ? { id: "maps", label: "Ouvrir dans Google Maps", href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${knowledge?.salonName || ""} ${addr}`)}` }
+              : null,
+          });
+        }, 600);
+      },
+    },
+    {
+      id: "call",
+      label: "Appeler",
+      icon: Phone,
+      run: () => {
+        push({ from: "me", text: "Je veux appeler le salon" });
+        const phone = (knowledge?.phone || "").trim();
+        setTyping(true);
+        setTimeout(() => {
+          setTyping(false);
+          push({
+            from: "bot",
+            text: phone ? `Vous pouvez nous joindre au ${phone} 📞` : "Notre numéro n'est pas encore renseigné.",
+            action: phone ? { id: "tel", label: `Appeler le ${phone}`, href: `tel:${phone.replace(/\s/g, "")}` } : null,
+          });
+        }, 600);
+      },
+    },
+  ];
 
   const send = async (raw) => {
     const text = (raw ?? input).trim();
@@ -242,13 +337,9 @@ export default function MariaSite() {
     setMsgs([]);
     setShowBooking(false);
     setBookingDone(false);
+    setShowQuick(false);
     setInput("");
-    if (knowledge) {
-      push({
-        from: "bot",
-        text: `Rebonjour 👋 Je suis Maria, l'assistante ${knowledge.salonName ? `de ${knowledge.salonName}` : "du salon"}. Comment puis-je vous aider ?`,
-      });
-    }
+    if (knowledge) greet();
   };
 
   return (
@@ -256,13 +347,19 @@ export default function MariaSite() {
       {open && (
         <div className="maria-site-panel" role="dialog" aria-label="Discuter avec Maria">
           <div className="maria-site-head">
-            <span className="maria-site-avatar"><Bot size={18} /></span>
+            <span className="maria-site-avatar">
+              <img src={AVATAR} alt="Maria" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+              <span className="maria-site-online" />
+            </span>
             <div className="maria-site-head-txt">
               <p className="maria-site-title">Maria · {knowledge?.salonName || "Assistant du salon"}</p>
               <p className="maria-site-status"><span className="maria-site-dot" /> En ligne — répond instantanément</p>
             </div>
             <button type="button" className="maria-site-reset" onClick={reset} aria-label="Recommencer la conversation">
               <RotateCcw size={15} />
+            </button>
+            <button type="button" className="maria-site-close" onClick={toggle} aria-label="Fermer le chat">
+              <X size={17} />
             </button>
           </div>
 
@@ -282,12 +379,27 @@ export default function MariaSite() {
               <div key={m._id} className="maria-site-bubble bot">
                 {m.text}
                 {m.action && !bookingDone && (
-                  <button type="button" className="maria-site-action" onClick={startBooking}>
-                    <Calendar size={13} /> {m.action.label}
-                  </button>
+                  m.action.href ? (
+                    <a className="maria-site-action" href={m.action.href} target={m.action.href.startsWith("tel:") ? undefined : "_blank"} rel="noreferrer">
+                      {m.action.label}
+                    </a>
+                  ) : (
+                    <button type="button" className="maria-site-action" onClick={startBooking}>
+                      <Calendar size={13} /> {m.action.label}
+                    </button>
+                  )
                 )}
               </div>
             ))}
+            {showQuick && status === "ready" && !showBooking && (
+              <div className="maria-site-quick">
+                {quickActions.map(({ id, label, icon: Icon, run }) => (
+                  <button key={id} type="button" className="maria-site-chip" onClick={run}>
+                    <Icon size={13} /> {label}
+                  </button>
+                ))}
+              </div>
+            )}
             {typing && <div className="maria-site-bubble bot maria-site-typing"><span /><span /><span /></div>}
             {showBooking && status === "ready" && (
               <WidgetBookingForm
@@ -321,8 +433,17 @@ export default function MariaSite() {
         onClick={toggle}
         aria-label={open ? "Fermer le chat" : "Discuter avec Maria"}
       >
-        {open ? <X size={22} /> : <MessageCircle size={22} />}
-        {!open && <span className="maria-site-fab-label">Discuter avec Maria</span>}
+        {open ? (
+          <X size={22} />
+        ) : (
+          <>
+            <span className="maria-site-fab-avatar">
+              <img src={AVATAR} alt="Maria" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+              <span className="maria-site-fab-dot" />
+            </span>
+            <span className="maria-site-fab-label">Maria</span>
+          </>
+        )}
       </button>
     </div>
   );

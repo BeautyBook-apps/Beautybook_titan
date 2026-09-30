@@ -16,11 +16,11 @@ import { useAuth } from "@/lib/AuthContext";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useCall } from "@/components/call/CallManager";
+import VisitorVoiceCall from "@/components/voice/VisitorVoiceCall";
 import { useTheme } from "@/hooks/useTheme";
 import VTCSection from "@/components/service/VTCSection";
 import SalonMap from "@/components/map/SalonMap";
 import { isOpenNow, getEffectiveOpening, formatOpeningHours, getOpeningStatus, applyNightMode } from "@/lib/hours";
-import AssistantChatWidget from "@/components/AssistantChatWidget";
 import { getSalonAISettings } from "@/lib/salonAI";
 
 function getBannerGradient(theme) {
@@ -546,13 +546,14 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
     }
     return p;
   });
-  // Chatbot IA du salon : masqué pour les visiteurs si le pro l'a désactivé
-  const [chatbotEnabled, setChatbotEnabled] = useState(true);
+  // Réglages IA du salon : « appel interne » (l'agent vocal IA répond aux
+  // appels dans l'application) — chargés une fois par salon visité.
+  const [salonAI, setSalonAI] = useState(null);
   useEffect(() => {
     let alive = true;
     if (!targetEmail) return;
     getSalonAISettings(targetEmail).then((s) => {
-      if (alive) setChatbotEnabled(s.chatbot_enabled !== false);
+      if (alive) setSalonAI(s || null);
     }).catch(() => {});
     return () => { alive = false; };
   }, [targetEmail]);
@@ -561,6 +562,8 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showCall] = useState(false);
+  // « Appel interne » : l'agent vocal IA du salon décroche à la place du WebRTC
+  const [showAiCall, setShowAiCall] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [stats, setStats] = useState(vueCacheInitial.stats || { abonnes: 0, services: 0, avis: 0 });
   const [demandeInfo, setDemandeInfo] = useState(vueCacheInitial.demandeInfo || null);
@@ -853,6 +856,12 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
             {
               icon: PhoneCall, label: "APPELER", color: "text-orange-500", bg: "bg-orange-50",
               action: () => {
+                // « Appel interne » : si le salon l'a activé (et que son agent
+                // vocal est actif), c'est l'IA qui décroche. Sinon, appel WebRTC classique.
+                if (salonAI?.appel_interne === true && salonAI?.vocal_enabled !== false) {
+                  setShowAiCall(true);
+                  return;
+                }
                 if (startCall) {
                   startCall({
                     targetEmail: targetEmail,
@@ -1493,10 +1502,17 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
         />
       )}
 
-      {/* Widget « Discuter avec Maria » — visiteurs uniquement (pas le/la propriétaire),
-          et seulement si le salon n'a pas désactivé le chatbot IA */}
-      {!isOwnProfile && targetEmail && chatbotEnabled && (
-        <AssistantChatWidget proEmail={targetEmail} salonName={proInfo?.salon_name || ""} />
+      {/* Le chatbot Maria ne s'affiche plus ici : il est réservé au site web
+          du professionnel (page /maria-site/:code). */}
+
+      {/* « Appel interne » : l'agent vocal IA du salon décroche l'appel */}
+      {showAiCall && targetEmail && (
+        <VisitorVoiceCall
+          proEmail={targetEmail}
+          salonName={proInfo?.salon_name || targetEmail}
+          avatarUrl={proInfo?.avatar_url || null}
+          onClose={() => setShowAiCall(false)}
+        />
       )}
 
       {/* Menu Modal */}

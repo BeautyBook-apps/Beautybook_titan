@@ -492,7 +492,7 @@ const DEFINITIONS = [
     type: 'function',
     name: 'get_team',
     description:
-      "Retourne la VRAIE équipe du salon (noms et rôles des collaborateurs). À appeler quand le client souhaite un(e) professionnel(le) précis(e). Ne propose JAMAIS un nom qui n'y figure pas.",
+      "Retourne la VRAIE équipe du salon (noms et rôles des collaborateurs). À appeler SYSTÉMATIQUEMENT au début du parcours de réservation pour proposer les vrais prénoms au client. Ne propose JAMAIS un nom qui n'y figure pas.",
     parameters: {
       type: 'object',
       properties: {},
@@ -651,8 +651,10 @@ function buildExecutors(proEmail) {
       const members = (data || [])
         .filter((m) => String(m?.name || '').trim())
         .filter((m) => {
+          // Statuts réels de la table MembreEquipe : 'available' | 'pause' | 'absent'
+          // (l'onglet Équipe du pro). On ne propose que les membres disponibles.
           const st = String(m?.status || '').toLowerCase();
-          return !st || st === 'actif' || st === 'active';
+          return !st || st === 'available' || st === 'actif' || st === 'active' || st === 'dispo' || st === 'disponible';
         })
         .map((m) => ({ name: String(m.name).trim(), role: String(m.role || '').trim() }));
       if (members.length === 0) {
@@ -955,7 +957,24 @@ function buildExecutors(proEmail) {
         ? 'par carte (le salon enverra un lien de paiement sécurisé au client)'
         : 'au salon';
       const persons = Math.max(1, Math.min(20, parseInt(args.persons, 10) || 1));
-      const collaborateur = String(args.collaborateur || '').trim() || null;
+      // ── Collaborateur : on n'accepte QUE les vrais noms de l'équipe ──────
+      // (anti-hallucination : un nom inventé par l'agent est rejeté).
+      let collaborateur = String(args.collaborateur || '').trim() || null;
+      let collaborateurRejected = null;
+      if (collaborateur) {
+        try {
+          const teamCheck = await getTeam();
+          const realNames = (teamCheck.members || []).map((m) => String(m.name || '').trim().toLowerCase());
+          const norm = collaborateur.toLowerCase();
+          const match = realNames.find((n) => n === norm) || realNames.find((n) => n.includes(norm) || norm.includes(n));
+          if (match) {
+            collaborateur = (teamCheck.members || []).find((m) => String(m.name || '').trim().toLowerCase() === match)?.name?.trim() || collaborateur;
+          } else {
+            collaborateurRejected = collaborateur;
+            collaborateur = null;
+          }
+        } catch { /* en cas de doute on garde la valeur, tracée dans les notes */ }
+      }
 
       // ── Tarification : base × personnes + majoration nuit (+50 % si 21h→7h)
       // + services supplémentaires + produit commandé + frais de déplacement.
@@ -990,6 +1009,7 @@ function buildExecutors(proEmail) {
       if (productInfo) notesParts.push(`[Produit commandé] ${productInfo.name} (${productInfo.price}€)${productInfo.delivery_delay ? ` — délai de livraison : ${productInfo.delivery_delay}` : ''}`);
       if (isHomeService) notesParts.push(`[Prestation à domicile] frais de déplacement : ${transportFee}€`);
       if (nightSurcharge > 0) notesParts.push(`[Majoration nuit +50%] ${nightSurcharge}€`);
+      if (collaborateurRejected) notesParts.push(`[Professionnel demandé non reconnu — nom ignoré : ${collaborateurRejected}]`);
       const extraNotes = String(args.notes || '').trim();
       if (extraNotes) notesParts.push(extraNotes);
 
@@ -1006,7 +1026,11 @@ function buildExecutors(proEmail) {
         persons,
         collaborateur,
         date: dateStr,
+        // Heure écrite en double (time_slot ET time) : selon la colonne lue
+        // par le détail du RDV, l'heure est toujours remplie. Les colonnes
+        // inexistantes sont retirées par lenientInsert.
         time_slot: slot,
+        time: slot,
         duration_min: duration,
         end_time_slot: fmtSlot(endMin),
         status: 'confirme',
