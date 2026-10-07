@@ -4,14 +4,20 @@ const PUBLIC_STATUSES = new Set(['actif', 'active', 'publie', 'publiee', 'publis
 
 function asPages(ad) {
   if (Array.isArray(ad.pages) && ad.pages.length > 0) {
-    return ad.pages.map(page => String(page).toLowerCase());
+    return ad.pages.map(page => {
+      const value = String(page).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_\s]+/g, '');
+      if (value.includes('style')) return 'styles';
+      if (value.includes('service')) return 'services';
+      if (value.includes('reel')) return 'reels';
+      return String(page).toLowerCase();
+    });
   }
 
-  const type = String(ad.type || '').toLowerCase();
+  const type = String(ad.type || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_\s]+/g, '');
   if (['feed', 'reel', 'reels'].includes(type)) return ['reels'];
-  if (['banner_styles', 'banniere_styles', 'style', 'styles'].includes(type)) return ['styles'];
-  if (['banner_services', 'banniere_services', 'service', 'services'].includes(type)) return ['services'];
-  if (['banner', 'banniere', 'styles', 'services'].includes(type)) return ['styles', 'services'];
+  if (type.includes('style')) return ['styles'];
+  if (type.includes('service')) return ['services'];
+  if (['banner', 'banniere'].includes(type)) return ['styles', 'services'];
   return [];
 }
 

@@ -9,6 +9,7 @@ import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { likesApi } from '@/api/likes';
 import SponsoredCard from "@/components/reels/SponsoredCard";
+import { getPublicAds } from "@/lib/publicAds";
 import MapWithPricePins from "@/components/map/MapWithPricePins";
 import AdvancedFilterSheet from "@/components/filters/AdvancedFilterSheet";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
@@ -386,8 +387,9 @@ function StylesTab({ activeCategory }) {
   }, []);
 
   useEffect(() => {
-    /* TODO: migrate to Supabase Edge Function */ (async () => ({ data: { success: true } }))("getAnnonces", { type: "feed" })
-      .then(res => setAnnonces(res.data?.annonces || [])).catch(() => {});
+    getPublicAds({ page: "styles", limit: 20 })
+      .then(setAnnonces)
+      .catch(() => setAnnonces([]));
 
     fetchStyles().finally(() => setLoading(false));
 
@@ -461,7 +463,7 @@ function StylesTab({ activeCategory }) {
               <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "calc(100dvh - 180px - env(safe-area-inset-bottom, 60px))" }}
                 className="bg-gray-50 flex flex-col items-center px-4 pt-4 pb-8 overflow-y-auto">
                 <div className="w-full max-w-sm">
-                  <SponsoredCard annonce={annonces[Math.floor(idx / 5 - 1) % annonces.length]} onClose={() => setHiddenAds(h => [...h, idx])} />
+                  <SponsoredCard annonce={annonces[Math.floor(idx / 5 - 1) % annonces.length]} onClose={() => setHiddenAds(h => [...h, idx])} variant="styles" />
                 </div>
               </div>
             )}
