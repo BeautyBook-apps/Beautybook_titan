@@ -482,11 +482,6 @@ function StylesTab({ activeCategory }) {
 
   if (filteredStyles.length === 0) return (
     <>
-      {annonces.length > 0 && !hiddenAds.includes('empty') && (
-        <div className="bg-black flex flex-col overflow-hidden" style={{ height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))" }}>
-          <SponsoredCard annonce={annonces[0]} onClose={() => setHiddenAds(h => [...h, 'empty'])} variant="styles" />
-        </div>
-      )}
       <div className="flex flex-col items-center justify-center gap-3 px-8 text-center" style={{ height: "calc(100vh - 260px)" }}>
         <div className="w-20 h-20 rounded-3xl bg-orange-50 flex items-center justify-center">
           <Palette className="w-10 h-10 text-orange-400" />
@@ -508,10 +503,10 @@ function StylesTab({ activeCategory }) {
       <div ref={scrollRef} className="overflow-y-scroll hide-scrollbar" style={{ height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))", scrollSnapType: "y mandatory", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
         {filteredStyles.map((style, idx) => (
           <React.Fragment key={style.id}>
-            {(idx === 0 || idx > 0 && idx % 5 === 0) && annonces.length > 0 && !hiddenAds.includes(idx) && (
+            {idx > 0 && idx % 5 === 0 && annonces.length > 0 && !hiddenAds.includes(idx) && (
               <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))" }}
                 className="bg-black flex flex-col overflow-hidden">
-                <SponsoredCard annonce={annonces[idx === 0 ? 0 : Math.floor(idx / 5 - 1) % annonces.length]} onClose={() => setHiddenAds(h => [...h, idx])} variant="styles" />
+                <SponsoredCard annonce={annonces[Math.floor(idx / 5 - 1) % annonces.length]} onClose={() => setHiddenAds(h => [...h, idx])} variant="styles" />
               </div>
             )}
             <StyleCard
@@ -1133,7 +1128,7 @@ function ServicesTab({ activeCategory }) {
   const [profilsMap, setProfilsMap] = useState({});
   const [bundleServiceIds, setBundleServiceIds] = useState(new Set());
   const [annonces, setAnnonces] = useState([]);
-  const [hiddenAdIndex, setHiddenAdIndex] = useState(0);
+  const [hiddenAds, setHiddenAds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtreAIStyle, setFiltreAIStyle] = useState(null); // { title, id } du style à pré-sélectionner
 
@@ -1189,15 +1184,6 @@ function ServicesTab({ activeCategory }) {
           </div>
         </div>
       </div>
-      {annonces[hiddenAdIndex] && (
-        <div className="mx-4 overflow-hidden rounded-3xl bg-black" style={{ height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))" }}>
-          <SponsoredCard
-            annonce={annonces[hiddenAdIndex]}
-            onClose={() => setHiddenAdIndex(index => index + 1)}
-            variant="styles"
-          />
-        </div>
-      )}
       <AdvancedFilterSheet open={showFilters} onClose={() => setShowFilters(false)} onApply={setFilters} initialFilters={filters} />
       {filtreAIStyle && (
         <FiltreAIModal
@@ -1215,7 +1201,7 @@ function ServicesTab({ activeCategory }) {
           <p className="text-[16px] font-black text-gray-700">Aucun service disponible</p>
           <p className="text-[13px] text-gray-400">Aucun professionnel dans cette catégorie.</p>
         </div>
-      ) : filtered.map((item) => {
+      ) : filtered.map((item, idx) => {
         const pro = profilsMap[item.pro_email];
         // Rassembler toutes les images du service
         // Rassembler toutes les images du service
@@ -1225,9 +1211,21 @@ function ServicesTab({ activeCategory }) {
         // Ajouter la vidéo si présente
         if (item.video_url && !media.includes(item.video_url)) media.unshift(item.video_url);
         const isOnline = pro?.status === "actif";
+        const adSlot = idx > 0 && idx % 5 === 0 ? Math.floor(idx / 5 - 1) : null;
+        const annonce = adSlot === null ? null : annonces[adSlot % annonces.length];
         return (
-          <div key={item.id} className="mx-4 bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
-            <div className="relative">
+          <React.Fragment key={item.id}>
+            {annonce && !hiddenAds.includes(adSlot) && (
+              <div className="mx-4 overflow-hidden rounded-3xl bg-black" style={{ height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))" }}>
+                <SponsoredCard
+                  annonce={annonce}
+                  onClose={() => setHiddenAds(hidden => [...hidden, adSlot])}
+                  variant="styles"
+                />
+              </div>
+            )}
+            <div className="mx-4 bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+              <div className="relative">
               {media.length > 0 ? (
                 <CardMediaSlider media={media} onCardClick={() => navigate(`/service/${item.id}`, { state: { id: item.id } })} />
               ) : (
@@ -1351,8 +1349,9 @@ function ServicesTab({ activeCategory }) {
                 </div>
                 <span className="text-[22px] font-black text-primary">{item.price} €</span>
               </div>
+              </div>
             </div>
-          </div>
+          </React.Fragment>
         );
       })}
     </div>
