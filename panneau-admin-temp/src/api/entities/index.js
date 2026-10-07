@@ -28,6 +28,7 @@ const createEntity = (tableName) => ({
 /* ─── Local-storage-backed stub for StyleCategory / StyleSubCategory ─── */
 const SEED_CATEGORIES = [
   { id: 'coiffure',    name: 'Coiffure',         slug: 'coiffure',    icon: 'Scissors',   color: '#8B5CF6', is_active: true, styles_count: 0, subcategories_count: 3 },
+  { id: 'perruque',    name: 'Perruque',         slug: 'perruque',    icon: 'Sparkles',   color: '#7C3AED', is_active: true, styles_count: 0, subcategories_count: 0 },
   { id: 'tresses',     name: 'Tresses',          slug: 'tresses',     icon: 'Waves',      color: '#F43F5E', is_active: true, styles_count: 0, subcategories_count: 0 },
   { id: 'manucure',    name: 'Manucure',         slug: 'manucure',    icon: 'Gem',        color: '#F59E0B', is_active: true, styles_count: 0, subcategories_count: 0 },
   { id: 'pedicure',    name: 'Pédicure',         slug: 'pedicure',    icon: 'Star',       color: '#EC4899', is_active: true, styles_count: 0, subcategories_count: 0 },
@@ -54,7 +55,21 @@ const _uuid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${M
 const _loadStore = (key, seed) => {
   try {
     const raw = localStorage.getItem(key);
-    if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed) && parsed.length) return parsed; }
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) {
+        const knownIds = new Set(parsed.map(item => item.id));
+        const missing = seed
+          .filter(item => !knownIds.has(item.id))
+          .map(item => ({ ...item, created_at: _now(), updated_at: _now() }));
+        if (missing.length) {
+          const merged = [...parsed, ...missing];
+          _saveStore(key, merged);
+          return merged;
+        }
+        return parsed;
+      }
+    }
   } catch {}
   const seeded = seed.map(s => ({ ...s, created_at: _now(), updated_at: _now() }));
   localStorage.setItem(key, JSON.stringify(seeded));

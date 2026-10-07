@@ -3,6 +3,7 @@ import { Scissors, Gem, Sparkles, Heart, Wind, Eye, Droplets, Waves, Flower2, St
 
 export const GLOBAL_CATEGORIES = [
   { id: "coiffure",    label: "Coiffure",        dbValue: "Coiffure",    Icon: Scissors,  color: "text-purple-500",   bg: "bg-purple-50",   border: "border-purple-200" },
+  { id: "perruque",    label: "Perruque",        dbValue: "Perruque",    Icon: Sparkles,  color: "text-violet-500",    bg: "bg-violet-50",  border: "border-violet-200" },
   { id: "tresses",     label: "Tresses",          dbValue: "Coiffure",    Icon: Waves,     color: "text-rose-500",     bg: "bg-rose-50",     border: "border-rose-200" },
   { id: "manucure",    label: "Manucure",         dbValue: "Ongles",      Icon: Gem,       color: "text-amber-500",    bg: "bg-amber-50",    border: "border-amber-200" },
   { id: "pedicure",    label: "Pédicure",         dbValue: "Ongles",      Icon: Star,      color: "text-pink-500",     bg: "bg-pink-50",     border: "border-pink-200" },

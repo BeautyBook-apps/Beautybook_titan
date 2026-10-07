@@ -154,7 +154,7 @@ function CardMediaSlider({ media, onCardClick }) {
   );
 }
 
-const STYLE_CATEGORIES = ["Tous", "Coiffure", "Maquillage", "Ongles", "Soin", "Barbe", "Massage"];
+const STYLE_CATEGORIES = ["Tous", "Coiffure", "Perruque", "Maquillage", "Ongles", "Soin", "Barbe", "Massage"];
 const SERVICE_CATEGORIES = ["Tous", "Coiffure", "Maquillage", "Ongles", "Soin", "Barbe", "Massage", "Épilation"];
 const SALON_CATEGORIES = ["Tous", "Prestige", "Luxe", "Bio", "Moderne", "Classique"];
 const PARTICULIER_CATEGORIES = ["Tous", "Coiffure", "Maquillage", "Ongles", "Soin", "Barbe"];
@@ -2369,6 +2369,7 @@ export default function ServicesSalons() {
   // Mapping catégorie id (depuis Home GLOBAL_CATEGORIES) → tab + sous-catégorie
   const CAT_MAP = {
     "coiffure":   { tab: "STYLES",       sub: "Coiffure" },
+    "perruque":   { tab: "STYLES",       sub: "Perruque" },
     "tresses":    { tab: "STYLES",       sub: "Coiffure" },
     "maquillage": { tab: "STYLES",       sub: "Maquillage" },
     "manucure":   { tab: "STYLES",       sub: "Ongles" },
