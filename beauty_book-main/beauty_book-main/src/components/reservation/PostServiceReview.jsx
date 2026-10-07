@@ -12,7 +12,7 @@ export default function PostServiceReview({reservation,proEmail,proName,onClose,
  useEffect(()=>{let active=true;(async()=>{try{
   const {data:{user},error:authError}=await supabase.auth.getUser();if(authError)throw authError;if(!user)throw new Error('Connectez-vous pour laisser un avis.');
   const {data,error:queryError}=await supabase.from('Avis').select('*').eq('reservation_id',reservation.id).eq('auteur_email',user.email).maybeSingle();if(queryError)throw queryError;
-  if(active&&data){setExisting(data);setNote(Number(data.note));setCommentaire(data.commentaire||'');setCriteres(data.criteres||{});}
+  if(active&&data){setExisting(data);setNote(Number(data.note??data.rating));setCommentaire(data.commentaire??data.comment??'');setCriteres(data.criteres||{});}
  }catch(e){if(active)setError(e.message||'Impossible de charger votre avis.');}finally{if(active)setLoading(false);}})();return()=>{active=false;};},[reservation.id]);
  async function save(e){e.preventDefault();if(!note||saving)return;setSaving(true);setError('');try{
   const {data:{user},error:authError}=await supabase.auth.getUser();

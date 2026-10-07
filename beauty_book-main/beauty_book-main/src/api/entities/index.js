@@ -3,6 +3,24 @@ import { apiClient } from '@/lib/apiClient';
 import { compressMedia } from '@/lib/compressMedia';
 
 const checked = ({data,error}) => { if(error) throw error; return data; };
+const legacyAvisPayload = input => ({
+  reservation_id: input.reservation_id,
+  type: input.type,
+  auteur_email: input.auteur_email,
+  auteur_name: input.auteur_nom || input.auteur_name || '',
+  cible_email: input.cible_email,
+  cible_name: input.cible_nom || input.cible_name || '',
+  rating: Number(input.note ?? input.rating),
+  comment: input.commentaire ?? input.comment ?? '',
+  service_name: input.service_nom || input.service_name || '',
+  images: Array.isArray(input.images) ? input.images : [],
+  created_by_id: input.created_by_id,
+});
+const legacyAvisUpdatePayload = input => ({
+  rating: Number(input.note ?? input.rating),
+  comment: input.commentaire ?? input.comment ?? '',
+  images: Array.isArray(input.images) ? input.images : [],
+});
 const createEntity = table => ({
   async filter(filters={},orderBy='-created_at',limit=1000){
     let query=supabase.from(table).select('*');
@@ -20,11 +38,21 @@ const createEntity = table => ({
     if(table==='Reservation')return (await apiClient.callFunction('createReservation',input)).data.reservation;
     const {data:{session}}=await supabase.auth.getSession();
     if(!session)throw new Error('Connectez-vous pour effectuer cette action.');
-    return checked(await supabase.from(table).insert(input).select().single());
+    const result=await supabase.from(table).insert(input).select().single();
+    if(table==='Avis'&&result.error?.code==='PGRST204'){
+      const legacyResult=await supabase.from(table).insert(legacyAvisPayload(input)).select().single();
+      return checked(legacyResult);
+    }
+    return checked(result);
   },
   async update(id,input){
     if(table==='Reservation')return (await apiClient.put('/api/reservations/'+id,input)).reservation;
-    return checked(await supabase.from(table).update(input).eq('id',id).select().single());
+    const result=await supabase.from(table).update(input).eq('id',id).select().single();
+    if(table==='Avis'&&result.error?.code==='PGRST204'){
+      const legacyResult=await supabase.from(table).update(legacyAvisUpdatePayload(input)).eq('id',id).select().single();
+      return checked(legacyResult);
+    }
+    return checked(result);
   },
   async delete(id){
     if(table==='Reservation')throw new Error('Annulez le rendez-vous depuis son détail pour conserver son historique.');
