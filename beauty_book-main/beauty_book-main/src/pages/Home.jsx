@@ -398,29 +398,6 @@ export default function Home() {
         <HeroSlider banners={heroBanners} user={user} navigate={navigate} />
       </div>
 
-      {stylesTendance.length > 0 && (
-        <div className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
-          <SectionTitle title="Styles Tendance" action="Voir tout" onAction={() => navigate("/services-salons?tab=STYLES")} />
-          <div className="grid grid-cols-2 gap-3">
-            {stylesTendance.slice(0, 4).map(style => {
-              const image = style.image_url || (style.images && style.images[0]) || "";
-              return (
-                <button key={style.id || style.title}
-                  onClick={() => navigate(`/style/${style.id}`)}
-                  className="relative h-[170px] overflow-hidden rounded-2xl bg-gray-200 text-left shadow-sm active:scale-[0.98] transition-all">
-                  <BeautyImage src={image} alt={style.title || "Style tendance"} className="w-full h-full object-cover" />
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent px-3 pb-3 pt-10">
-                    <p className="truncate text-[13px] font-black text-white">{style.title || "Style tendance"}</p>
-                    {style.category && <p className="mt-0.5 truncate text-[10px] font-medium text-white/75">{style.category}</p>}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-
       {/* ── Catégories — fond nude ── */}
       <div data-tour="categories" className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
         <SectionTitle title="Catégories" />
@@ -442,6 +419,29 @@ export default function Home() {
           })}
         </div>
       </div>
+
+      {/* ── Styles Tendance ── */}
+      {stylesTendance.length > 0 && (
+        <div className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
+          <SectionTitle title="Styles Tendance" action="Voir tout" onAction={() => navigate("/services-salons?tab=STYLES")} />
+          <div className="grid grid-cols-2 gap-3">
+            {stylesTendance.slice(0, 4).map(style => {
+              const image = style.image_url || (style.images && style.images[0]) || "";
+              return (
+                <button key={style.id || style.title}
+                  onClick={() => navigate(`/style/${style.id}`)}
+                  className="relative h-[170px] overflow-hidden rounded-2xl bg-gray-200 text-left shadow-sm active:scale-[0.98] transition-all">
+                  <BeautyImage src={image} alt={style.title || "Style tendance"} className="w-full h-full object-cover" />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent px-3 pb-3 pt-10">
+                    <p className="truncate text-[13px] font-black text-white">{style.title || "Style tendance"}</p>
+                    {style.category && <p className="mt-0.5 truncate text-[10px] font-medium text-white/75">{style.category}</p>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Services Tendance ── */}
       <div data-tour="services" className="px-4 py-4">
