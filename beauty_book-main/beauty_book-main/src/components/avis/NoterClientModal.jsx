@@ -78,15 +78,20 @@ export default function NoterClientModal({ reservation, onClose, onSuccess }) {
     setLoading(true);
     setError('');
     try {
+      if (!user?.id || !user.email) throw new Error("Connectez-vous pour enregistrer cet avis.");
       await entities.Avis.create({
         reservation_id: reservation.id,
         type: "pro_to_client",
         auteur_email: user.email,
-        auteur_nom: user.full_name || "Pro",
+        auteur_nom: user.full_name || user.user_metadata?.full_name || "Pro",
+        auteur_avatar: user.avatar_url || user.user_metadata?.avatar_url || "",
+        created_by_id: user.id,
+        status: "published",
         cible_email: reservation.client_email,
         cible_nom: reservation.client_name || reservation.client_email?.split("@")[0] || "Client",
         note,
         commentaire,
+        images: [],
         service_nom: reservation.service_name,
         criteres: {
           presence,

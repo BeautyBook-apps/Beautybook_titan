@@ -15,10 +15,25 @@ export default function PostServiceReview({reservation,proEmail,proName,onClose,
   if(active&&data){setExisting(data);setNote(Number(data.note));setCommentaire(data.commentaire||'');setCriteres(data.criteres||{});}
  }catch(e){if(active)setError(e.message||'Impossible de charger votre avis.');}finally{if(active)setLoading(false);}})();return()=>{active=false;};},[reservation.id]);
  async function save(e){e.preventDefault();if(!note||saving)return;setSaving(true);setError('');try{
-  const input={note,commentaire:commentaire.trim(),criteres};
-  const review=existing?await entities.Avis.update(existing.id,input):await entities.Avis.create({...input,reservation_id:reservation.id,type:'client_to_pro',cible_email:proEmail||reservation.pro_email});
+  const {data:{user},error:authError}=await supabase.auth.getUser();
+  if(authError)throw authError;
+  if(!user?.id||!user.email)throw new Error('Connectez-vous pour laisser un avis.');
+  const input={note:Number(note),commentaire:commentaire.trim(),criteres:criteres&&typeof criteres==='object'?criteres:{},images:[]};
+  const review=existing?await entities.Avis.update(existing.id,input):await entities.Avis.create({
+   ...input,
+   reservation_id:reservation.id,
+   type:'client_to_pro',
+   auteur_email:user.email,
+   auteur_nom:user.user_metadata?.full_name||user.email,
+   auteur_avatar:user.user_metadata?.avatar_url||'',
+   created_by_id:user.id,
+   status:'published',
+   cible_email:proEmail||reservation.pro_email,
+   cible_nom:proName||reservation.pro_name||'',
+   service_nom:reservation.service_name||'',
+  });
   setExisting(review);setDone(true);onSubmitted?.(review);
- }catch(e){setError(e.message||'Votre avis n’a pas été enregistré. Réessayez.');}finally{setSaving(false);}}
+ }catch(e){console.error('[PostServiceReview] Avis create failed',e);setError(e.message||e.details||'Votre avis n’a pas été enregistré. Réessayez.');}finally{setSaving(false);}}
  return <div className="fixed inset-0 z-[300] bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="review-title" className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[92dvh] overflow-y-auto p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
   <header className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Votre expérience</p><h2 id="review-title" className="text-2xl font-bold mt-1">{done?'Merci pour votre avis':existing?'Modifier mon avis':'Comment s’est passé votre rendez-vous ?'}</h2><p className="text-sm text-gray-500 mt-2">{reservation.service_name} · {proName||reservation.pro_name}</p></div><button type="button" onClick={onClose} aria-label="Fermer" className="min-h-11 min-w-11 rounded-full bg-gray-100 flex items-center justify-center"><X className="h-5 w-5"/></button></header>
   {error&&<p role="alert" className="my-4 rounded-xl bg-red-50 text-red-800 text-sm p-3">{error}</p>}
