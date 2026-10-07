@@ -46,7 +46,7 @@ function MediaSlider({ media, onImageClick }) {
         >
           {item.type === "video" ? (
             <div className="relative w-full h-full bg-black">
-              <video src={item.url} muted loop playsInline autoPlay={i === current} className="w-full h-full object-cover object-center" />
+              <video src={item.url} muted loop playsInline autoPlay={i === current} className="w-full h-full object-cover object-[center_55%]" />
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/40">
                   <Play className="w-7 h-7 text-white fill-white ml-1" />
@@ -54,7 +54,7 @@ function MediaSlider({ media, onImageClick }) {
               </div>
             </div>
           ) : (
-              <BeautyImage src={item.url} alt="" className="w-full h-full object-cover object-center cursor-pointer" onClick={() => onImageClick?.(i)} />
+              <BeautyImage src={item.url} alt="" className="w-full h-full object-cover object-[center_55%] cursor-pointer" onClick={() => onImageClick?.(i)} />
           )}
         </div>
       ))}
