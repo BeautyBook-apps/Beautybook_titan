@@ -67,7 +67,11 @@ function HeroSlider({ banners, user, navigate }) {
             <h2 className="text-white text-[24px] font-black leading-tight whitespace-pre-line drop-shadow-sm">{banner.title || ""}</h2>
             {banner.subtitle && <p className="text-white/85 text-[12px] font-medium mt-1">{banner.subtitle}</p>}
             {banner.cta && (
-              <button onClick={() => banner.cta_link && navigate(banner.cta_link)}
+              <button onClick={() => {
+                if (!banner.cta_link) return;
+                if (banner.cta_link.startsWith('/')) navigate(banner.cta_link);
+                else window.open(banner.cta_link, '_blank', 'noopener,noreferrer');
+              }}
                 className="mt-3 bg-white text-gray-900 text-[11px] font-black uppercase px-5 py-2.5 rounded-full tracking-widest shadow-lg active:scale-95 transition-all inline-flex items-center gap-1.5">
                 {banner.cta} <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -289,9 +293,22 @@ export default function Home() {
 
   const { containerRef, pulling, pullDistance } = usePullToRefresh(handleRefresh);
 
-  const heroBanners = homeConfig.hero_banners?.length > 0
+  const configuredHeroBanners = homeConfig.hero_banners?.length > 0
     ? homeConfig.hero_banners
     : [];
+  const publicBannerBanners = annoncesPub
+    .filter(ad => ['banner', 'banniere'].includes(String(ad.type || '').toLowerCase()) || ad.pages?.includes('banner'))
+    .map(ad => ({
+      id: `public-${ad.id}`,
+      image: ad.image_url,
+      title: ad.title || 'Annonce partenaire',
+      subtitle: ad.sponsor_name || '',
+      badge: 'Publicité',
+      cta: ad.cta_url ? (ad.cta_label || 'En savoir plus') : '',
+      cta_link: ad.cta_url || '',
+      overlay_opacity: 0.45,
+    }));
+  const heroBanners = [...configuredHeroBanners, ...publicBannerBanners];
 
   const servicesTendanceRaw = homeConfig.services_tendance?.length > 0
     ? homeConfig.services_tendance
@@ -354,7 +371,7 @@ export default function Home() {
         <div className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
           <SectionTitle title="Annonces partenaires" />
           <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-1 px-1">
-            {annoncesPub.map(ad => {
+            {annoncesPub.filter(ad => String(ad.type || '').toLowerCase() !== 'banner').map(ad => {
               const openAd = () => {
                 if (!ad.cta_url) return;
                 if (ad.cta_url.startsWith('/')) navigate(ad.cta_url);
