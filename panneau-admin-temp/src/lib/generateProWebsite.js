@@ -195,7 +195,7 @@ export function generateProWebsite(
       height: 46px;
       border-radius: 50%;
       object-fit: cover;
-      object-position: center top;
+      object-position: center center;
       border: 2px solid var(--gold);
       box-shadow: 0 4px 12px rgba(198, 161, 91, 0.2);
     }
@@ -401,7 +401,7 @@ export function generateProWebsite(
       width: 100%;
       height: 100%;
       object-fit: cover;
-      object-position: center top;
+      object-position: center center;
       transition: transform 0.5s ease;
     }
     .luxury-card:hover .card-photo-wrap img {
@@ -587,7 +587,7 @@ export function generateProWebsite(
       width: 100%;
       height: 100%;
       object-fit: cover;
-      object-position: center top;
+      object-position: center center;
       transition: transform 0.4s ease;
     }
     .gallery-item:hover img {

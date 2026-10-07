@@ -143,6 +143,12 @@
     user-select: none;
     -webkit-user-select: none;
   }
+
+  /* Les médias éditoriaux restent centrés ; les publicités peuvent surcharger
+     cette règle avec leur cadrage dédié (par exemple object-top). */
+  img, video {
+    object-position: center center;
+  }
 }
 
 .no-scrollbar::-webkit-scrollbar,

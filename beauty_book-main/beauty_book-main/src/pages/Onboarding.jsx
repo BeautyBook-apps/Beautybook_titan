@@ -72,7 +72,7 @@ function StepSplash({ onNext }) {
         <BeautyImage
           src="/splash_bg.jpg"
           alt="Beauty communities"
-          className="w-full h-full object-cover object-top"
+          className="w-full h-full object-cover object-center"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/20" />
       </div>
