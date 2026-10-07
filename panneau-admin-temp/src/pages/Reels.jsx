@@ -1107,9 +1107,9 @@ export default function Reels() {
             if (hiddenAds.includes(adKey)) return null;
             return (
               <div key={adKey} data-idx={feedIdx}
-                className="relative bg-white flex flex-col items-center justify-center px-4"
-                style={{ height: "100dvh", scrollSnapAlign: "start", scrollSnapStop: "always", paddingTop: "calc(58px + env(safe-area-inset-top, 0px))", paddingBottom: "calc(70px + env(safe-area-inset-bottom, 16px))" }}>
-                <div className="w-full max-w-sm">
+                className="relative bg-black overflow-hidden"
+                style={{ height: "100dvh", scrollSnapAlign: "start", scrollSnapStop: "always" }}>
+                <div className="absolute inset-0 overflow-hidden">
                   <SponsoredCard annonce={item.annonce} onClose={() => setHiddenAds(h => [...h, adKey])} />
                 </div>
               </div>

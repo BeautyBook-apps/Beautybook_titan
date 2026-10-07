@@ -461,10 +461,8 @@ function StylesTab({ activeCategory }) {
           <React.Fragment key={style.id}>
             {idx > 0 && idx % 5 === 0 && annonces.length > 0 && !hiddenAds.includes(idx) && (
               <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "calc(100dvh - 180px - env(safe-area-inset-bottom, 60px))" }}
-                className="bg-gray-50 flex flex-col items-center px-4 pt-4 pb-8 overflow-y-auto">
-                <div className="w-full max-w-sm">
-                  <SponsoredCard annonce={annonces[Math.floor(idx / 5 - 1) % annonces.length]} onClose={() => setHiddenAds(h => [...h, idx])} variant="styles" />
-                </div>
+                className="bg-black flex flex-col overflow-hidden">
+                <SponsoredCard annonce={annonces[Math.floor(idx / 5 - 1) % annonces.length]} onClose={() => setHiddenAds(h => [...h, idx])} variant="styles" />
               </div>
             )}
             <StyleCard
@@ -479,10 +477,8 @@ function StylesTab({ activeCategory }) {
         ))}
         {filteredStyles.length === 5 && annonces[0] && !hiddenAds.includes(5) && (
           <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "calc(100dvh - 180px - env(safe-area-inset-bottom, 60px))" }}
-            className="bg-gray-50 flex flex-col items-center px-4 pt-4 pb-8 overflow-y-auto">
-            <div className="w-full max-w-sm">
-              <SponsoredCard annonce={annonces[0]} onClose={() => setHiddenAds(h => [...h, 5])} variant="styles" />
-            </div>
+            className="bg-black flex flex-col overflow-hidden">
+            <SponsoredCard annonce={annonces[0]} onClose={() => setHiddenAds(h => [...h, 5])} variant="styles" />
           </div>
         )}
       </div>

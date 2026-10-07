@@ -1222,7 +1222,7 @@ function ServicesTab({ activeCategory }) {
         return (
           <React.Fragment key={item.id}>
             {annonce && !hiddenAds.includes(adSlot) && (
-              <div className="mx-4 overflow-hidden rounded-3xl bg-black" style={{ height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))" }}>
+              <div className="w-full overflow-hidden bg-black" style={{ height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))" }}>
                 <SponsoredCard
                   annonce={annonce}
                   onClose={() => setHiddenAds(hidden => [...hidden, adSlot])}
