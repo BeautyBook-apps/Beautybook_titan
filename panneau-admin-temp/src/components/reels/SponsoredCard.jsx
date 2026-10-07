@@ -1,13 +1,45 @@
 import { useEffect, useRef, useState } from "react";
 import { ExternalLink, Volume2, VolumeX, X } from "lucide-react";
 
-function Media({ annonce, soundOn }) {
+function Media({ annonce, soundOn, onAutoPause }) {
   const videoRef = useRef(null);
+  const visibleRef = useRef(true);
+  const restartReadyRef = useRef(true);
+  const restartTimerRef = useRef(null);
   const isVideo = Boolean(annonce.video_url);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = !soundOn;
   }, [soundOn]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      const isVisible = entry.isIntersecting && entry.intersectionRatio >= 0.35;
+      visibleRef.current = isVisible;
+      if (!isVisible) {
+        restartReadyRef.current = false;
+        clearTimeout(restartTimerRef.current);
+        video.pause();
+        video.muted = true;
+        onAutoPause?.();
+        restartTimerRef.current = setTimeout(() => {
+          restartReadyRef.current = true;
+          video.currentTime = 0;
+          if (visibleRef.current) video.play().catch(() => {});
+        }, 30000);
+      } else if (restartReadyRef.current) {
+        video.currentTime = 0;
+        video.play().catch(() => {});
+      }
+    }, { threshold: [0, 0.35] });
+    observer.observe(video);
+    return () => {
+      observer.disconnect();
+      clearTimeout(restartTimerRef.current);
+    };
+  }, [onAutoPause]);
 
   if (isVideo) {
     return <video ref={videoRef} src={annonce.video_url} poster={annonce.image_url || undefined}
@@ -30,7 +62,7 @@ export default function SponsoredCard({ annonce, onClose }) {
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-black">
-      <Media annonce={annonce} soundOn={soundOn} />
+      <Media annonce={annonce} soundOn={soundOn} onAutoPause={() => setSoundOn(false)} />
       <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
       <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/85 via-black/35 to-transparent pointer-events-none" />
       <div className="absolute top-0 inset-x-0 flex items-center justify-between px-4 pb-3"

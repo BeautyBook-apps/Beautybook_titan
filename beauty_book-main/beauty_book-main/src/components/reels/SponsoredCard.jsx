@@ -16,14 +16,49 @@ export default function SponsoredCard({ annonce, onClose, variant = "reels" }) {
   );
 }
 
-function VideoPlayer({ src, poster, className, style, soundOn = false }) {
+function VideoPlayer({ src, poster, className, style, soundOn = false, onAutoPause }) {
   const ref = useRef(null);
+  const visibleRef = useRef(true);
+  const restartReadyRef = useRef(true);
+  const restartTimerRef = useRef(null);
   const [failed, setFailed] = useState(false);
 
   const tryPlay = useCallback(() => {
-    if (!ref.current) return;
+    if (!ref.current || !visibleRef.current || !restartReadyRef.current) return;
     ref.current.play().catch(() => setFailed(true));
   }, []);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      const isVisible = entry.isIntersecting && entry.intersectionRatio >= 0.35;
+      visibleRef.current = isVisible;
+
+      if (!isVisible) {
+        restartReadyRef.current = false;
+        clearTimeout(restartTimerRef.current);
+        el.pause();
+        el.muted = true;
+        onAutoPause?.();
+        restartTimerRef.current = setTimeout(() => {
+          restartReadyRef.current = true;
+          el.currentTime = 0;
+          if (visibleRef.current) tryPlay();
+        }, 30000);
+      } else if (restartReadyRef.current) {
+        el.currentTime = 0;
+        tryPlay();
+      }
+    }, { threshold: [0, 0.35] });
+
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      clearTimeout(restartTimerRef.current);
+    };
+  }, [onAutoPause, tryPlay]);
 
   useEffect(() => {
     if (!src || failed) return;
@@ -39,7 +74,7 @@ function VideoPlayer({ src, poster, className, style, soundOn = false }) {
   useEffect(() => {
     if (ref.current) {
       ref.current.muted = !soundOn;
-      if (soundOn) ref.current.play().catch(() => {});
+      if (soundOn && visibleRef.current && restartReadyRef.current) ref.current.play().catch(() => {});
     }
   }, [soundOn]);
 
@@ -102,7 +137,7 @@ function ReelsAd({ annonce, onClose }) {
     <div className="relative w-full h-full flex flex-col bg-black overflow-hidden">
       <div className="flex-1 relative min-h-0">
         {isVideo ? (
-          <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} className="absolute inset-0 w-full h-full object-cover object-top" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }} />
+          <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} onAutoPause={() => setSoundOn(false)} className="absolute inset-0 w-full h-full object-cover object-top" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }} />
         ) : (
           <BeautyImage src={annonce.image_url} alt={annonce.title} className="absolute inset-0 w-full h-full object-cover object-top" />
         )}
@@ -198,7 +233,7 @@ function StylesAd({ annonce, onClose }) {
     <div className="relative w-full h-full overflow-hidden bg-black">
       {/* Média plein cadre */}
       {isVideo ? (
-        <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} className="absolute inset-0 w-full h-full object-cover object-top" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }} />
+        <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} onAutoPause={() => setSoundOn(false)} className="absolute inset-0 w-full h-full object-cover object-top" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }} />
       ) : (
         <BeautyImage src={annonce.image_url} alt={annonce.title} className="absolute inset-0 w-full h-full object-cover object-top" />
       )}
