@@ -84,7 +84,6 @@ export default function NoterClientModal({ reservation, onClose, onSuccess }) {
         type: "pro_to_client",
         auteur_email: user.email,
         auteur_nom: user.full_name || user.user_metadata?.full_name || "Pro",
-        auteur_avatar: user.avatar_url || user.user_metadata?.avatar_url || "",
         created_by_id: user.id,
         status: "published",
         cible_email: reservation.client_email,
