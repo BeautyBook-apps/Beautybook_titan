@@ -147,7 +147,7 @@
   /* Les médias éditoriaux gardent un point focal visage ; les publicités
      peuvent surcharger cette règle avec leur cadrage dédié (par exemple object-top). */
   img, video {
-    object-position: center 65%;
+    object-position: center center;
   }
 }
 
