@@ -4,14 +4,16 @@ import { adminApi } from "@/lib/adminApiClient";
 import { entities } from "@/api/entities";
 import { uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
-import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3 } from "lucide-react";
+import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3, Lightbulb } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import AdminStyleConseils from "./AdminStyleConseils";
 
 
 const CATEGORIES = ["Coiffure", "Maquillage", "Ongles", "Soin", "Barbe", "Massage"];
 
 export default function AdminStyles() {
   const [styles, setStyles] = useState([]);
+  const [activeTab, setActiveTab] = useState("styles");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -237,10 +239,28 @@ export default function AdminStyles() {
     !search || s.title?.toLowerCase().includes(search.toLowerCase()) || s.category?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const renderTabs = () => (
+    <div className="flex items-center gap-2">
+      <button type="button" onClick={() => setActiveTab("styles")}
+        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-black transition-all ${activeTab === "styles" ? "bg-primary text-white shadow-md shadow-primary/20" : "bg-white text-gray-500 border border-gray-200 hover:bg-gray-50"}`}>
+        <Star className="w-4 h-4" /> Styles
+      </button>
+      <button type="button" onClick={() => setActiveTab("conseils")}
+        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-black transition-all ${activeTab === "conseils" ? "bg-primary text-white shadow-md shadow-primary/20" : "bg-white text-gray-500 border border-gray-200 hover:bg-gray-50"}`}>
+        <Lightbulb className="w-4 h-4" /> Conseils
+      </button>
+    </div>
+  );
+
   if (loading) return <div className="flex justify-center py-16"><div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
+
+  if (activeTab === "conseils") {
+    return <div className="space-y-4">{renderTabs()}<AdminStyleConseils styles={styles} /></div>;
+  }
 
   return (
     <div className="space-y-4">
+      {renderTabs()}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-3 flex-1 shadow-sm">
           <Search className="w-4 h-4 text-gray-400 shrink-0" />

@@ -4,14 +4,16 @@ import { adminApi } from "@/lib/adminApiClient";
 import { entities } from "@/api/entities";
 import { uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
-import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3, Palette, Tag, Tags, Zap, Clock, ChevronDown, ChevronUp, Scissors, Wrench } from "lucide-react";
+import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3, Palette, Tag, Tags, Zap, Clock, ChevronDown, ChevronUp, Scissors, Wrench, Lightbulb } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import AdminStyleCategories from "./AdminStyleCategories";
 import AdminStyleSubCategories from "./AdminStyleSubCategories";
 import AdminStyleAutomation from "./AdminStyleAutomation";
+import AdminStyleConseils from "./AdminStyleConseils";
 
 const TABS = [
   { id: "styles", label: "Styles", icon: Palette },
+  { id: "conseils", label: "Conseils", icon: Lightbulb },
   { id: "categories", label: "Catégories", icon: Tag },
   { id: "subcategories", label: "Sous-catégories", icon: Tags },
   { id: "automation", label: "Automatisation", icon: Zap },
@@ -600,6 +602,7 @@ export default function AdminStyles() {
       {activeTab === "categories" && <AdminStyleCategories />}
       {activeTab === "subcategories" && <AdminStyleSubCategories />}
       {activeTab === "automation" && <AdminStyleAutomation />}
+      {activeTab === "conseils" && <AdminStyleConseils styles={styles} />}
     </div>
   );
 }

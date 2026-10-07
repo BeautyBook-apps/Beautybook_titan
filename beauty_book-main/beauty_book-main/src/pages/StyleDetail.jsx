@@ -392,72 +392,91 @@ function ProvidersSection({ salons, particuliers, loading }) {
   );
 }
 
-// ── Conseils Section ─────────────────────────────────────────────────────────
-function ConseilsSection({ category }) {
-  const navigate = useNavigate();
-  const [conseils, setConseils] = useState([]);
++ // ── Conseils Section ─────────────────────────────────────────────────────────
+ function ConseilsSection({ style }) {
+   const navigate = useNavigate();
+   const [conseils, setConseils] = useState([]);
 
-  useEffect(() => {
-    entities.Reel.filter({ status: "publie", category: "Conseils" }, "-created_at", 10)
-      .then(items => {
-        const filtered = category
-          ? items.filter(r => !r.category || r.category === "Conseils" || r.category === category)
-          : items;
-        setConseils(filtered.slice(0, 6));
-      })
-      .catch(() => {});
-  }, [category]);
+   useEffect(() => {
+     const styleId = String(style?.id || "");
+     if (!styleId) {
+       setConseils([]);
+       return;
+     }
 
-  if (conseils.length === 0) return null;
+     let cancelled = false;
+     Promise.all([
+       entities.AppConfig.filter({ key: "style_conseils" }, "-created_at", 1),
+       entities.Reel.list("-created_at", 500),
+     ]).then(([configRows, reelRows]) => {
+       if (cancelled) return;
+       const config = Array.isArray(configRows) ? configRows[0] : configRows?.data?.results?.[0];
+       const selected = config?.value?.styles?.[styleId] || [];
+       const ids = selected.map(item => String(item?.id || item)).filter(Boolean);
+      const reels = Array.isArray(reelRows) ? reelRows : reelRows?.data?.results || reelRows?.data || [];
+      const byId = new Map(reels.map(reel => [String(reel.id), reel]));
+       setConseils(ids.map(id => byId.get(id)).filter(reel => {
+         if (!reel || reel.status !== "publie") return false;
+         const category = String(reel.category || "").trim().toLowerCase();
+         const pubType = String(reel.pub_type || "").trim().toLowerCase();
+         return ["conseil", "conseils"].includes(category) || pubType === "conseil";
+       }));
+     }).catch(() => {
+       if (!cancelled) setConseils([]);
+     });
 
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-0.5 bg-primary rounded-full" />
-          <h2 className="text-[20px] font-black text-gray-900">Conseils</h2>
-        </div>
-        <button
-          onClick={() => navigate("/reseau-social?tab=Conseils")}
-          className="text-[12px] font-black text-primary uppercase tracking-widest"
-        >
-          VOIR TOUT
-        </button>
-      </div>
-      <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-5 px-5 pb-1">
-        {conseils.map((conseil) => {
-          const thumb = conseil.thumbnail_url || conseil.image_url || (conseil.images && conseil.images[0]);
-          return (
-            <button
-              key={conseil.id}
-              onClick={() => navigate("/reseau-social?tab=Conseils")}
-              className="shrink-0 w-40 rounded-2xl overflow-hidden relative active:scale-[0.98] transition-all bg-gray-900"
-            >
-              <div className="h-52">
-                {thumb
-                  ? <BeautyImage src={thumb} alt={conseil.title} className="w-full h-full object-cover opacity-90" />
-                  : <div className="w-full h-full flex items-center justify-center text-[40px]">💡</div>
-                }
-              </div>
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-              <div className="absolute bottom-0 left-0 right-0 p-3">
-                <p className="text-white text-[11px] font-black leading-tight line-clamp-2">{conseil.title}</p>
-                {conseil.author_name && (
-                  <p className="text-white/60 text-[10px] font-medium mt-0.5">{conseil.author_name}</p>
-                )}
-              </div>
-              <div className="absolute top-2 left-2 bg-primary/90 rounded-full px-2 py-0.5">
-                <span className="text-white text-[9px] font-black uppercase tracking-wider">Conseil</span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+     return () => { cancelled = true; };
+   }, [style?.id]);
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+   if (conseils.length === 0) return null;
+
+   return (
+     <div>
+       <div className="flex items-center justify-between mb-3">
+         <div className="flex items-center gap-2">
+           <div className="w-5 h-0.5 bg-primary rounded-full" />
+           <h2 className="text-[20px] font-black text-gray-900">Conseils</h2>
+         </div>
+         <button onClick={() => navigate("/reseau-social?tab=Conseils")}
+           className="text-[12px] font-black text-primary uppercase tracking-widest">
+           VOIR TOUT
+         </button>
+       </div>
+       <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-5 px-5 pb-1">
+         {conseils.map((conseil) => {
+           const thumb = conseil.thumbnail_url || conseil.image_url || conseil.images?.[0];
+           return (
+             <button key={conseil.id}
+               onClick={() => navigate(`/reseau-social?tab=Conseils&reelId=${conseil.id}`)}
+               className="shrink-0 w-40 rounded-2xl overflow-hidden relative active:scale-[0.98] transition-all bg-gray-900">
+               <div className="h-52">
+                 {conseil.video_url ? (
+                   <video src={conseil.video_url} poster={thumb || undefined} muted playsInline preload="metadata"
+                     className="w-full h-full object-cover" />
+                 ) : thumb ? (
+                   <BeautyImage src={thumb} alt={conseil.title || "Conseil"} className="w-full h-full object-cover opacity-90" />
+                 ) : (
+                   <div className="w-full h-full flex items-center justify-center text-[40px]">💡</div>
+                 )}
+               </div>
+               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+               <div className="absolute bottom-0 left-0 right-0 p-3">
+                 <p className="text-white text-[11px] font-black leading-tight line-clamp-2">{conseil.title || "Conseil beauté"}</p>
+                 {conseil.author_name && <p className="text-white/60 text-[10px] font-medium mt-0.5">{conseil.author_name}</p>}
+               </div>
+               <div className="absolute top-2 left-2 bg-primary/90 rounded-full px-2 py-0.5">
+                 <span className="text-white text-[9px] font-black uppercase tracking-wider">Conseil</span>
+               </div>
+             </button>
+           );
+         })}
+       </div>
+     </div>
+   );
+ }
+
+ // ── Main page ─────────────────────────────────────────────────────────────────
+
 export default function StyleDetail() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -812,7 +831,7 @@ export default function StyleDetail() {
         </div>
 
         {/* Conseils */}
-        <ConseilsSection category={st.category} />
+        <ConseilsSection style={st} />
 
         {/* Styles similaires — données réelles */}
         {similarStyles.length > 0 && (
