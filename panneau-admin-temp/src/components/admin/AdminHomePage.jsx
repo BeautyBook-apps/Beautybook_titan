@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { uploadFile } from '@/api/entities';
 import { adminApi } from "@/lib/adminApiClient";
 import { entities } from "@/api/entities";
-import { Upload, Loader2, Save, Plus, ChevronDown, ChevronUp, X, Check, Search, Info, Image, Flame, Scissors, Award, Gift, Home, Star, LayoutGrid, Play, Sparkles } from "lucide-react";
+import { Upload, Loader2, Save, Plus, ChevronDown, ChevronUp, X, Check, Search, Info, Image, Flame, Scissors, Award, Gift, Home, Star, LayoutGrid, Play, Sparkles, Palette } from "lucide-react";
 
 
 const HERO_BANNER_WIDTH = 800;
@@ -182,6 +182,71 @@ function ServicesPicker({ selected = [], onSave }) {
                   </div>
                 </div>
                 {sel && <Check className="w-4 h-4 text-primary shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <button onClick={save} disabled={saving} className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-[12px] font-black disabled:opacity-60 shadow-md shadow-primary/20 active:scale-95 transition-all">
+        {saving ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Sauvegarde...</> : <><Save className="w-3.5 h-3.5" /> Sauvegarder</>}
+      </button>
+    </div>
+  );
+}
+
+// ── Styles Tendance Picker ───────────────────────────────────────────────────
+function StylesPicker({ selected = [], onSave }) {
+  const [styles, setStyles] = useState([]);
+  const [picks, setPicks] = useState(selected);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    entities.Style.filter({ status: "publie" }, "-created_at", 200)
+      .then(res => setStyles(res || []))
+      .catch(() => setStyles([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = (style) => {
+    const image = style.image_url || (style.images && style.images[0]) || "";
+    setPicks(p => p.some(x => x.id === style.id)
+      ? p.filter(x => x.id !== style.id)
+      : [...p, { id: style.id, title: style.title, image_url: image, images: style.images || [], category: style.category, description: style.description }]);
+  };
+  const save = async () => { setSaving(true); await onSave("styles_tendance", picks); setSaving(false); };
+  const filtered = search.trim()
+    ? styles.filter(s => `${s.title || ""} ${s.category || ""}`.toLowerCase().includes(search.toLowerCase()))
+    : styles;
+
+  return (
+    <div className="space-y-4">
+      {picks.length > 0 && <div className="flex flex-wrap gap-2">
+        {picks.map(p => (
+          <div key={p.id} className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-xl px-3 py-1.5">
+            {p.image_url && <img src={p.image_url} className="w-5 h-5 rounded-lg object-cover" alt="" />}
+            <span className="text-[12px] font-black text-orange-800">{p.title}</span>
+            <button onClick={() => toggle(p)} aria-label={`Retirer ${p.title}`}><X className="w-3 h-3 text-orange-400" /></button>
+          </div>
+        ))}
+      </div>}
+      <div className="flex items-center gap-2 bg-gray-100 rounded-xl px-3 py-2.5">
+        <Search className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un style..." className="flex-1 bg-transparent text-[13px] text-gray-700 outline-none" />
+        {search && <button onClick={() => setSearch("")} aria-label="Effacer la recherche"><X className="w-3.5 h-3.5 text-gray-400" /></button>}
+      </div>
+      {loading ? <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div> : (
+        <div className="max-h-64 overflow-y-auto space-y-1 border border-gray-200 rounded-xl p-2">
+          {filtered.map(style => {
+            const isSelected = picks.some(x => x.id === style.id);
+            const image = style.image_url || (style.images && style.images[0]) || "";
+            return (
+              <button key={style.id} onClick={() => toggle(style)} className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl border-2 transition-all text-left ${isSelected ? "border-primary bg-orange-50" : "border-transparent bg-gray-50 hover:bg-gray-100"}`}>
+                {image ? <img src={image} alt="" className="w-9 h-9 rounded-xl object-cover shrink-0" /> : <div className="w-9 h-9 rounded-xl bg-gray-200 shrink-0" />}
+                <div className="flex-1 min-w-0"><p className="text-[12px] font-black text-gray-900 truncate">{style.title}</p><p className="text-[10px] text-gray-400 truncate">{style.category || "Style"}</p></div>
+                {isSelected && <Check className="w-4 h-4 text-primary shrink-0" />}
               </button>
             );
           })}
@@ -816,6 +881,13 @@ export default function AdminHomePage() {
 
         {activeTab === "tendance" && (
           <>
+            <div className="bg-white border border-gray-200 rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Palette className="w-5 h-5 text-primary" />
+                <h3 className="text-[14px] font-black text-gray-900">Styles Tendance</h3>
+              </div>
+              <StylesPicker selected={homeData.styles_tendance || []} onSave={handleSave} />
+            </div>
             <div className="bg-white border border-gray-200 rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-4">
                 <Scissors className="w-5 h-5 text-primary" />

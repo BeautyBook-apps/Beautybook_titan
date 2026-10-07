@@ -128,6 +128,7 @@ export default function AdminAnnonces() {
             <option value="feed">Feed Réels</option>
             <option value="story">Story</option>
             <option value="banner">Bannière Services</option>
+            <option value="banner_styles">Bannière Styles</option>
           </select>
 
           <div className="grid grid-cols-2 gap-3">

@@ -9,6 +9,8 @@ function asPages(ad) {
 
   const type = String(ad.type || '').toLowerCase();
   if (['feed', 'reel', 'reels'].includes(type)) return ['reels'];
+  if (['banner_styles', 'banniere_styles', 'style', 'styles'].includes(type)) return ['styles'];
+  if (['banner_services', 'banniere_services', 'service', 'services'].includes(type)) return ['services'];
   if (['banner', 'banniere', 'styles', 'services'].includes(type)) return ['styles', 'services'];
   return [];
 }

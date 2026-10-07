@@ -124,6 +124,7 @@ export default function Home() {
   const [bundles, setBundles] = useState(homeCacheInitial.bundles || []);
   const [bundlesTendance, setBundlesTendance] = useState(homeCacheInitial.bundlesTendance || []);
   const [servicesSponsorises, setServicesSponsorises] = useState(homeCacheInitial.servicesSponsorises || []);
+  const [stylesTendance, setStylesTendance] = useState(homeCacheInitial.stylesTendance || []);
   const [annoncesPub, setAnnoncesPub] = useState([]);
   // Devient true dès que de vraies données sont arrivées : autorise alors
   // la persistance du cache (on ne persiste jamais du vide).
@@ -275,11 +276,12 @@ export default function Home() {
       bundles,
       bundlesTendance,
       servicesSponsorises,
+      stylesTendance,
       partenairesDiplomes,
       produitsTendanceLive,
       produitsRecommandes,
     });
-  }, [homeConfig, offresSpeciales, offresImmoLive, bundles, bundlesTendance, servicesSponsorises, partenairesDiplomes, produitsTendanceLive, produitsRecommandes]);
+  }, [homeConfig, offresSpeciales, offresImmoLive, bundles, bundlesTendance, servicesSponsorises, stylesTendance, partenairesDiplomes, produitsTendanceLive, produitsRecommandes]);
 
   useEffect(() => {
     const update = () => setSectionBg(getSectionBg());
@@ -336,6 +338,35 @@ export default function Home() {
     }).catch(() => setServicesTendance(servicesTendanceRaw));
   }, [homeConfig.services_tendance]);
 
+  const stylesTendanceRaw = homeConfig.styles_tendance?.length > 0
+    ? homeConfig.styles_tendance
+    : [];
+
+  useEffect(() => {
+    if (!stylesTendanceRaw.length) {
+      setStylesTendance([]);
+      return;
+    }
+    entities.Style.filter({ status: "publie" }, "-created_at", 200)
+      .then(allStyles => {
+        const byId = {};
+        (allStyles || []).forEach(style => { byId[style.id] = style; });
+        setStylesTendance(stylesTendanceRaw.map(style => {
+          const real = byId[style.id];
+          if (!real) return style;
+          return {
+            ...style,
+            title: real.title || style.title,
+            category: real.category || style.category,
+            image_url: real.image_url || (real.images && real.images[0]) || style.image_url,
+            images: real.images || style.images,
+            description: real.description || style.description,
+          };
+        }));
+      })
+      .catch(() => setStylesTendance(stylesTendanceRaw));
+  }, [homeConfig.styles_tendance]);
+
   const salonDuMois = homeConfig.salon_du_mois;
   const expertiseDuMois = homeConfig.expertise_du_mois;
   // Produits tendance : produits admin sélectionnés + produits Shopify live, fusionnés (max 4)
@@ -367,30 +398,20 @@ export default function Home() {
         <HeroSlider banners={heroBanners} user={user} navigate={navigate} />
       </div>
 
-      {annoncesPub.length > 0 && (
+      {stylesTendance.length > 0 && (
         <div className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
-          <SectionTitle title="Annonces partenaires" />
-          <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-1 px-1">
-            {annoncesPub.filter(ad => String(ad.type || '').toLowerCase() !== 'banner').map(ad => {
-              const openAd = () => {
-                if (!ad.cta_url) return;
-                if (ad.cta_url.startsWith('/')) navigate(ad.cta_url);
-                else window.open(ad.cta_url, '_blank', 'noopener,noreferrer');
-              };
+          <SectionTitle title="Styles Tendance" action="Voir tout" onAction={() => navigate("/services-salons?tab=STYLES")} />
+          <div className="grid grid-cols-2 gap-3">
+            {stylesTendance.slice(0, 4).map(style => {
+              const image = style.image_url || (style.images && style.images[0]) || "";
               return (
-                <button key={ad.id} onClick={openAd}
-                  className="relative shrink-0 w-[230px] overflow-hidden rounded-2xl bg-white text-left shadow-sm border border-orange-50 active:scale-[0.98] transition-all">
-                  <div className="relative h-[126px] overflow-hidden bg-gray-100">
-                    {ad.video_url ? (
-                      <video src={ad.video_url} poster={ad.image_url || undefined} muted autoPlay loop playsInline className="w-full h-full object-cover" />
-                    ) : (
-                      <BeautyImage src={ad.image_url} alt={ad.title || 'Annonce partenaire'} className="w-full h-full object-cover" />
-                    )}
-                    <span className="absolute top-2 left-2 rounded-full bg-black/55 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-white">Publicité</span>
-                  </div>
-                  <div className="p-3">
-                    <p className="truncate text-[13px] font-black text-gray-900">{ad.title || 'Annonce partenaire'}</p>
-                    {ad.sponsor_name && <p className="mt-1 truncate text-[10px] font-medium text-gray-400">{ad.sponsor_name}</p>}
+                <button key={style.id || style.title}
+                  onClick={() => navigate(`/style/${style.id}`)}
+                  className="relative h-[170px] overflow-hidden rounded-2xl bg-gray-200 text-left shadow-sm active:scale-[0.98] transition-all">
+                  <BeautyImage src={image} alt={style.title || "Style tendance"} className="w-full h-full object-cover" />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent px-3 pb-3 pt-10">
+                    <p className="truncate text-[13px] font-black text-white">{style.title || "Style tendance"}</p>
+                    {style.category && <p className="mt-0.5 truncate text-[10px] font-medium text-white/75">{style.category}</p>}
                   </div>
                 </button>
               );
