@@ -1,34 +1,28 @@
-const SHOPIFY_DOMAIN = import.meta.env.VITE_SHOPIFY_DOMAIN || 'hwqnwb-hi.myshopify.com';
-const SHOPIFY_TOKEN = import.meta.env.VITE_SHOPIFY_STOREFRONT_TOKEN || '46a6de1eb3a2686abcae91039944762d';
+const SHOPIFY_DOMAIN = String(import.meta.env.VITE_SHOPIFY_DOMAIN || '')
+  .trim()
+  .replace(/^https?:\/\//i, '')
+  .replace(/\/+$/, '');
+const SHOPIFY_TOKEN = String(import.meta.env.VITE_SHOPIFY_STOREFRONT_TOKEN || '').trim();
+const SHOPIFY_API = SHOPIFY_DOMAIN && SHOPIFY_TOKEN
+  ? `https://${SHOPIFY_DOMAIN}/api/2024-10/graphql.json`
+  : null;
 
 const shopifyHeaders = {
   'Content-Type': 'application/json',
-  'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN,
+  ...(SHOPIFY_TOKEN ? { 'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN } : {}),
 };
 
 async function shopifyQuery(query, variables = {}) {
-  const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
-  const primaryUrl = isVercel ? '/shopify-graphql' : `https://${SHOPIFY_DOMAIN}/api/2024-10/graphql.json`;
+  if (!SHOPIFY_API) return null;
 
   try {
-    let res = await fetch(primaryUrl, {
+    const res = await fetch(SHOPIFY_API, {
       method: 'POST',
       headers: shopifyHeaders,
       body: JSON.stringify({ query, variables }),
     });
 
-    if (!res || !res.ok) {
-      if (isVercel) {
-        // Fallback to direct URL if proxy endpoint returns error
-        res = await fetch(`https://${SHOPIFY_DOMAIN}/api/2024-10/graphql.json`, {
-          method: 'POST',
-          headers: shopifyHeaders,
-          body: JSON.stringify({ query, variables }),
-        });
-      }
-    }
-
-    if (!res || !res.ok) throw new Error(`Shopify API status ${res?.status || 500}`);
+    if (!res.ok) throw new Error(`Shopify API status ${res.status}`);
     const json = await res.json();
     if (json.errors) throw new Error(json.errors[0]?.message || 'Shopify GraphQL error');
     return json.data;
@@ -86,8 +80,7 @@ function mapShopifyProduct(node) {
 }
 
 export const fetchShopifyProducts = async (options = {}) => {
-  if (!SHOPIFY_TOKEN) {
-    console.warn('[Shopify] No storefront token configured');
+  if (!SHOPIFY_API) {
     return { data: { success: true, products: [] } };
   }
 

@@ -11,6 +11,16 @@ const HERO_BANNER_HEIGHT = 400;
 const HERO_BANNER_RATIO = "4:2";
 
 const inputCls = "w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-4 py-3 text-[13px] outline-none focus:border-primary";
+const PRIVATE_CONFIG_KEY = /secret|token|password|credential|stripe|api[._-]?key/i;
+const stripPrivateConfig = value => {
+  if (Array.isArray(value)) return value.map(stripPrivateConfig);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !PRIVATE_CONFIG_KEY.test(key))
+      .map(([key, child]) => [key, stripPrivateConfig(child)])
+  );
+};
 
 const ADMIN_TABS = [
   { id: "hero", label: "Hero", icon: Image },
@@ -744,13 +754,14 @@ export default function AdminHomePage() {
   const handleSave = async (key, data) => {
     try {
       const updated = { ...homeData, [key]: data };
-      setHomeData(updated);
+      const publicConfig = stripPrivateConfig(updated);
+      setHomeData(publicConfig);
       const res = await adminApi.getConfig("home_config").catch(() => []);
       const rows = res || [];
       if (rows[0]?.id) {
-        await adminApi.updateConfig(rows[0].id, { value: updated });
+        await adminApi.updateConfig(rows[0].id, { value: publicConfig });
       } else {
-        await adminApi.createConfig({ key: "home_config", value: updated });
+        await adminApi.createConfig({ key: "home_config", value: publicConfig });
       }
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);

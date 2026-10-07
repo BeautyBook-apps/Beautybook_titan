@@ -14,6 +14,13 @@ const checked = result => {
   if (result.error) fail(result.status >= 400 ? result.status : 502, result.error.message);
   return result.data;
 };
+const containsSecretField = value => {
+  if (Array.isArray(value)) return value.some(containsSecretField);
+  if (!value || typeof value !== 'object') return false;
+  return Object.entries(value).some(([key, child]) =>
+    /secret|token|password|credential|stripe|api[._-]?key/i.test(key) || containsSecretField(child)
+  );
+};
 
 export function acceptsLocalRequest(req, token, origin) {
   const remote = req.socket.remoteAddress;
@@ -28,15 +35,19 @@ export function acceptsLocalRequest(req, token, origin) {
 
 export function createLocalDataApi(client, { columns } = {}) {
   return {
-    async entities(body) {
-      const { table, operation = 'list', id, data = {}, filters = {}, orderBy = '-created_at', limit = 500 } = body;
-      const resource = resourceAccess(table, operation);
-      const primary = table === 'bb_seller_accounts' ? 'user_id' : 'id';
-      let query = client.from(table);
+      async entities(body) {
+        const { table, operation = 'list', id, data = {}, filters = {}, orderBy = '-created_at', limit = 500 } = body;
+        const resource = resourceAccess(table, operation);
+        const primary = table === 'bb_seller_accounts' ? 'user_id' : 'id';
+        if (!resource.writing && columns) {
+          const available = await columns(table);
+          if (available.size === 0) return operation === 'get' ? null : [];
+        }
+        let query = client.from(table);
       if (resource.writing) {
         if (!data || typeof data !== 'object' || Array.isArray(data)) fail(400, 'Données invalides.');
         if (!Object.keys(data).every(key => resource.fields.includes(key))) fail(400, 'Un champ demandé ne peut pas être modifié.');
-        if (table === 'AppConfig' && /secret|token|password|credential|stripe|api.key/i.test(JSON.stringify(data))) fail(400, 'Les secrets se configurent sur le serveur.');
+        if (table === 'AppConfig' && containsSecretField(data)) fail(400, 'Les secrets se configurent sur le serveur.');
         if ('price' in data && (!Number.isFinite(Number(data.price)) || Number(data.price) < 0)) fail(400, 'Prix invalide.');
         const payload = { ...data };
         if (columns && operation !== 'delete') {

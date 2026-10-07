@@ -222,23 +222,15 @@ export default function Home() {
       const vendeurProds = [];
 
       try {
-        const SHOPIFY_DOMAIN = import.meta.env.VITE_SHOPIFY_DOMAIN || 'hwqnwb-hi.myshopify.com';
-        const SHOPIFY_TOKEN = import.meta.env.VITE_SHOPIFY_STOREFRONT_TOKEN || '46a6de1eb3a2686abcae91039944762d';
-        const r = await fetch(`https://${SHOPIFY_DOMAIN}/api/2024-10/graphql.json`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN },
-          body: JSON.stringify({
-            query: `{ products(first: 20, sortKey: BEST_SELLING) { edges { node { id title vendor productType images(first:1) { edges { node { url } } } variants(first:1) { edges { node { price { amount } } } } } } }`
-          })
-        });
-        const json = await r.json();
-        for (const { node } of (json.data?.products?.edges || [])) {
-          const v = node.variants?.edges?.[0]?.node;
-          const img = node.images?.edges?.[0]?.node;
+        const result = await fetchShopifyProducts({ first: 20 });
+        for (const product of result.data?.products || []) {
           shopifyProds.push({
-            id: node.id, name: node.title, brand: node.vendor || '',
-            price: parseFloat(v?.price?.amount || '0'),
-            image_url: img?.url || '', source: 'shopify',
+            id: product.id,
+            name: product.name,
+            brand: product.brand || '',
+            price: product.price,
+            image_url: product.image_url || product.img || '',
+            source: 'shopify',
           });
         }
       } catch (e) { console.error("[Home] Shopify error:", e); }

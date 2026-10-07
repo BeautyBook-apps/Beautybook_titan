@@ -52,7 +52,16 @@ export default function AdminAnnonces() {
     if (!form.title || !form.sponsor_name || !form.image_url) return;
     setSaving(true);
     try {
-      const created = await adminApi.createAnnonce(form);
+      // Keep the local-admin payload compatible with the deployed Annonce schema.
+      // cta_url is stored in target_url; cta_label is a presentation default.
+      const created = await adminApi.createAnnonce({
+        title: form.title,
+        sponsor_name: form.sponsor_name,
+        image_url: form.image_url,
+        type: form.type,
+        status: form.status,
+        target_url: form.cta_url || null,
+      });
       setAnnonces(prev => [created, ...prev]);
       setCreating(false);
       setForm({ title: "", sponsor_name: "", image_url: "", cta_label: "En savoir plus", cta_url: "", type: "feed", status: "actif" });

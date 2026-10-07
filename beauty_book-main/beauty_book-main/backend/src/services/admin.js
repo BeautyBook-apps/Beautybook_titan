@@ -12,7 +12,7 @@ export const RESOURCES = {
   Publication: { permission: 'content', fields: ['content','images','video_url','type','status','author_email','author_name'] },
   StyleCategory: { permission: 'categories', fields: ['name','slug','description','icon','color','is_active'] },
   StyleSubCategory: { permission: 'categories', fields: ['name','slug','description','category_id','is_active'] },
-  Annonce: { permission: 'content', fields: ['title','description','type','status','image_url','video_url','cta_label','cta_url','target_url','pro_email','pages','start_date','end_date'] },
+  Annonce: { permission: 'content', fields: ['title','description','type','status','image_url','video_url','cta_label','cta_url','target_url','pro_email','pro_name','sponsor_name','pages','budget','start_date','end_date'] },
   AppConfig: { permission: 'configuration', fields: ['key','value','description'] },
   Reservation: { permission: 'bookings', fields: [], readOnly: true },
   Commande: { permission: 'orders', fields: [], readOnly: true },
@@ -32,6 +32,13 @@ export const RESOURCES = {
   bb_deletion_jobs: { permission: 'users', fields: [], readOnly: true },
 };
 const hidden = ['password','access_token','refresh_token','credentials','stripe_customer_id','mux_stream_key'];
+const containsSecretField = value => {
+  if (Array.isArray(value)) return value.some(containsSecretField);
+  if (!value || typeof value !== 'object') return false;
+  return Object.entries(value).some(([key, child]) =>
+    /secret|token|password|credential|stripe|api[._-]?key/i.test(key) || containsSecretField(child)
+  );
+};
 const identifier = value => { assert(/^[A-Za-z_][A-Za-z_0-9]*$/.test(value), 400, 'INVALID_FIELD', 'Champ invalide.'); return `"${value}"`; };
 
 export function resourceAccess(table, operation) {
@@ -73,7 +80,7 @@ export async function adminEntity(user, body, requestId, database = db) {
   const keys = Object.keys(data);
   assert(keys.every(key => resource.fields.includes(key)), 400, 'FIELD_NOT_WRITABLE', 'Un champ demandé n’est pas modifiable par cette opération.');
   if (table === 'AppConfig') {
-    assert(!/secret|token|password|credential|stripe|api.key/i.test(JSON.stringify(data)), 400, 'SECRET_CONFIGURATION_FORBIDDEN', 'Les secrets se configurent exclusivement sur le serveur.');
+    assert(!containsSecretField(data), 400, 'SECRET_CONFIGURATION_FORBIDDEN', 'Les secrets se configurent exclusivement sur le serveur.');
   }
   if ('price' in data) assert(Number.isFinite(Number(data.price)) && Number(data.price) >= 0, 400, 'INVALID_PRICE', 'Prix invalide.');
   return database.transaction(async client => {

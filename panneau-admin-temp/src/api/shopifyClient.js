@@ -1,13 +1,19 @@
-const SHOPIFY_DOMAIN = import.meta.env.VITE_SHOPIFY_DOMAIN || 'hwqnwb-hi.myshopify.com';
-const SHOPIFY_TOKEN = import.meta.env.VITE_SHOPIFY_STOREFRONT_TOKEN || '46a6de1eb3a2686abcae91039944762d';
-const SHOPIFY_API = `https://${SHOPIFY_DOMAIN}/api/2024-10/graphql.json`;
+const SHOPIFY_DOMAIN = String(import.meta.env.VITE_SHOPIFY_DOMAIN || '')
+  .trim()
+  .replace(/^https?:\/\//i, '')
+  .replace(/\/+$/, '');
+const SHOPIFY_TOKEN = String(import.meta.env.VITE_SHOPIFY_STOREFRONT_TOKEN || '').trim();
+const SHOPIFY_API = SHOPIFY_DOMAIN && SHOPIFY_TOKEN
+  ? `https://${SHOPIFY_DOMAIN}/api/2024-10/graphql.json`
+  : null;
 
 const shopifyHeaders = {
   'Content-Type': 'application/json',
-  'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN,
+  ...(SHOPIFY_TOKEN ? { 'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN } : {}),
 };
 
 async function shopifyQuery(query, variables = {}) {
+  if (!SHOPIFY_API) return null;
   const res = await fetch(SHOPIFY_API, {
     method: 'POST',
     headers: shopifyHeaders,
@@ -66,8 +72,7 @@ function mapShopifyProduct(node) {
 }
 
 export const fetchShopifyProducts = async (options = {}) => {
-  if (!SHOPIFY_TOKEN) {
-    console.warn('[Shopify] No storefront token configured');
+  if (!SHOPIFY_API) {
     return { data: { success: true, products: [] } };
   }
 
