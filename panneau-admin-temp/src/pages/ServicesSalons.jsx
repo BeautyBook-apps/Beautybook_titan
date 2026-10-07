@@ -108,10 +108,10 @@ function CardMediaSlider({ media, onCardClick }) {
               muted={muted}
               playsInline
               autoPlay={i === current}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
             />
           ) : (
-            <img src={url} alt="" className="w-full h-full object-cover" />
+            <img src={url} alt="" className="w-full h-full object-contain" />
           )}
         </div>
       ))}
@@ -552,9 +552,9 @@ function StyleCard({ style, liked, likeCount, onLike, onComment, onShare, onDeta
       <div key={i} className="absolute inset-0 w-full h-full transition-transform duration-300 ease-in-out" style={{ transform: `translateX(${(i - imgIdx) * 100}%)` }}>
         {isVideo(url) ? (
           <video ref={i === imgIdx ? videoRef : null} src={url} autoPlay={i === imgIdx} loop muted={muted} playsInline
-            className="w-full h-full object-cover" onTimeUpdate={i === imgIdx ? handleTimeUpdate : undefined} onClick={togglePlay} />
+            className="w-full h-full object-contain" onTimeUpdate={i === imgIdx ? handleTimeUpdate : undefined} onClick={togglePlay} />
         ) : (
-          <img src={url} alt={style.title} className="w-full h-full object-cover" onClick={onDetail} />
+          <img src={url} alt={style.title} className="w-full h-full object-contain" onClick={onDetail} />
         )}
       </div>
       ))}
