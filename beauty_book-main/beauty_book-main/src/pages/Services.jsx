@@ -339,7 +339,7 @@ export default function Services() {
                     onClick={() => navigate(`/style/${style.id}`, { state: { id: style.id, title: style.title, cover: style.image_url, category: style.category } })}
                     className="shrink-0 w-[160px] rounded-[22px] overflow-hidden bg-white shadow-sm border border-gray-100 active:scale-[0.98] transition-all text-left">
                     <div className="relative h-[180px]">
-                      <BeautyImage src={style.image_url || ""} alt={style.title} className="w-full h-full object-cover object-center" />
+                      <BeautyImage src={style.image_url || ""} alt={style.title} className="w-full h-full object-cover object-[center_65%]" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
                       <div className="absolute bottom-0 left-0 right-0 p-3">
                         <p className="text-[12px] font-black text-white leading-tight">{style.title}</p>

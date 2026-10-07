@@ -38,9 +38,9 @@ function HeroSlider({ media = [] }) {
         <div key={i} className="absolute inset-0 w-full h-full transition-transform duration-300 ease-in-out"
           style={{ transform: `translateX(${(i - current) * 100}%)` }}>
           {isVideo(url) ? (
-            <video src={url} autoPlay={i === current} loop muted playsInline className="w-full h-full object-cover object-center" />
+            <video src={url} autoPlay={i === current} loop muted playsInline className="w-full h-full object-cover object-[center_65%]" />
           ) : (
-            <img src={url} alt="" className="w-full h-full object-cover object-center" />
+            <img src={url} alt="" className="w-full h-full object-cover object-[center_65%]" />
           )}
         </div>
       ))}

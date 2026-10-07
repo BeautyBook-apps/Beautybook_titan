@@ -699,7 +699,7 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
       {/* Media */}
       {media ? (
         <>
-          <video ref={videoRef} src={media} className="absolute inset-0 w-full h-full object-cover object-center" loop playsInline onTimeUpdate={handleTimeUpdate} onClick={togglePlay} style={{ pointerEvents: 'auto' }} />
+          <video ref={videoRef} src={media} className="absolute inset-0 w-full h-full object-cover object-[center_65%]" loop playsInline onTimeUpdate={handleTimeUpdate} onClick={togglePlay} style={{ pointerEvents: 'auto' }} />
           {!playing && (
             <button onClick={togglePlay} className="absolute inset-0 z-10 flex items-center justify-center">
               <div className="w-16 h-16 bg-black/40 rounded-full flex items-center justify-center backdrop-blur-sm">
@@ -709,7 +709,7 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
           )}
         </>
       ) : (
-          <BeautyImage src={thumb} alt={reel.title} className="absolute inset-0 w-full h-full object-cover object-center" />
+          <BeautyImage src={thumb} alt={reel.title} className="absolute inset-0 w-full h-full object-cover object-[center_65%]" />
       )}
 
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/30 pointer-events-none" />
