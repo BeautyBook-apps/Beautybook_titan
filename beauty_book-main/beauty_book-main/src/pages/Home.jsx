@@ -7,6 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import usePullToRefresh from "@/hooks/usePullToRefresh";
 import { GLOBAL_CATEGORIES } from "@/lib/categories";
+import { getPublicAds } from "@/lib/publicAds";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useLocale } from "@/hooks/useLocale";
@@ -119,6 +120,7 @@ export default function Home() {
   const [bundles, setBundles] = useState(homeCacheInitial.bundles || []);
   const [bundlesTendance, setBundlesTendance] = useState(homeCacheInitial.bundlesTendance || []);
   const [servicesSponsorises, setServicesSponsorises] = useState(homeCacheInitial.servicesSponsorises || []);
+  const [annoncesPub, setAnnoncesPub] = useState([]);
   // Devient true dès que de vraies données sont arrivées : autorise alors
   // la persistance du cache (on ne persiste jamais du vide).
   const homeLoadedRef = useRef(false);
@@ -127,6 +129,9 @@ export default function Home() {
     // Plus de reset ici : on garde les données affichées (cache ou précédent
     // chargement) pendant le rafraîchissement en arrière-plan.
     void refreshLives();
+    getPublicAds({ limit: 10 })
+      .then(setAnnoncesPub)
+      .catch(() => setAnnoncesPub([]));
 
     // Charger config depuis AppConfig
     entities.AppConfig.filter({ key: "home_config" }, "-created_at", 50)
@@ -344,6 +349,38 @@ export default function Home() {
       <div data-tour="hero">
         <HeroSlider banners={heroBanners} user={user} navigate={navigate} />
       </div>
+
+      {annoncesPub.length > 0 && (
+        <div className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
+          <SectionTitle title="Annonces partenaires" />
+          <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-1 px-1">
+            {annoncesPub.map(ad => {
+              const openAd = () => {
+                if (!ad.cta_url) return;
+                if (ad.cta_url.startsWith('/')) navigate(ad.cta_url);
+                else window.open(ad.cta_url, '_blank', 'noopener,noreferrer');
+              };
+              return (
+                <button key={ad.id} onClick={openAd}
+                  className="relative shrink-0 w-[230px] overflow-hidden rounded-2xl bg-white text-left shadow-sm border border-orange-50 active:scale-[0.98] transition-all">
+                  <div className="relative h-[126px] overflow-hidden bg-gray-100">
+                    {ad.video_url ? (
+                      <video src={ad.video_url} poster={ad.image_url || undefined} muted autoPlay loop playsInline className="w-full h-full object-cover" />
+                    ) : (
+                      <BeautyImage src={ad.image_url} alt={ad.title || 'Annonce partenaire'} className="w-full h-full object-cover" />
+                    )}
+                    <span className="absolute top-2 left-2 rounded-full bg-black/55 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-white">Publicité</span>
+                  </div>
+                  <div className="p-3">
+                    <p className="truncate text-[13px] font-black text-gray-900">{ad.title || 'Annonce partenaire'}</p>
+                    {ad.sponsor_name && <p className="mt-1 truncate text-[10px] font-medium text-gray-400">{ad.sponsor_name}</p>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
 
       {/* ── Catégories — fond nude ── */}

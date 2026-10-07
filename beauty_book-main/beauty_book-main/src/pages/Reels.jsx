@@ -9,6 +9,7 @@ import { likesApi } from '@/api/likes';
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 import SponsoredCard from "@/components/reels/SponsoredCard";
+import { getPublicAds } from "@/lib/publicAds";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 
 const TABS = ["Réels", "Conseils", "Tutos"];
@@ -1038,16 +1039,8 @@ export default function Reels() {
         setFeedError("Impossible de charger les réels. Vérifie ta connexion puis réessaie.");
       });
 
-    entities.Annonce.filter({ status: 'actif' }, '-created_at', 20)
-      .then(data => {
-        // Une annonce sans image ni vidéo ne peut pas s'afficher : on l'exclut
-        // de la rotation pour ne jamais montrer un emplacement vide/noir.
-        const withMedia = (data || []).filter(a => a.image_url || a.video_url);
-        const filtered = withMedia.filter(a => {
-          const pages = a.pages || (a.type ? [a.type] : []);
-          return pages.includes('reels');
-        });
-        const list = filtered.length > 0 ? filtered : withMedia;
+    getPublicAds({ page: 'reels', limit: 20 })
+      .then(list => {
         setAnnonces(list);
         mergePageCache("reels_page", { annonces: list });
       })

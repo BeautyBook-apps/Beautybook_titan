@@ -10,6 +10,7 @@ import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { likesApi } from '@/api/likes';
 import SponsoredCard from "@/components/reels/SponsoredCard";
+import { getPublicAds } from "@/lib/publicAds";
 import MapWithPricePins from "@/components/map/MapWithPricePins";
 import AdvancedFilterSheet from "@/components/filters/AdvancedFilterSheet";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
@@ -423,15 +424,8 @@ function StylesTab({ activeCategory }) {
   }, []);
 
   useEffect(() => {
-    entities.Annonce.filter({ status: 'actif' }, '-created_at', 20)
-      .then(data => {
-        // Une annonce sans image ni vidéo ne peut pas s'afficher : exclue de la rotation.
-        const withMedia = (data || []).filter(a => a.image_url || a.video_url);
-        const filtered = withMedia.filter(a => {
-          const pages = a.pages || (a.type ? [a.type] : []);
-          return pages.includes('styles');
-        });
-        const annoncesList = filtered.length > 0 ? filtered : withMedia;
+    getPublicAds({ page: 'styles', limit: 20 })
+      .then(annoncesList => {
         setAnnonces(annoncesList);
         mergePageCache("services_salons", { annonces: annoncesList });
       })
@@ -664,7 +658,7 @@ function StyleCard({ style, liked, likeCount, followed, onFollow, onLike, onComm
         </button>
       </div>
 
-      <div className="absolute left-4 right-20 z-10" style={{ bottom: "calc(50px + env(safe-area-inset-bottom, 0px))" }}>
+      <div className="absolute left-4 right-20 z-10" style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))" }}>
         {style.author_name && (
           <div className="flex items-center gap-2 mb-1.5">
             <span className="text-white text-[13px] font-bold truncate" onClick={onDetail}>{style.author_name}</span>
