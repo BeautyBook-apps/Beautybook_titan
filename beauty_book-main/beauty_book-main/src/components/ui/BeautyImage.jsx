@@ -11,7 +11,7 @@ const BeautyImage = forwardRef(function BeautyImage({ src, srcSet, alt = '', sty
   const fallback = isMissingImage({ src: source, srcSet: sources, failed: failedSource === identity });
   const defaultStyle = fallback
     ? { objectFit: 'contain', objectPosition: 'center', backgroundColor: '#fbf3ed', ...style }
-    : { objectPosition: 'center top', ...style };
+    : style;
 
   return <img
     {...props}
