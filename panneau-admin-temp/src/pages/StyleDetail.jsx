@@ -299,7 +299,7 @@ function ProvidersSection({ salons, particuliers, loading }) {
   );
 }
 
-+ // ── Conseils Section ─────────────────────────────────────────────────────────
+// ── Conseils Section ─────────────────────────────────────────────────────────
  function ConseilsSection({ style }) {
    const navigate = useNavigate();
    const [conseils, setConseils] = useState([]);
