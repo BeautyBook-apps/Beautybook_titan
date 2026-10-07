@@ -16,17 +16,30 @@ export default function SponsoredCard({ annonce, onClose, variant = "reels" }) {
   );
 }
 
-function VideoPlayer({ src, poster, className, style, soundOn = false, onAutoPause }) {
+function VideoPlayer({ src, poster, className, style, soundOn = true }) {
   const ref = useRef(null);
   const visibleRef = useRef(true);
-  const restartReadyRef = useRef(true);
-  const restartTimerRef = useRef(null);
+  const pausedByVisibilityRef = useRef(false);
+  const pauseDeadlineRef = useRef(0);
+  const resumeTimerRef = useRef(null);
   const [failed, setFailed] = useState(false);
 
   const tryPlay = useCallback(() => {
-    if (!ref.current || !visibleRef.current || !restartReadyRef.current) return;
-    ref.current.play().catch(() => setFailed(true));
-  }, []);
+    const el = ref.current;
+    if (!el || !visibleRef.current || pausedByVisibilityRef.current) return;
+    el.muted = !soundOn;
+    el.play().catch(() => {});
+  }, [soundOn]);
+
+  const scheduleAutoResume = useCallback(() => {
+    clearTimeout(resumeTimerRef.current);
+    const remaining = Math.max(0, pauseDeadlineRef.current - Date.now());
+    resumeTimerRef.current = setTimeout(() => {
+      if (!visibleRef.current) return;
+      pausedByVisibilityRef.current = false;
+      tryPlay();
+    }, remaining);
+  }, [tryPlay]);
 
   useEffect(() => {
     const el = ref.current;
@@ -37,28 +50,29 @@ function VideoPlayer({ src, poster, className, style, soundOn = false, onAutoPau
       visibleRef.current = isVisible;
 
       if (!isVisible) {
-        restartReadyRef.current = false;
-        clearTimeout(restartTimerRef.current);
         el.pause();
-        el.muted = true;
-        onAutoPause?.();
-        restartTimerRef.current = setTimeout(() => {
-          restartReadyRef.current = true;
-          el.currentTime = 0;
-          if (visibleRef.current) tryPlay();
-        }, 30000);
-      } else if (restartReadyRef.current) {
-        el.currentTime = 0;
-        tryPlay();
+        pausedByVisibilityRef.current = true;
+        pauseDeadlineRef.current = Date.now() + 30000;
+        scheduleAutoResume();
+        return;
       }
+
+      if (pausedByVisibilityRef.current) {
+        clearTimeout(resumeTimerRef.current);
+        pausedByVisibilityRef.current = false;
+        tryPlay();
+        return;
+      }
+
+      tryPlay();
     }, { threshold: [0, 0.35] });
 
     observer.observe(el);
     return () => {
       observer.disconnect();
-      clearTimeout(restartTimerRef.current);
+      clearTimeout(resumeTimerRef.current);
     };
-  }, [onAutoPause, tryPlay]);
+  }, [scheduleAutoResume, tryPlay]);
 
   useEffect(() => {
     if (!src || failed) return;
@@ -66,7 +80,9 @@ function VideoPlayer({ src, poster, className, style, soundOn = false, onAutoPau
     if (!el) return;
     el.muted = !soundOn;
     el.load();
-    const onCanPlay = () => tryPlay();
+    const onCanPlay = () => {
+      if (visibleRef.current && !pausedByVisibilityRef.current) tryPlay();
+    };
     el.addEventListener("canplay", onCanPlay);
     return () => el.removeEventListener("canplay", onCanPlay);
   }, [src, failed, tryPlay, soundOn]);
@@ -74,7 +90,7 @@ function VideoPlayer({ src, poster, className, style, soundOn = false, onAutoPau
   useEffect(() => {
     if (ref.current) {
       ref.current.muted = !soundOn;
-      if (soundOn && visibleRef.current && restartReadyRef.current) ref.current.play().catch(() => {});
+      if (soundOn && visibleRef.current && !pausedByVisibilityRef.current) ref.current.play().catch(() => {});
     }
   }, [soundOn]);
 
@@ -92,8 +108,14 @@ function VideoPlayer({ src, poster, className, style, soundOn = false, onAutoPau
   }
 
   return (
-    <video ref={ref} src={src} poster={poster} className={className} style={style}
-      muted playsInline preload="auto" controls={false} loop />
+    <div className={`relative ${className}`} style={style}>
+      <video ref={ref} src={src} poster={poster}
+        className="absolute inset-0 w-full h-full object-cover object-top"
+        style={{ objectPosition: "top center" }}
+        autoPlay playsInline preload="auto" controls={false} loop
+        muted={!soundOn}
+        onError={() => setFailed(true)} />
+    </div>
   );
 }
 
@@ -121,7 +143,7 @@ function AdCountdown({ total = 5, onSkip }) {
 function ReelsAd({ annonce, onClose }) {
   const [showSkip, setShowSkip] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [soundOn, setSoundOn] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   const isVideo = !!annonce.video_url;
 
   const descSentences = (() => {
@@ -137,7 +159,7 @@ function ReelsAd({ annonce, onClose }) {
     <div className="relative w-full h-full flex flex-col bg-black overflow-hidden">
       <div className="flex-1 relative min-h-0">
         {isVideo ? (
-          <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} onAutoPause={() => setSoundOn(false)} className="absolute inset-0 w-full h-full object-cover object-top" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }} />
+          <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} className="absolute inset-0 w-full h-full" style={{ width: "100%", height: "100%" }} />
         ) : (
           <BeautyImage src={annonce.image_url} alt={annonce.title} className="absolute inset-0 w-full h-full object-cover object-top" />
         )}
@@ -217,7 +239,7 @@ function ReelsAd({ annonce, onClose }) {
 function StylesAd({ annonce, onClose }) {
   const [showSkip, setShowSkip] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [soundOn, setSoundOn] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   const isVideo = !!annonce.video_url;
 
   const descSentences = (() => {
@@ -233,7 +255,7 @@ function StylesAd({ annonce, onClose }) {
     <div className="relative w-full h-full overflow-hidden bg-black">
       {/* Média plein cadre */}
       {isVideo ? (
-        <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} onAutoPause={() => setSoundOn(false)} className="absolute inset-0 w-full h-full object-cover object-top" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }} />
+        <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} className="absolute inset-0 w-full h-full" style={{ width: "100%", height: "100%" }} />
       ) : (
         <BeautyImage src={annonce.image_url} alt={annonce.title} className="absolute inset-0 w-full h-full object-cover object-top" />
       )}

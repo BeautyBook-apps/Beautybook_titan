@@ -1,15 +1,36 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Volume2, VolumeX, X } from "lucide-react";
 
-function Media({ annonce, soundOn, onAutoPause }) {
+function Media({ annonce, soundOn }) {
   const videoRef = useRef(null);
   const visibleRef = useRef(true);
-  const restartReadyRef = useRef(true);
-  const restartTimerRef = useRef(null);
+  const pausedByVisibilityRef = useRef(false);
+  const pauseDeadlineRef = useRef(0);
+  const resumeTimerRef = useRef(null);
   const isVideo = Boolean(annonce.video_url);
 
+  const tryPlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !visibleRef.current || pausedByVisibilityRef.current) return;
+    video.muted = !soundOn;
+    video.play().catch(() => {});
+  }, [soundOn]);
+
+  const scheduleAutoResume = useCallback(() => {
+    clearTimeout(resumeTimerRef.current);
+    const remaining = Math.max(0, pauseDeadlineRef.current - Date.now());
+    resumeTimerRef.current = setTimeout(() => {
+      if (!visibleRef.current) return;
+      pausedByVisibilityRef.current = false;
+      tryPlay();
+    }, remaining);
+  }, [tryPlay]);
+
   useEffect(() => {
-    if (videoRef.current) videoRef.current.muted = !soundOn;
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = !soundOn;
+    if (soundOn && visibleRef.current && !pausedByVisibilityRef.current) video.play().catch(() => {});
   }, [soundOn]);
 
   useEffect(() => {
@@ -19,39 +40,40 @@ function Media({ annonce, soundOn, onAutoPause }) {
       const isVisible = entry.isIntersecting && entry.intersectionRatio >= 0.35;
       visibleRef.current = isVisible;
       if (!isVisible) {
-        restartReadyRef.current = false;
-        clearTimeout(restartTimerRef.current);
         video.pause();
-        video.muted = true;
-        onAutoPause?.();
-        restartTimerRef.current = setTimeout(() => {
-          restartReadyRef.current = true;
-          video.currentTime = 0;
-          if (visibleRef.current) video.play().catch(() => {});
-        }, 30000);
-      } else if (restartReadyRef.current) {
-        video.currentTime = 0;
-        video.play().catch(() => {});
+        pausedByVisibilityRef.current = true;
+        pauseDeadlineRef.current = Date.now() + 30000;
+        scheduleAutoResume();
+      } else if (pausedByVisibilityRef.current) {
+        clearTimeout(resumeTimerRef.current);
+        pausedByVisibilityRef.current = false;
+        tryPlay();
+      } else {
+        tryPlay();
       }
     }, { threshold: [0, 0.35] });
     observer.observe(video);
     return () => {
       observer.disconnect();
-      clearTimeout(restartTimerRef.current);
+      clearTimeout(resumeTimerRef.current);
     };
-  }, [onAutoPause]);
+  }, [scheduleAutoResume, tryPlay]);
 
   if (isVideo) {
-    return <video ref={videoRef} src={annonce.video_url} poster={annonce.image_url || undefined}
-      autoPlay loop muted={!soundOn} playsInline className="absolute inset-0 w-full h-full object-cover object-top"
-      style={{ objectPosition: "top center" }} />;
+    return (
+      <div className="absolute inset-0">
+        <video ref={videoRef} src={annonce.video_url} poster={annonce.image_url || undefined}
+          autoPlay loop muted={!soundOn} playsInline className="absolute inset-0 w-full h-full object-cover object-top"
+          style={{ objectPosition: "top center" }} />
+      </div>
+    );
   }
   return <img src={annonce.image_url} alt={annonce.title || "Publicité"}
     className="absolute inset-0 w-full h-full object-cover object-top" style={{ objectPosition: "top center" }} />;
 }
 
 export default function SponsoredCard({ annonce, onClose }) {
-  const [soundOn, setSoundOn] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   if (!annonce || (!annonce.image_url && !annonce.video_url)) return null;
 
   const openCta = () => {
@@ -62,7 +84,7 @@ export default function SponsoredCard({ annonce, onClose }) {
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-black">
-      <Media annonce={annonce} soundOn={soundOn} onAutoPause={() => setSoundOn(false)} />
+      <Media annonce={annonce} soundOn={soundOn} />
       <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
       <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/85 via-black/35 to-transparent pointer-events-none" />
       <div className="absolute top-0 inset-x-0 flex items-center justify-between px-4 pb-3"
