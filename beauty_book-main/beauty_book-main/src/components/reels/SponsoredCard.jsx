@@ -46,7 +46,7 @@ function VideoPlayer({ src, poster, className, style, soundOn = false }) {
   if (failed) {
     return (
       <div className={`relative ${className}`} style={style}>
-        {poster && <BeautyImage src={poster} alt="" className="w-full h-full object-cover" />}
+        {poster && <BeautyImage src={poster} alt="" className="w-full h-full object-cover object-top" />}
         <div className="absolute inset-0 flex items-center justify-center bg-black/40">
           <button onClick={tryPlay} className="w-16 h-16 bg-white/90 rounded-full flex items-center justify-center shadow-2xl active:scale-95 transition-all">
             <Play className="w-8 h-8 text-gray-900 ml-1" fill="currentColor" />
@@ -102,9 +102,9 @@ function ReelsAd({ annonce, onClose }) {
     <div className="relative w-full h-full flex flex-col bg-black overflow-hidden">
       <div className="flex-1 relative min-h-0">
         {isVideo ? (
-          <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} className="absolute inset-0 w-full h-full object-cover" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} className="absolute inset-0 w-full h-full object-cover object-top" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }} />
         ) : (
-          <BeautyImage src={annonce.image_url} alt={annonce.title} className="absolute inset-0 w-full h-full object-cover" />
+          <BeautyImage src={annonce.image_url} alt={annonce.title} className="absolute inset-0 w-full h-full object-cover object-top" />
         )}
 
         <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
@@ -198,9 +198,9 @@ function StylesAd({ annonce, onClose }) {
     <div className="relative w-full h-full overflow-hidden bg-black">
       {/* Média plein cadre */}
       {isVideo ? (
-        <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} className="absolute inset-0 w-full h-full object-cover" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        <VideoPlayer src={annonce.video_url} poster={annonce.image_url} soundOn={soundOn} className="absolute inset-0 w-full h-full object-cover object-top" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }} />
       ) : (
-        <BeautyImage src={annonce.image_url} alt={annonce.title} className="absolute inset-0 w-full h-full object-cover" />
+        <BeautyImage src={annonce.image_url} alt={annonce.title} className="absolute inset-0 w-full h-full object-cover object-top" />
       )}
       <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/85 via-black/35 to-transparent pointer-events-none" />
 
