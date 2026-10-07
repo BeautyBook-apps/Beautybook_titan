@@ -10,8 +10,9 @@ import BeautyImage from "@/components/ui/BeautyImage";
 import {
   getAnnonceById, getAnnonces, getCategories, getTypesMission,
   getCandidatures, postuler, incrementVues,
-  signerContrat, genererContrat, toggleFavori, isFavori
+  signerContrat, genererContrat, toggleFavori, isFavori, checkProfessionalAccess
 } from "@/lib/annonces";
+import { supabase } from "@/api/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import { readPageCache, writePageCache } from "@/hooks/usePageCache";
 import "./Annonces.css";
@@ -73,6 +74,11 @@ export default function AnnonceDetail() {
   const [nomSignataire, setNomSignataire] = useState("");
   const [contratSigne, setContratSigne] = useState(!!initialCache.contratSigne);
   const [signing, setSigning] = useState(false);
+  const [access, setAccess] = useState({ loading: true, isParticulier: false, isSalon: false });
+
+  useEffect(() => {
+    checkProfessionalAccess(supabase, userEmail).then(setAccess);
+  }, [userEmail]);
 
   const refresh = () => {
     const a = getAnnonceById(id);
@@ -127,6 +133,7 @@ export default function AnnonceDetail() {
 
   const handleApply = () => {
     if (!userEmail) { alert("Connectez-vous pour postuler"); return; }
+    if (!access.isParticulier) { alert("Seuls les profils professionnels avec le statut Particulier peuvent répondre aux annonces."); return; }
     if (!applyForm.nom.trim()) { alert("Indiquez votre nom"); return; }
     if (applyForm.tel && !/^[0-9+.\s]{8,}$/.test(applyForm.tel.trim())) { alert("Numéro de téléphone invalide"); return; }
     setSending(true);
@@ -361,7 +368,7 @@ export default function AnnonceDetail() {
       </div>
 
       {/* ── CTA fixe ── */}
-      {!maCandidature && (
+      {!maCandidature && access.isParticulier && (
         <div className="ad-cta-bar">
           <div className="ad-cta-price">
             <p>{money(annonce.remuneration)}</p>
@@ -371,6 +378,9 @@ export default function AnnonceDetail() {
             {placesRestantes <= 0 ? "Complet" : <><Send size={18} /> Postuler</>}
           </button>
         </div>
+      )}
+      {!maCandidature && !access.loading && !access.isParticulier && !isOwner && (
+        <div className="ad-cta-bar"><p className="ad-modal-sub">Les candidatures sont réservées aux profils professionnels « Particulier ».</p></div>
       )}
 
       {/* ── Modal candidature ── */}

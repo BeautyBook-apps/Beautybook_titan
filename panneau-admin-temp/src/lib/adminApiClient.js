@@ -1,11 +1,10 @@
 /**
- * Client API Admin — Utilise Supabase directement (entities.*).
- * Les données sont enregistrées dans Supabase et visibles dans l'app principale
- * même sans backend, grâce aux politiques RLS configurées.
+ * Client API Admin — entities.* utilise l’API administrative authentifiée.
+ * Une opération échouée est remontée à l’interface, sans sauvegarde locale implicite.
  */
 
 import { entities } from "@/api/entities";
-import apiClient from "@/lib/apiClient";
+import apiClient, { localAdminEnabled } from "@/lib/apiClient";
 import { supabase } from "@/api/supabaseClient";
 
 export function getToken() {
@@ -24,6 +23,7 @@ export function clearAdminToken() {
 export const adminApi = {
   // Stats
   getStats: async () => {
+    if (localAdminEnabled) return apiClient.get('/admin/stats');
     const [reels, services, commandes, reservations, lives, styles, users] = await Promise.all([
       entities.Reel.list("-created_at", 1000),
       entities.Service.list("-created_at", 1000),

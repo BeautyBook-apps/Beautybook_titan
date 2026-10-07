@@ -23,19 +23,23 @@ export default function LoadingScreen({ message = "Chargement en cours..." }) {
       {/* Center Hero Branding Block */}
       <div className="flex flex-col items-center text-center max-w-sm w-full my-auto">
         
-        {/* BeautyBook Orange Logo Icon */}
+        {/* BeautyBook Orange Logo Icon (B°) */}
         <div className="relative mb-6 animate-pulse-soft">
-          <div className="w-20 h-20 sm:w-22 sm:h-22 rounded-2xl sm:rounded-3xl bg-[#FF6B00] flex items-center justify-center text-white shadow-xl shadow-orange-500/25 border border-orange-400/30">
-            <span className="text-4xl sm:text-5xl font-black tracking-tighter">B</span>
-          </div>
-          <div className="absolute -bottom-1 -right-1 bg-white p-1 rounded-full border border-orange-100 shadow-sm">
-            <Sparkles className="w-3.5 h-3.5 text-[#FF6B00] animate-spin" style={{ animationDuration: '7s' }} />
+          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-[#E8651B] flex items-center justify-center text-white shadow-2xl shadow-orange-500/30 border border-orange-400/20 relative overflow-hidden">
+            <span className="text-5xl sm:text-6xl font-black tracking-tight select-none translate-x-[-2px]">
+              B
+            </span>
+            {/* Peach dot in the top right (B°) */}
+            <span 
+              className="absolute top-5 right-5 sm:top-6 sm:right-6 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-[#FBD0B6] shadow-sm"
+              style={{ backgroundColor: '#FCD3BD' }}
+            />
           </div>
         </div>
 
         {/* Brand Name */}
         <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
-          Beauty<span className="text-[#FF6B00]">Book</span>
+          Beauty<span className="text-[#E8651B]">Book</span>
         </h1>
 
         {/* Subtitle */}

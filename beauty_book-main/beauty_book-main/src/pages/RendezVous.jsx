@@ -534,7 +534,7 @@ export default function RendezVous() {
   const cancelled = reservations.filter(r => r.status === "annule");
 
   return (
-    <div className="font-display pb-4">
+    <div className="font-display pb-28">
       <AuthModal open={showAuthModal} onClose={closeAuthModal} message={authMessage} />
 
       {/* Bannière de succès paiement */}
@@ -912,23 +912,22 @@ export default function RendezVous() {
 
       {/* Modal récapitulatif RDV */}
       {selectedReservation && (
-        <div className="fixed inset-0 z-[300] flex items-end" onClick={() => setSelectedReservation(null)}>
+        <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setSelectedReservation(null)}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-          <div className="relative bg-white w-full rounded-t-3xl z-10 overflow-hidden" onClick={e => e.stopPropagation()}
-            style={{ paddingBottom: "calc(90px + env(safe-area-inset-bottom, 16px))" }}>
+          <div className="relative bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl z-10 overflow-hidden max-h-[88vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
             {/* Handle */}
-            <div className="flex justify-center pt-3 pb-2">
+            <div className="flex justify-center pt-3 pb-2 shrink-0">
               <div className="w-10 h-1 bg-gray-200 rounded-full" />
             </div>
             {/* Header */}
-            <div className="flex items-center justify-between px-5 pb-3 border-b border-gray-100">
+            <div className="flex items-center justify-between px-5 pb-3 border-b border-gray-100 shrink-0">
               <h3 className="text-[17px] font-black text-gray-900">Récapitulatif RDV</h3>
-              <button onClick={() => setSelectedReservation(null)} className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+              <button onClick={() => setSelectedReservation(null)} className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 transition-all">
                 <X className="w-4 h-4 text-gray-500" />
               </button>
             </div>
 
-            <div className="px-5 py-4 space-y-4">
+            <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1 overscroll-contain" style={{ paddingBottom: "calc(30px + env(safe-area-inset-bottom, 16px))" }}>
               {/* Service & statut */}
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
@@ -1295,6 +1294,22 @@ export default function RendezVous() {
           </div>
         </div>
       )}
+
+      {/* ─── CTA fixe : Ajouter un ID de réservation ─────────────────── */}
+      <div
+        className="fixed left-0 right-0 z-[90] px-4"
+        style={{ bottom: "calc(68px + env(safe-area-inset-bottom, 16px) + 8px)" }}
+      >
+        <button
+          onClick={() => setShowAddBooking(true)}
+          className="w-full py-4 bg-gray-900 text-white rounded-2xl text-[12px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl shadow-gray-900/30 active:scale-[0.98] transition-all"
+        >
+          <Hash className="w-4 h-4" />
+          Ajouter un ID de réservation
+        </button>
+      </div>
+
     </div>
+
   );
 }

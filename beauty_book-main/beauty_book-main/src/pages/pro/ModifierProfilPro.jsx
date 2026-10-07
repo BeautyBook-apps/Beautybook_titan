@@ -372,7 +372,7 @@ export default function ModifierProfilPro() {
         }
       }
 
-      try { localStorage.setItem('pro_profile_cache', JSON.stringify(core)); } catch {}
+      try { localStorage.setItem('pro_profile_cache', JSON.stringify({ ...core, user_email: user.email })); } catch {}
       window.dispatchEvent(new CustomEvent('pro-profile-updated', { detail: { avatar_url: data.avatar_url, cover_url: data.cover_url } }));
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);

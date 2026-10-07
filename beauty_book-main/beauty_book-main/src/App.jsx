@@ -302,13 +302,25 @@ const AuthenticatedApp = () => {
     }
   }
 
-  const hasOnboarded = onboarded || localStorage.getItem("bb_onboarded");
+  const hasAuthHashOrCode = typeof window !== 'undefined' && (
+    window.location.hash.includes('access_token') || 
+    window.location.search.includes('code=') ||
+    window.location.hash.includes('type=recovery')
+  );
+
+  const hasOnboarded = onboarded || localStorage.getItem("bb_onboarded") || hasAuthHashOrCode;
   const splashDone = sessionStorage.getItem("bb_splash_done") === "1";
 
+  // When OAuth token/code is in URL, ensure onboarded is set and stay on home page
+  if (hasAuthHashOrCode) {
+    try { localStorage.setItem("bb_onboarded", "1"); } catch {}
+  }
+
   // A single route tree keeps deep links available to guests and signed-in users.
-  if (!hasOnboarded && !splashDone && !isAuthenticated && location.pathname === '/') {
+  if (!hasOnboarded && !splashDone && !isAuthenticated && location.pathname === '/' && !hasAuthHashOrCode) {
     return <Navigate to="/onboarding" replace />;
   }
+
 
   // Render the main app
   return (

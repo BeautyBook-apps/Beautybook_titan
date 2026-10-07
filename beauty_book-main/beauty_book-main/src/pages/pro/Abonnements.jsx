@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Eye, BarChart2, ShieldCheck, Award, TrendingUp, Infinity, Headphones, Star, Users, Mic, Percent, CheckCircle, Loader2, X, CreditCard, Smartphone, Wallet } from "lucide-react";
+import { ArrowLeft, Eye, BarChart2, ShieldCheck, Award, TrendingUp, Infinity, Headphones, Star, Users, Mic, Percent, CheckCircle, Loader2, X, CreditCard, Smartphone, Wallet, Lock } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useCachedState, mergePageCache } from "@/hooks/usePageCache";
+import StripePaymentBox from "@/components/payment/StripePaymentBox";
 
 const FALLBACK_PLANS = [
   {
@@ -181,9 +182,9 @@ export default function Abonnements() {
     setSuccess(false);
   };
 
-  const handleSubmit = async () => {
+  const handleStripeSuccess = async (stripeResult) => {
     if (!form.name.trim() || !form.email.trim()) {
-      alert("Veuillez remplir votre nom et email.");
+      alert("Veuillez renseigner votre nom et email ci-dessus avant de payer.");
       return;
     }
     setSubmitting(true);
@@ -199,8 +200,12 @@ export default function Abonnements() {
         plan_price: selectedPlan.price,
         plan_type: "pro",
         status: "active",
-        payment_method: form.payment_method,
+        payment_method: "stripe",
         payment_status: "paye",
+        stripe_payment_method_id: stripeResult?.paymentMethodId,
+        stripe_token: stripeResult?.token,
+        card_brand: stripeResult?.brand,
+        card_last4: stripeResult?.last4,
         billing_name: form.name.trim(),
         billing_email: form.email.trim(),
         billing_phone: form.phone.trim(),
@@ -398,46 +403,18 @@ export default function Abonnements() {
                     />
                   </div>
 
-                  {/* Payment Method */}
-                  <div>
-                    <label className="text-[12px] font-black text-gray-700 uppercase tracking-wider mb-2 block">Mode de paiement</label>
-                    <div className="space-y-2">
-                      {PAYMENT_METHODS.map(pm => (
-                        <button
-                          key={pm.id}
-                          onClick={() => setForm({ ...form, payment_method: pm.id })}
-                          className={`w-full flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all ${
-                            form.payment_method === pm.id
-                              ? "border-primary bg-primary/5"
-                              : "border-gray-100 bg-white hover:border-gray-200"
-                          }`}
-                        >
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                            form.payment_method === pm.id ? "bg-primary/10" : "bg-gray-100"
-                          }`}>
-                            <pm.icon className={`w-5 h-5 ${form.payment_method === pm.id ? "text-primary" : "text-gray-400"}`} />
-                          </div>
-                          <div className="text-left">
-                            <p className={`text-[13px] font-black ${form.payment_method === pm.id ? "text-primary" : "text-gray-900"}`}>{pm.label}</p>
-                            <p className="text-[11px] text-gray-400 font-medium">{pm.desc}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+                  {/* Stripe Payment Box */}
+                  <div className="pt-2">
+                    <StripePaymentBox
+                      amount={selectedPlan.price}
+                      buttonLabel={`Payer ${selectedPlan.price}€ / mois & Activer`}
+                      customerName={form.name}
+                      customerEmail={form.email}
+                      customerPhone={form.phone}
+                      isProcessing={submitting}
+                      onSuccess={handleStripeSuccess}
+                    />
                   </div>
-
-                  {/* Submit */}
-                  <button
-                    onClick={handleSubmit}
-                    disabled={submitting || !form.name.trim() || !form.email.trim()}
-                    className="w-full py-4 bg-primary text-white rounded-2xl text-[13px] font-black uppercase tracking-widest shadow-lg shadow-primary/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {submitting ? (
-                      <><Loader2 className="w-4 h-4 animate-spin" /> Activation en cours...</>
-                    ) : (
-                      <><CheckCircle className="w-4 h-4" /> Activer {selectedPlan.name} - {selectedPlan.price}€/mois</>
-                    )}
-                  </button>
 
                   <p className="text-[11px] text-gray-400 text-center font-medium">
                     En souscrivant, vous acceptez les conditions générales d'utilisation.

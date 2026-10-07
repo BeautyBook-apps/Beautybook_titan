@@ -37,7 +37,7 @@ function SectionLabel({ children }) {
 
 export default function Parametres() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [showAccountSwitch, setShowAccountSwitch] = useState(false);
   const [showDeleteFlow, setShowDeleteFlow] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -47,15 +47,16 @@ export default function Parametres() {
   const savedAccounts = JSON.parse(localStorage.getItem("bb_saved_accounts") || "[]");
   // Sauvegarder le compte courant si pas déjà dedans
   if (user?.email && !savedAccounts.find(a => a.email === user.email)) {
-    savedAccounts.push({ email: user.email, name: user.username || user.email });
+    savedAccounts.push({ email: user.email, name: user.username || user.full_name || user.email });
     localStorage.setItem("bb_saved_accounts", JSON.stringify(savedAccounts));
   }
   const otherAccounts = savedAccounts.filter(a => a.email !== user?.email);
 
-  const handleSwitchAccount = (account) => {
-    // Sauvegarder l'email cible et déconnecter pour relogin
+  const handleSwitchAccount = async (account) => {
+    // Sauvegarder l'email cible et déconnecter avec nettoyage complet du cache
     localStorage.setItem("bb_switch_to", account.email);
-    supabase.auth.signOut().then(() => window.location.href = "/");
+    await logout(false);
+    window.location.href = "/connexion";
   };
 
   return (
@@ -189,10 +190,10 @@ export default function Parametres() {
             sublabel={otherAccounts.length > 0 ? `${otherAccounts.length} autre${otherAccounts.length > 1 ? "s" : ""} compte${otherAccounts.length > 1 ? "s" : ""} détecté${otherAccounts.length > 1 ? "s" : ""}` : "Aucun autre compte sur cet appareil"}
             onClick={() => {
               if (otherAccounts.length > 0) setShowAccountSwitch(true);
-              else { localStorage.removeItem("bb_onboarded"); supabase.auth.signOut().then(() => window.location.href = "/"); }
+              else { logout(true); }
             }}
           />
-          <SettingRow icon={UserPlus} iconBg="bg-green-50" iconColor="text-green-500" label="Ajouter un compte" sublabel="Se connecter avec un autre email" onClick={() => { localStorage.removeItem("bb_onboarded"); supabase.auth.signOut().then(() => window.location.href = "/"); }} />
+          <SettingRow icon={UserPlus} iconBg="bg-green-50" iconColor="text-green-500" label="Ajouter un compte" sublabel="Se connecter avec un autre email" onClick={() => { logout(false); window.location.href = "/connexion"; }} />
         </div>
 
         {/* Modal switch de compte */}
@@ -216,7 +217,7 @@ export default function Parametres() {
                     <ChevronRight className="w-4 h-4 text-gray-300" />
                   </button>
                 ))}
-                <button onClick={() => { setShowAccountSwitch(false); localStorage.removeItem("bb_onboarded"); supabase.auth.signOut().then(() => window.location.href = "/"); }}
+                <button onClick={() => { setShowAccountSwitch(false); logout(false); window.location.href = "/connexion"; }}
                   className="w-full flex items-center gap-4 bg-blue-50 rounded-2xl p-4 active:scale-[0.99] transition-all">
                   <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
                     <UserPlus className="w-5 h-5 text-blue-500" />
@@ -247,8 +248,7 @@ export default function Parametres() {
         <div className="mt-2">
           <button
             onClick={() => {
-              localStorage.removeItem("bb_onboarded");
-              supabase.auth.signOut().then(() => window.location.href = "/onboarding");
+              logout(true);
             }}
             className="w-full bg-red-50 border border-red-100 rounded-2xl py-4 flex items-center justify-center gap-2 active:scale-95 transition-all"
           >

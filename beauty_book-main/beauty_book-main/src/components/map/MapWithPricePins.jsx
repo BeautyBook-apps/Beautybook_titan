@@ -9,26 +9,71 @@ export default function MapWithPricePins({ items = [], onSelectItem, height = "h
   const [ready, setReady] = useState(false);
   const [mapError, setMapError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  const [geocodedItems, setGeocodedItems] = useState([]);
+
+  const getCoordinates = (item) => {
+    const lat = item?.lat ?? item?.latitude ?? (Array.isArray(item?.coordinates) ? item.coordinates[0] : null);
+    const lng = item?.lng ?? item?.longitude ?? (Array.isArray(item?.coordinates) ? item.coordinates[1] : null);
+    const parsedLat = Number(lat);
+    const parsedLng = Number(lng);
+    return Number.isFinite(parsedLat) && Number.isFinite(parsedLng) && parsedLat !== 0 && parsedLng !== 0
+      ? { lat: parsedLat, lng: parsedLng }
+      : null;
+  };
+
+  const getAddressQuery = (item) => [item?.address, item?.postal_code, item?.city]
+    .filter(Boolean)
+    .join(", ")
+    .trim();
+
+  // MapKit peut retrouver les épingles à partir de l'adresse quand un ancien
+  // profil n'a pas encore de latitude/longitude enregistrée.
+  useEffect(() => {
+    const pending = items
+      .filter((item) => !getCoordinates(item) && getAddressQuery(item))
+      .slice(0, 50);
+
+    if (pending.length === 0) {
+      setGeocodedItems([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    loadAppleMaps()
+      .then((mapkit) => Promise.all(pending.map((item) => new Promise((resolve) => {
+        new mapkit.Geocoder().lookup(getAddressQuery(item), (error, data) => {
+          const coordinate = !error && data?.results?.[0]?.coordinate;
+          resolve(coordinate && Number.isFinite(coordinate.latitude) && Number.isFinite(coordinate.longitude)
+            ? { id: item.id, lat: coordinate.latitude, lng: coordinate.longitude }
+            : null);
+        });
+      }))))
+      .then((results) => {
+        if (!cancelled) setGeocodedItems(results.filter(Boolean));
+      })
+      .catch(() => {
+        if (!cancelled) setGeocodedItems([]);
+      });
+
+    return () => { cancelled = true; };
+  }, [items]);
 
   const resolvedItems = useMemo(() =>
     items
-      .filter(it => {
-        const lat = it.lat ?? (Array.isArray(it.coordinates) ? it.coordinates[0] : null);
-        const lng = it.lng ?? (Array.isArray(it.coordinates) ? it.coordinates[1] : null);
-        return lat != null && lng != null && !isNaN(lat) && !isNaN(lng);
-      })
-      .map(it => {
-        const lat = parseFloat(it.lat ?? it.coordinates[0]);
-        const lng = parseFloat(it.lng ?? it.coordinates[1]);
+      .map((it) => {
+        const geocoded = geocodedItems.find((candidate) => candidate.id === it.id);
+        const coordinates = getCoordinates(it) || geocoded;
+        if (!coordinates) return null;
         return {
           ...it,
-          _lat: lat,
-          _lng: lng,
+          _lat: coordinates.lat,
+          _lng: coordinates.lng,
           displayTitle: it.salon_name || it.name || it.title || 'Professionnel BeautyBook',
           displayPrice: it.minPrice || it.price || 0,
         };
-      }),
-    [items]);
+      })
+      .filter(Boolean),
+    [items, geocodedItems]);
 
   const center = useMemo(() => {
     if (resolvedItems.length === 0) return { lat: 48.8566, lng: 2.3522 };

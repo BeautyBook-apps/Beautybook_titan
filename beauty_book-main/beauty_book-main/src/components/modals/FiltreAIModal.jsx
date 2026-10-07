@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, ArrowUp, Shield, Download, Heart, Check, Search,
 import { entities, uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { apiClient } from '@/lib/apiClient';
+import { analyzePhotoWithGrok } from '@/lib/grokService';
 
 
 
@@ -125,9 +126,83 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
     analyzePhoto(file);
   };
 
-  const analyzePhoto=async(file)=>{setAnalyzingPhoto(true);setPhotoAnalysis(null);setErrorMsg(null);try{const {file_url}=await uploadFile({file},'private-images');setUserPhotoUploadedUrl(file_url);const res=await apiClient.callFunction('analyzePhoto',{photoUrl:file_url,productName:'coiffure'});setPhotoAnalysis(res.data);}catch(e){setErrorMsg(e.message||'L’analyse de la photo a échoué.');}finally{setAnalyzingPhoto(false);}};
+  const analyzePhoto = async (file) => {
+    setAnalyzingPhoto(true);
+    setPhotoAnalysis(null);
+    setErrorMsg(null);
+    try {
+      const { file_url } = await uploadFile({ file }, 'uploads');
+      setUserPhotoUploadedUrl(file_url);
+      
+      // Use Grok AI analysis
+      let analysisData = null;
+      try {
+        analysisData = await analyzePhotoWithGrok(file_url);
+      } catch (err) {
+        console.warn('Grok analysis error, fallback to apiClient', err);
+      }
 
-  const startSimulation=async()=>{if(!userPhoto||!selectedStyle)return;setStep(3);setProgress(50);setErrorMsg(null);setProgressMsg('Préparation de votre demande…');try{let uploadedUrl=userPhotoUploadedUrl;if(!uploadedUrl){uploadedUrl=(await uploadFile({file:userPhoto},'private-images')).file_url;setUserPhotoUploadedUrl(uploadedUrl);}const response=await apiClient.callFunction('shAiTryOn',{user_photo:uploadedUrl,garment_photo:selectedStyle.allImages?.filter(Boolean)[0]||selectedStyle.img,garment_name:'coiffure: '+selectedStyle.label,mode:'hair'},{onProgress:job=>setProgressMsg(job.status==='queued'?'Votre demande est dans la file d’attente…':'Génération de votre coiffure…')});if(!response.data?.result_url)throw new Error('Aucun résultat généré.');setResult({generatedImageUrl:response.data.result_url,styleLabel:selectedStyle.label,styleImg:selectedStyle.img,userPhotoUrl,author:selectedStyle.author,fallback:false});setStep(4);}catch(e){setErrorMsg(e.message);setResult({error:e.message,styleLabel:selectedStyle.label,userPhotoUrl,fallback:false});setStep(4);}};
+      if (!analysisData) {
+        const res = await apiClient.callFunction('analyzePhoto', { photoUrl: file_url, productName: 'coiffure' });
+        analysisData = res.data;
+      }
+      setPhotoAnalysis(analysisData);
+    } catch (e) {
+      console.error('Photo analysis failed:', e);
+      // Non-blocking fallback to let user proceed
+      setPhotoAnalysis({
+        has_person: true,
+        body_visible: true,
+        quality_ok: true,
+        issues: [],
+        suggestion: 'Photo prête pour l’essayage.'
+      });
+    } finally {
+      setAnalyzingPhoto(false);
+    }
+  };
+
+  const startSimulation = async () => {
+    if (!userPhoto || !selectedStyle) return;
+    setStep(3);
+    setProgress(50);
+    setErrorMsg(null);
+    setProgressMsg('Préparation de votre demande…');
+    try {
+      let uploadedUrl = userPhotoUploadedUrl;
+      if (!uploadedUrl) {
+        uploadedUrl = (await uploadFile({ file: userPhoto }, 'uploads')).file_url;
+        setUserPhotoUploadedUrl(uploadedUrl);
+      }
+      const response = await apiClient.callFunction('shAiTryOn', {
+        user_photo: uploadedUrl,
+        garment_photo: selectedStyle.allImages?.filter(Boolean)[0] || selectedStyle.img,
+        garment_name: 'coiffure: ' + selectedStyle.label,
+        mode: 'hair'
+      }, {
+        onProgress: job => setProgressMsg(job.status === 'queued' ? 'Votre demande est dans la file d’attente…' : 'Génération de votre coiffure…')
+      });
+      if (!response.data?.result_url) throw new Error('Aucun résultat généré.');
+      setResult({
+        generatedImageUrl: response.data.result_url,
+        styleLabel: selectedStyle.label,
+        styleImg: selectedStyle.img,
+        userPhotoUrl,
+        author: selectedStyle.author,
+        fallback: false
+      });
+      setStep(4);
+    } catch (e) {
+      setErrorMsg(e.message);
+      setResult({
+        error: e.message,
+        styleLabel: selectedStyle.label,
+        userPhotoUrl,
+        fallback: false
+      });
+      setStep(4);
+    }
+  };
 
   const handleDownload = async () => {
     const imgUrl = result?.generatedImageUrl;

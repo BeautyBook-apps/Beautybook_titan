@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Search, SlidersHorizontal, Heart, Maximize, X, Map, RotateCcw, MapPin, Zap, Users, ArrowUpDown, Sofa, SearchX } from "lucide-react";
 import MapWithPricePins from "@/components/map/MapWithPricePins";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
+import { entities } from "@/api/entities";
 
 const PRICE_RANGES = [
   { id: "tous", label: "Tous les prix", min: 0, max: Infinity },
@@ -188,16 +189,36 @@ export default function Immobilier() {
 
   // Refresh en arrière-plan : jamais de reset, les données en cache restent affichées.
   useEffect(() => {
+    let active = true;
+    let refreshing = false;
     setLoading(true);
-    (async () => ({ data: { success: true } }))("getImmobilier", { type: activeTab })
-      .then(res => {
-        const items = res.data?.listings || [];
-        setListings(items);
-        mergePageCache("immobilier_page", { listings: items });
+    const refresh = () => {
+      if (refreshing || document.visibilityState !== 'visible') return;
+      refreshing = true;
+      return entities.ImmobilierListing.filter({ status: 'actif' }, '-created_at', 200)
+      .then(items => {
+        if (!active) return;
+        const list = Array.isArray(items) ? items : [];
+        setListings(list);
+        mergePageCache('immobilier_page', { listings: list });
         setLoading(false);
       })
-      .catch(() => setLoading(false));
-  }, [activeTab]);
+      .catch(() => { if (active) setLoading(false); })
+      .finally(() => { refreshing = false; });
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    const timer = setInterval(refresh, 15000);
+    const unsubscribe = entities.ImmobilierListing.subscribe(refresh);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+      unsubscribe();
+    };
+  }, []);
 
   const activeFilterCount = useMemo(() => {
     let c = 0;
@@ -221,6 +242,8 @@ export default function Immobilier() {
 
   const filtered = useMemo(() => {
     let result = listings.filter(l => {
+      const matchType = activeTab === 'location' ? l.type === 'location' : l.type === 'vente';
+
       const matchSearch = !search.trim() ||
         l.title?.toLowerCase().includes(search.toLowerCase()) ||
         l.location?.toLowerCase().includes(search.toLowerCase()) ||
@@ -242,7 +265,7 @@ export default function Immobilier() {
 
       const matchQuartier = filterQuartier === "Tous" || l.location?.toLowerCase().includes(filterQuartier.toLowerCase());
 
-      return matchSearch && matchPrice && matchSurface && matchSeats && matchEquip && matchDpe && matchQuartier;
+      return matchType && matchSearch && matchPrice && matchSurface && matchSeats && matchEquip && matchDpe && matchQuartier;
     });
 
     switch (sortBy) {
@@ -253,7 +276,7 @@ export default function Immobilier() {
     }
 
     return result;
-  }, [listings, search, filterPrice, filterSurface, filterSeats, filterEquip, filterDpe, filterQuartier, sortBy]);
+  }, [listings, activeTab, search, filterPrice, filterSurface, filterSeats, filterEquip, filterDpe, filterQuartier, sortBy]);
 
   return (
     <div className="font-display bg-[#f5f5f5] min-h-full pb-6">

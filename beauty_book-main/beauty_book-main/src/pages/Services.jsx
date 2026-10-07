@@ -1,15 +1,15 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Bell, SlidersHorizontal, Star, Heart, MapPin, User, Flame, CheckCircle } from "lucide-react";
+import { Search, Bell, SlidersHorizontal, Star, MapPin, User, Flame, CheckCircle } from "lucide-react";
 import MapWithPricePins from "@/components/map/MapWithPricePins";
 import AdvancedFilterSheet from "@/components/filters/AdvancedFilterSheet";
 import { GLOBAL_CATEGORIES } from "@/lib/categories";
 import { entities } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
 import usePullToRefresh from "@/hooks/usePullToRefresh";
 import { useLocation } from '@/contexts/LocationContext';
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
+import { isProfilParticulier, isProfilSalon } from "@/lib/annonces";
 
 const isVideoUrl = (url) => {
   if (!url || typeof url !== "string") return false;
@@ -82,13 +82,14 @@ export default function Services() {
   const { containerRef, pulling, pullDistance } = usePullToRefresh(handleRefresh);
 
   useEffect(() => {
-    const filterObj = { status: "publie" };
+    const filterObj = { status: ["publie", "actif"] };
     if (activeCategory) filterObj.category = activeCategory.dbValue;
-    entities.Style.filter(filterObj, "-created_at", 20)
+    entities.Style.filter(filterObj, "-created_at", 50)
       .then(data => {
-        setStyles(data || []);
+        const list = (data && data.length > 0) ? data : [];
+        setStyles(list);
         // Le cache ne garde que la vue non filtrée (« Tous »)
-        if (!activeCategory) mergePageCache("services_page", { styles: data || [] });
+        if (!activeCategory) mergePageCache("services_page", { styles: list });
       })
       .catch(() => {})
       .finally(() => setLoadingStyles(false));
@@ -139,7 +140,7 @@ export default function Services() {
   }
 
   const filteredSalons = useMemo(() => {
-    let result = pros.filter(p => p.type_activite !== "Particulier");
+    let result = pros.filter(p => isProfilSalon(p));
     if (activeCategory) {
       result = result.filter(p => p.specialites?.some(s => s.toLowerCase().includes(activeCategory.label.toLowerCase())));
     }
@@ -151,7 +152,7 @@ export default function Services() {
   }, [pros, activeCategory, search]);
 
   const filteredParticuliers = useMemo(() => {
-    let result = pros.filter(p => p.type_activite === "Particulier");
+    let result = pros.filter(p => isProfilParticulier(p));
     if (activeCategory) {
       result = result.filter(p => p.specialites?.some(s => s.toLowerCase().includes(activeCategory.label.toLowerCase())));
     }

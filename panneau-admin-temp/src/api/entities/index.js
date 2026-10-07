@@ -1,357 +1,12 @@
-import apiClient from '@/lib/apiClient';
+import apiClient, { localAdminEnabled } from '@/lib/apiClient';
 import { supabase } from '@/api/supabaseClient';
 
-/**
- * Couche d'abstraction compatible Base44.
- * Remplace entities.NomTable.filter/create/update/delete/get/list
- *
- * - Reads and writes → Supabase using the authenticated admin session
- */
+import { createAdminEntity } from './adminEntity.mjs';
 
-// The deployed application does not expose the /crud/* routes. Using the
-// authenticated Supabase client keeps writes and subsequent reads on the same database.
-const CRUD_API = '';
-
-// Auto-migrate: add missing columns to Style table
-const STYLE_MIGRATION_KEY = 'bb_style_migration_v2';
-const runStyleMigration = async () => {
-  if (sessionStorage.getItem(STYLE_MIGRATION_KEY)) return;
-  try {
-    await supabase.rpc('exec_sql', {
-      query: `
-        ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS subcategory TEXT DEFAULT '';
-        ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS produits_utilises JSONB DEFAULT '[]'::jsonb;
-        ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS outils_utilises JSONB DEFAULT '[]'::jsonb;
-        ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS type_cheveux TEXT DEFAULT '';
-        ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS type_peau TEXT DEFAULT '';
-        ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS type_prestation TEXT DEFAULT '';
-        ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS temps_moyen TEXT DEFAULT '';
-        ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS niveau_difficulte TEXT DEFAULT '';
-        ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS mots_cles JSONB DEFAULT '[]'::jsonb;
-      `
-    });
-  } catch {}
-  sessionStorage.setItem(STYLE_MIGRATION_KEY, '1');
-};
-runStyleMigration();
-
-const parseOrder = (orderBy) => {
-  if (!orderBy) return { column: 'created_at', ascending: false };
-  const desc = orderBy.startsWith('-');
-  const raw = desc ? orderBy.slice(1) : orderBy;
-  const colMap = {
-    created_date: 'created_at',
-    updated_date: 'updated_at',
-    created_at: 'created_at',
-    updated_at: 'updated_at',
-    date: 'date',
-    rating: 'rating',
-    price: 'price',
-    likes: 'likes',
-    views: 'views',
-    name: 'name',
-    title: 'title',
-  };
-  return { column: colMap[raw] || raw, ascending: !desc };
-};
-
-const KNOWN_COLUMNS = {
-  Reel: ['id','title','description','video_url','thumbnail_url','images','category','tags','status','likes','views','comments_count','author_email','author_name','author_avatar','created_at','updated_at','created_by_id'],
-  ImmobilierListing: ['id','title','description','price','price_fonds_commerce','price_per_m2','tax_mode','salon_type','unit','surface','rooms','floor','type','status','city','address','location','area','postal_code','equip','extra','badge','images','video_url','contact_email','contact_phone','latitude','longitude','_lat','_lng','created_at','updated_at','created_by_id'],
-  Style: ['id','title','description','category','subcategory','images','image_url','video_url','tags','pro_email','status','likes','views','featured','author_email','author_name','author_avatar','produits_utilises','outils_utilises','type_cheveux','type_peau','type_prestation','temps_moyen','niveau_difficulte','mots_cles','created_at','updated_at'],
-  StyleCategory: ['id','name','slug','description','icon','color','is_active','styles_count','subcategories_count','created_at','updated_at'],
-  StyleSubCategory: ['id','name','slug','category_id','description','is_active','styles_count','created_at','updated_at'],
-  Produit: ['id','name','description','price','old_price','images','category','brand','stock','status','tags','rating','reviews_count','shopify_id','source','featured','external_url','min_qty','created_at','updated_at','created_by_id'],
-  Publication: ['id','author_email','author_name','author_avatar','content','images','video_url','type','status','likes','comments_count','tags','created_at','updated_at','created_by_id'],
-  Service: ['id','name','title','description','price','category','subcategory','style','duration','images','pro_email','status','addons','tags','rating','reviews_count','max_persons','promo_price','promo_ends_at','created_at','updated_at','created_by_id'],
-  Notification: ['id','user_email','title','message','body','type','is_read','read','icon','action_url','data','created_at','updated_at','created_by_id'],
-  MessageChat: ['id','conversation_id','sender_email','sender_name','sender_avatar','receiver_email','receiver_name','content','type','file_url','is_read','read','reservation_id','is_maria','created_at','updated_at','created_by_id'],
-  Commande: ['id','client_email','client_name','items','total_price','total','subtotal','shipping','status','payment_status','payment_method','payment_intent_id','shipping_address','tracking_number','notes','created_at','updated_at','created_by_id'],
-  PointsFidelite: ['id','user_email','points','points_total','total_earned','total_spent','points_depenses','level','niveau','history','historique','code_parrainage','created_at','updated_at','created_by_id'],
-  SoldeBeautyPay: ['id','user_email','balance','solde','currency','transactions','created_at','updated_at','created_by_id'],
-  CallSignal: ['id','call_id','caller_email','caller_name','callee_email','signal_type','type','signal_data','payload','status','created_at','updated_at','created_by_id'],
-  LiveSession: ['id','host_email','host_name','host_avatar','title','description','category','status','viewers_count','viewers','mux_stream_key','mux_playback_id','thumbnail_url','started_at','ended_at','created_at','updated_at','created_by_id'],
-  LiveMessage: ['id','session_id','user_email','user_name','user_avatar','sender_email','sender_name','sender_avatar','content','type','created_at','updated_at','created_by_id'],
-  DemandeProV2: ['id','user_email','username','nom','prenom','phone','address','city','specialite','experience','description','cv_url','portfolio_urls','status','admin_notes','statut','siret','salon_name','bio','type_activite','years_experience','services','categories','specialites_cheveux','salon_photo','portfolio','email_pro','doc_identite_recto','doc_identite_verso','doc_siret','doc_assurance','days','time_slots','commodites','seats_count','se_deplace','travail_nuit','visite_video_url','diplomes','has_diplome','created_at','updated_at','created_by_id'],
-  DemandefFranchise: ['id','user_email','user_name','full_name','email','phone','city','budget','experience','message','status','created_at','updated_at','created_by_id'],
-  MembreEquipe: ['id','pro_email','membre_email','membre_name','membre_avatar','name','role','specialites','specialties','experience','days','horaires','status','created_at','updated_at','created_by_id'],
-  CatalogueOption: ['id','name','description','price','duration_min','service_id','pro_email','category','usage_count','created_at','updated_at','created_by_id'],
-  Client: ['id','pro_email','name','email','phone','notes','tags','source','total_spent','total_rdv','last_rdv_date','created_at','updated_at','created_by_id'],
-  Annonce: ['id','title','description','type','target_url','status','pro_email','pro_name','sponsor_name','budget','start_date','end_date','impressions','clicks','created_at','updated_at','created_by_id'],
-  ProfilPro: ['id','user_email','nom','prenom','salon_name','bio','specialites','avatar_url','cover_url','address','city','phone','status','rating','reviews_count','travail_nuit','horaires','jours_repos','conges','ouverture','team_emails','latitude','longitude','_lat','_lng','abonnement','abonnement_expires_at','stripe_customer_id','categorie','tags','galerie_urls','presentation_video_url','website','instagram','facebook','services_count','followers','commodites','seats_count','se_deplace','created_at','updated_at','created_by_id'],
-  RoutineBeaute: ['id','user_email','name','emoji','description','steps','tasks','frequency','status','reminders','reminder_active','category','created_at','updated_at','created_by_id'],
-  profiles: ['id','email','full_name','avatar_url','cover_url','role','gender','beauty_interests','maria_name','maria_memory','created_at','updated_at'],
-  user_like: ['id','user_email','user_name','user_avatar','target_id','target_type','created_at'],
-  user_favorite: ['id','user_email','target_id','target_type','target_title','target_image','target_data','created_at'],
-  reel_comment: ['id','reel_id','user_email','user_name','user_avatar','content','likes','parent_id','created_at','updated_at'],
-  user_follow: ['id','follower_email','follower_name','follower_avatar','followed_email','created_at'],
-};
-
-const stripUnknownColumns = async (tableName, payload) => {
-  let known = KNOWN_COLUMNS[tableName];
-  if (!known) {
-    try {
-      const { data, error } = await supabase.from(tableName).select('*').limit(1);
-      if (!error && data && data[0]) known = Object.keys(data[0]);
-    } catch {}
-  }
-  if (!known || known.length === 0) return payload;
-  const cleaned = {};
-  for (const key of Object.keys(payload)) {
-    if (known.includes(key)) cleaned[key] = payload[key];
-  }
-  return cleaned;
-};
-
-const BASIC_COLUMNS = {
-  Style: 'id,title,description,category,images,image_url,video_url,tags,pro_email,status,likes,views,featured,author_email,author_name,author_avatar,created_at,updated_at',
-};
-
-const getSelectColumns = (tableName) => {
-  return '*';
-};
-
-const safeQuery = async (tableName, queryFn) => {
-  try {
-    const result = await queryFn(getSelectColumns(tableName));
-    if (result?.error && result.error.message?.includes('column') && result.error.message?.includes('does not exist')) {
-      const fallback = BASIC_COLUMNS[tableName];
-      if (fallback) return await queryFn(fallback);
-    }
-    return result;
-  } catch (e) {
-    const fallback = BASIC_COLUMNS[tableName];
-    if (fallback) return await queryFn(fallback);
-    throw e;
-  }
-};
-
+// Legacy bb_local_* browser data is preserved, but must not masquerade as
+// server records. Admin operations use the authenticated, audited API.
 const createEntity = (tableName) => ({
-  filter: async (filters = {}, orderBy = '-created_at', limit = 1000) => {
-    const applyFilters = (q) => {
-      if (filters && Object.keys(filters).length > 0) {
-        for (const [k, v] of Object.entries(filters)) {
-          q = q.eq(k, v);
-        }
-      }
-      return q;
-    };
-    const applyOrder = (q) => {
-      if (orderBy) {
-        const desc = orderBy.startsWith('-');
-        const raw = orderBy.startsWith('-') ? orderBy.slice(1) : orderBy;
-        const colMap = { created_date: 'created_at', updated_date: 'updated_at', created_at: 'created_at', updated_at: 'updated_at' };
-        q = q.order(colMap[raw] || raw, { ascending: !desc });
-      }
-      return q;
-    };
-    // Aller directement à Supabase si pas de backend
-    if (!CRUD_API) {
-      try {
-        const { data, error } = await safeQuery(tableName, (cols) => {
-          let q = supabase.from(tableName).select(cols);
-          q = applyFilters(q);
-          q = applyOrder(q);
-          return q.limit(limit);
-        });
-        if (error) { console.error(`[entities] ${tableName} filter error:`, error.message); return []; }
-        return data || [];
-      } catch (e) { console.error(`[entities] ${tableName} filter exception:`, e.message); return []; }
-    }
-    try {
-      const res = await fetch(`${CRUD_API}/crud/list`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table: tableName, orderBy, limit }),
-      });
-      if (!res.ok) throw new Error('List failed');
-      const { result } = await res.json();
-      let data = result || [];
-      if (filters && Object.keys(filters).length > 0) {
-        data = data.filter(row => Object.entries(filters).every(([k, v]) => row[k] === v));
-      }
-      return data;
-    } catch (e) {
-      try {
-        const { data, error } = await safeQuery(tableName, (cols) => {
-          let q = supabase.from(tableName).select(cols);
-          q = applyFilters(q);
-          q = applyOrder(q);
-          return q.limit(limit);
-        });
-        if (error) { console.error(`[entities] ${tableName} filter fallback error:`, error.message); return []; }
-        return data || [];
-      } catch (e2) { console.error(`[entities] ${tableName} filter fallback exception:`, e2.message); return []; }
-    }
-  },
-
-  list: async (orderBy = '-created_at', limit = 1000) => {
-    if (!CRUD_API) {
-      try {
-        const { column, ascending } = parseOrder(orderBy);
-        const { data, error } = await safeQuery(tableName, (cols) =>
-          supabase.from(tableName).select(cols).order(column, { ascending }).limit(limit)
-        );
-        if (error) { console.error(`[entities] ${tableName} list error:`, error.message); return []; }
-        return data || [];
-      } catch (e) { console.error(`[entities] ${tableName} list exception:`, e.message); return []; }
-    }
-    try {
-      const res = await fetch(`${CRUD_API}/crud/list`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table: tableName, orderBy, limit }),
-      });
-      if (!res.ok) throw new Error('List failed');
-      const { result } = await res.json();
-      return result || [];
-    } catch (e) {
-      try {
-        const { column, ascending } = parseOrder(orderBy);
-        const { data, error } = await safeQuery(tableName, (cols) =>
-          supabase.from(tableName).select(cols).order(column, { ascending }).limit(limit)
-        );
-        if (error) { console.error(`[entities] ${tableName} list fallback error:`, error.message); return []; }
-        return data || [];
-      } catch (e2) { console.error(`[entities] ${tableName} list fallback exception:`, e2.message); return []; }
-    }
-  },
-
-  get: async (id) => {
-    if (!CRUD_API) {
-      try {
-        const { data, error } = await safeQuery(tableName, (cols) =>
-          supabase.from(tableName).select(cols).eq('id', id).single()
-        );
-        if (error) return null;
-        return data;
-      } catch { return null; }
-    }
-    try {
-      const res = await fetch(`${CRUD_API}/crud/list`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table: tableName, orderBy: '-created_at', limit: 1 }),
-      });
-      if (!res.ok) throw new Error('Get failed');
-      const { result } = await res.json();
-      return (result || []).find(r => r.id === id) || null;
-    } catch (e) {
-      try {
-        const { data, error } = await safeQuery(tableName, (cols) =>
-          supabase.from(tableName).select(cols).eq('id', id).single()
-        );
-        if (error) return null;
-        return data;
-      } catch { return null; }
-    }
-  },
-
-  create: async (data) => {
-    const payload = { ...data };
-    Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
-
-    if (!CRUD_API) {
-      const cleanPayload = await stripUnknownColumns(tableName, payload);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) {
-        throw new Error('Vous devez être connecté pour effectuer cette action.');
-      }
-      const { data: result, error } = await supabase.from(tableName).insert(cleanPayload).select().single();
-      if (error) throw error;
-      return result;
-    }
-    try {
-      const res = await fetch(`${CRUD_API}/crud/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table: tableName, data: payload }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Create failed' }));
-        throw new Error(err.error || 'Create failed');
-      }
-      const { result } = await res.json();
-      return result;
-    } catch (e) {
-      try {
-        const cleanPayload = await stripUnknownColumns(tableName, payload);
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) {
-          throw new Error('Vous devez être connecté pour effectuer cette action.');
-        }
-        const { data: result, error } = await supabase.from(tableName).insert(cleanPayload).select().single();
-        if (error) throw error;
-        return result;
-      } catch (e2) {
-        throw e2;
-      }
-    }
-  },
-
-  update: async (id, data) => {
-    const payload = { ...data };
-    Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
-
-    if (!CRUD_API) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) {
-        throw new Error('Session administrateur expirée. Reconnectez-vous puis réessayez.');
-      }
-      const cleanPayload = await stripUnknownColumns(tableName, payload);
-      const { data: result, error } = await supabase.from(tableName).update(cleanPayload).eq('id', id).select().single();
-      if (error) throw error;
-      return result;
-    }
-    try {
-      const res = await fetch(`${CRUD_API}/crud/update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table: tableName, id, data: payload }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Update failed' }));
-        throw new Error(err.error || 'Update failed');
-      }
-      const { result } = await res.json();
-      return result;
-    } catch (e) {
-      const cleanPayload = await stripUnknownColumns(tableName, payload);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) {
-        throw new Error('Session administrateur expirée. Reconnectez-vous puis réessayez.');
-      }
-      const { data: result, error } = await supabase.from(tableName).update(cleanPayload).eq('id', id).select().single();
-      if (error) throw error;
-      return { data: { [tableName.toLowerCase()]: result }, result };
-    }
-  },
-
-  delete: async (id) => {
-    if (!CRUD_API) {
-      const { data, error } = await supabase.from(tableName).delete().eq('id', id).select('id');
-      if (error) throw error;
-      if (!data?.length) throw new Error('Suppression refusée ou élément introuvable.');
-      return true;
-    }
-    try {
-      const res = await fetch(`${CRUD_API}/crud/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table: tableName, id }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Delete failed' }));
-        throw new Error(err.error || 'Delete failed');
-      }
-      return true;
-    } catch (e) {
-      const { data, error } = await supabase.from(tableName).delete().eq('id', id).select('id');
-      if (error) throw error;
-      if (!data?.length) throw new Error('Suppression refusée ou élément introuvable.');
-      return true;
-    }
-  },
+  ...createAdminEntity(tableName, apiClient),
   subscribe: (callback) => {
     const channel = supabase
       .channel(`realtime:${tableName}:${Math.random().toString(36).slice(2)}`)
@@ -370,14 +25,84 @@ const createEntity = (tableName) => ({
   },
 });
 
+/* ─── Local-storage-backed stub for StyleCategory / StyleSubCategory ─── */
+const SEED_CATEGORIES = [
+  { id: 'coiffure',    name: 'Coiffure',         slug: 'coiffure',    icon: 'Scissors',   color: '#8B5CF6', is_active: true, styles_count: 0, subcategories_count: 3 },
+  { id: 'tresses',     name: 'Tresses',          slug: 'tresses',     icon: 'Waves',      color: '#F43F5E', is_active: true, styles_count: 0, subcategories_count: 0 },
+  { id: 'manucure',    name: 'Manucure',         slug: 'manucure',    icon: 'Gem',        color: '#F59E0B', is_active: true, styles_count: 0, subcategories_count: 0 },
+  { id: 'pedicure',    name: 'Pédicure',         slug: 'pedicure',    icon: 'Star',       color: '#EC4899', is_active: true, styles_count: 0, subcategories_count: 0 },
+  { id: 'maquillage',  name: 'Maquillage',       slug: 'maquillage',  icon: 'Brush',      color: '#D946EF', is_active: true, styles_count: 0, subcategories_count: 0 },
+  { id: 'soin-visage', name: 'Soin Visage',      slug: 'soin-visage', icon: 'Droplets',   color: '#EF4444', is_active: true, styles_count: 0, subcategories_count: 0 },
+  { id: 'barbe',       name: 'Barbe',            slug: 'barbe',       icon: 'Zap',        color: '#475569', is_active: true, styles_count: 0, subcategories_count: 0 },
+  { id: 'extensions',  name: 'Extensions',       slug: 'extensions',  icon: 'Sparkles',   color: '#7C3AED', is_active: true, styles_count: 0, subcategories_count: 0 },
+  { id: 'massage',     name: 'Massage',          slug: 'massage',     icon: 'Flower2',    color: '#10B981', is_active: true, styles_count: 0, subcategories_count: 0 },
+  { id: 'epilation',   name: 'Épilation',        slug: 'epilation',   icon: 'Wind',       color: '#818CF8', is_active: true, styles_count: 0, subcategories_count: 0 },
+  { id: 'cils',        name: 'Cils & Sourcils',  slug: 'cils',        icon: 'Eye',        color: '#06B6D4', is_active: true, styles_count: 0, subcategories_count: 0 },
+  { id: 'spa',         name: 'Spa & Bien-être',  slug: 'spa',         icon: 'Heart',      color: '#D97706', is_active: true, styles_count: 0, subcategories_count: 0 },
+];
+const SEED_SUBCATEGORIES = [
+  { id: 'coupe-femme',    name: 'Coupe Femme',    slug: 'coupe-femme',    category_id: 'coiffure', is_active: true, styles_count: 0 },
+  { id: 'coupe-homme',    name: 'Coupe Homme',    slug: 'coupe-homme',    category_id: 'coiffure', is_active: true, styles_count: 0 },
+  { id: 'coloration',     name: 'Coloration',     slug: 'coloration',     category_id: 'coiffure', is_active: true, styles_count: 0 },
+];
+
+const LS_KEY_CAT = 'bb_style_categories';
+const LS_KEY_SUB = 'bb_style_subcategories';
+const _now = () => new Date().toISOString();
+const _uuid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
+
+const _loadStore = (key, seed) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed) && parsed.length) return parsed; }
+  } catch {}
+  const seeded = seed.map(s => ({ ...s, created_at: _now(), updated_at: _now() }));
+  localStorage.setItem(key, JSON.stringify(seeded));
+  return seeded;
+};
+const _saveStore = (key, data) => { try { localStorage.setItem(key, JSON.stringify(data)); } catch {} };
+
+const createLocalEntity = (lsKey, seedData) => ({
+  list: async (_orderBy, _limit) => _loadStore(lsKey, seedData),
+  filter: async (filters = {}) => {
+    let rows = _loadStore(lsKey, seedData);
+    if (filters && Object.keys(filters).length > 0) {
+      rows = rows.filter(r => Object.entries(filters).every(([k, v]) => r[k] === v));
+    }
+    return rows;
+  },
+  getById: async (id) => _loadStore(lsKey, seedData).find(r => r.id === id) || null,
+  create: async (payload) => {
+    const rows = _loadStore(lsKey, seedData);
+    const row = { ...payload, id: payload.id || _uuid(), created_at: _now(), updated_at: _now() };
+    rows.push(row);
+    _saveStore(lsKey, rows);
+    return row;
+  },
+  update: async (id, patch) => {
+    const rows = _loadStore(lsKey, seedData);
+    const idx = rows.findIndex(r => r.id === id);
+    if (idx === -1) return null;
+    rows[idx] = { ...rows[idx], ...patch, updated_at: _now() };
+    _saveStore(lsKey, rows);
+    return rows[idx];
+  },
+  delete: async (id) => {
+    let rows = _loadStore(lsKey, seedData);
+    rows = rows.filter(r => r.id !== id);
+    _saveStore(lsKey, rows);
+    return true;
+  },
+});
+
 export const entities = {
   ProfilPro:          createEntity('ProfilPro'),
   Service:            createEntity('Service'),
   Reservation:        createEntity('Reservation'),
   Avis:               createEntity('Avis'),
   Style:              createEntity('Style'),
-  StyleCategory:      createEntity('StyleCategory'),
-  StyleSubCategory:   createEntity('StyleSubCategory'),
+  StyleCategory:      createLocalEntity(LS_KEY_CAT, SEED_CATEGORIES),
+  StyleSubCategory:   createLocalEntity(LS_KEY_SUB, SEED_SUBCATEGORIES),
   Reel:               createEntity('Reel'),
   CommentaireStyle:   createEntity('CommentaireStyle'),
   MessageChat:        createEntity('MessageChat'),
@@ -414,7 +139,6 @@ export const entities = {
   profiles:           createEntity('profiles'),
 };
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || '';
 
 import { compressMedia } from '@/lib/compressMedia';
 
@@ -444,6 +168,16 @@ export const uploadFile = async (fileOrObj, bucket = 'uploads') => {
     .replace(/^_|_$/g, '');
   const filePath = `${Date.now()}_${safeName}`;
 
+  if (localAdminEnabled && bucket === 'uploads') {
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = () => reject(new Error('Lecture du média impossible.'));
+      reader.readAsDataURL(file);
+    });
+    return apiClient.post('/admin/upload', { name: safeName, contentType: file.type, base64 });
+  }
+
   const { data, error } = await supabase.storage
     .from(bucket)
     .upload(filePath, file, { contentType: file.type, upsert: true });
@@ -460,27 +194,6 @@ export const uploadFile = async (fileOrObj, bucket = 'uploads') => {
   return { file_url: urlData.publicUrl };
 };
 
-export const fetchProduits = async (params = {}) => {
-  try {
-    const res = await fetch(`${CRUD_API}/crud/list`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ table: 'Produit', orderBy: '-created_at', limit: params.limit || 500 }),
-    });
-    if (!res.ok) throw new Error('List failed');
-    let { result } = await res.json();
-    result = result || [];
-    if (params.status) result = result.filter(p => p.status === params.status);
-    return result;
-  } catch (e) {
-    console.warn('[fetchProduits] backend failed, trying Supabase:', e.message);
-    try {
-      let query = supabase.from('Produit').select(getSelectColumns('Produit')).order('created_at', { ascending: false });
-      if (params.status) query = query.eq('status', params.status);
-      if (params.limit) query = query.limit(params.limit);
-      const { data, error } = await query;
-      if (error) throw error;
-      return data || [];
-    } catch { return []; }
-  }
-};
+export const fetchProduits = (params = {}) => entities.Produit.filter(
+  params.status ? { status: params.status } : {}, '-created_at', params.limit || 500
+);

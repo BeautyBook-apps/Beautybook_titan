@@ -1,46 +1,16 @@
 {
-  "scannedAt": "2026-09-19T14:36:58.949Z",
-  "files": 707,
+  "scannedAt": "2026-10-07T11:55:30.951Z",
+  "files": 789,
   "summary": {
     "embedded_secret": 0,
-    "service_role_key": 0,
+    "service_role_key": 1,
     "frontend_secret": 0,
     "fabricated_result": 0,
-    "permissive_policy": 338,
-    "runtime_sql": 1247,
-    "demo_ui": 43
+    "permissive_policy": 340,
+    "runtime_sql": 1254,
+    "demo_ui": 49
   },
   "findings": [
-    {
-      "rule": "demo_ui",
-      "file": "apps/seller/android/app/src/main/assets/public/assets/index-COYNDU6h.js",
-      "line": 37
-    },
-    {
-      "rule": "demo_ui",
-      "file": "apps/seller/android/app/src/main/assets/public/assets/index-COYNDU6h.js",
-      "line": 38
-    },
-    {
-      "rule": "demo_ui",
-      "file": "apps/seller/android/app/src/main/assets/public/assets/index-COYNDU6h.js",
-      "line": 167
-    },
-    {
-      "rule": "demo_ui",
-      "file": "apps/seller/ios/App/App/public/assets/index-DBCIs5wZ.js",
-      "line": 37
-    },
-    {
-      "rule": "demo_ui",
-      "file": "apps/seller/ios/App/App/public/assets/index-DBCIs5wZ.js",
-      "line": 38
-    },
-    {
-      "rule": "demo_ui",
-      "file": "apps/seller/ios/App/App/public/assets/index-DBCIs5wZ.js",
-      "line": 162
-    },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/backend/SQL_MIGRATION.sql",
@@ -1173,18 +1143,33 @@
     },
     {
       "rule": "demo_ui",
+      "file": "beauty_book-main/beauty_book-main/src/components/reservation/StepConfirmation.jsx",
+      "line": 210
+    },
+    {
+      "rule": "demo_ui",
+      "file": "beauty_book-main/beauty_book-main/src/components/reservation/StepConfirmation.jsx",
+      "line": 348
+    },
+    {
+      "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/components/routine/RoutineModal.jsx",
       "line": 36
     },
     {
       "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/components/service/VTCSection.jsx",
-      "line": 92
+      "line": 93
     },
     {
       "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/components/service/VTCSection.jsx",
-      "line": 99
+      "line": 100
+    },
+    {
+      "rule": "demo_ui",
+      "file": "beauty_book-main/beauty_book-main/src/components/showcase/ShowcasePhotoStep.jsx",
+      "line": 46
     },
     {
       "rule": "demo_ui",
@@ -1199,12 +1184,32 @@
     {
       "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/components/studio/VideoEditor.jsx",
-      "line": 41
+      "line": 34
     },
     {
       "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/components/ui/sidebar.jsx",
       "line": 536
+    },
+    {
+      "rule": "service_role_key",
+      "file": "beauty_book-main/beauty_book-main/src/lib/adminUserManagement.js",
+      "line": 5
+    },
+    {
+      "rule": "demo_ui",
+      "file": "beauty_book-main/beauty_book-main/src/lib/adminUserManagement.js",
+      "line": 14
+    },
+    {
+      "rule": "demo_ui",
+      "file": "beauty_book-main/beauty_book-main/src/lib/bookingCodes.js",
+      "line": 23
+    },
+    {
+      "rule": "demo_ui",
+      "file": "beauty_book-main/beauty_book-main/src/lib/bookingCodes.js",
+      "line": 30
     },
     {
       "rule": "demo_ui",
@@ -1218,8 +1223,18 @@
     },
     {
       "rule": "demo_ui",
+      "file": "beauty_book-main/beauty_book-main/src/lib/stripe.js",
+      "line": 75
+    },
+    {
+      "rule": "demo_ui",
+      "file": "beauty_book-main/beauty_book-main/src/pages/AssistantConversationnel.jsx",
+      "line": 1116
+    },
+    {
+      "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/pages/DevenirPro.jsx",
-      "line": 1217
+      "line": 1594
     },
     {
       "rule": "demo_ui",
@@ -1233,48 +1248,48 @@
     },
     {
       "rule": "demo_ui",
+      "file": "beauty_book-main/beauty_book-main/src/pages/LiveDetail.jsx",
+      "line": 138
+    },
+    {
+      "rule": "demo_ui",
+      "file": "beauty_book-main/beauty_book-main/src/pages/LiveDetail.jsx",
+      "line": 216
+    },
+    {
+      "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/pages/Messages.jsx",
-      "line": 1019
+      "line": 1024
     },
     {
       "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/pages/pro/Publication.jsx",
-      "line": 323
+      "line": 333
     },
     {
       "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/pages/pro/Publication.jsx",
-      "line": 380
+      "line": 390
     },
     {
       "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/pages/pro/VueClient.jsx",
-      "line": 635
+      "line": 441
     },
     {
       "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/pages/ProduitDetail.jsx",
-      "line": 793
+      "line": 819
     },
     {
       "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/pages/ProgrammeFidelite.jsx",
-      "line": 90
-    },
-    {
-      "rule": "demo_ui",
-      "file": "beauty_book-main/beauty_book-main/src/pages/Recherche.jsx",
-      "line": 207
-    },
-    {
-      "rule": "demo_ui",
-      "file": "beauty_book-main/beauty_book-main/src/pages/Recherche.jsx",
-      "line": 208
+      "line": 103
     },
     {
       "rule": "demo_ui",
       "file": "beauty_book-main/beauty_book-main/src/pages/ServicesSalons.jsx",
-      "line": 1889
+      "line": 2150
     },
     {
       "rule": "runtime_sql",
@@ -2143,6 +2158,91 @@
     },
     {
       "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/202609210001_add_home_service_address.sql",
+      "line": 1
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/202609210002_add_unique_usernames.sql",
+      "line": 1
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260928_add_service_questions.sql",
+      "line": 4
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_booking_codes_qr.sql",
+      "line": 8
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_booking_codes_qr.sql",
+      "line": 9
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_booking_codes_qr.sql",
+      "line": 30
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_booking_codes_qr.sql",
+      "line": 35
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_booking_codes_qr.sql",
+      "line": 45
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_booking_codes_qr.sql",
+      "line": 89
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_booking_codes_qr.sql",
+      "line": 93
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_booking_codes_qr.sql",
+      "line": 97
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_maria_conversation.sql",
+      "line": 19
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_maria_conversation.sql",
+      "line": 22
+    },
+    {
+      "rule": "permissive_policy",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_prestation_showcase.sql",
+      "line": 23
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_reservation_collaborateur.sql",
+      "line": 4
+    },
+    {
+      "rule": "permissive_policy",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260929_salon_ai_settings.sql",
+      "line": 18
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/migrations/20260930_pro_work_mode_products.sql",
+      "line": 3
+    },
+    {
+      "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/migrations/fix_storage_rls.sql",
       "line": 4
     },
@@ -2544,17 +2644,12 @@
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 26
+      "line": 27
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 27
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 27
+      "line": 28
     },
     {
       "rule": "runtime_sql",
@@ -2569,17 +2664,17 @@
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 95
-    },
-    {
-      "rule": "permissive_policy",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 96
+      "line": 30
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
       "line": 96
+    },
+    {
+      "rule": "permissive_policy",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 97
     },
     {
       "rule": "runtime_sql",
@@ -2599,17 +2694,17 @@
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 129
-    },
-    {
-      "rule": "permissive_policy",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 130
+      "line": 100
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
       "line": 130
+    },
+    {
+      "rule": "permissive_policy",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 131
     },
     {
       "rule": "runtime_sql",
@@ -2629,17 +2724,7 @@
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 171
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 172
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 179
+      "line": 134
     },
     {
       "rule": "runtime_sql",
@@ -2649,782 +2734,792 @@
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 185
+      "line": 181
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 213
-    },
-    {
-      "rule": "permissive_policy",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 214
+      "line": 188
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 214
+      "line": 189
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 215
+      "line": 194
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 216
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 217
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 247
+      "line": 222
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 248
+      "line": 223
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 248
+      "line": 223
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 249
+      "line": 224
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 250
+      "line": 225
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 251
+      "line": 226
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 288
-    },
-    {
-      "rule": "permissive_policy",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 289
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 289
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 290
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 291
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 292
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 309
+      "line": 256
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 310
+      "line": 257
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 310
+      "line": 257
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 311
+      "line": 258
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 312
+      "line": 259
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 313
+      "line": 260
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 337
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 338
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 343
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 344
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 345
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 366
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 367
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 371
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 372
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 373
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 402
+      "line": 297
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 403
+      "line": 298
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 403
+      "line": 298
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 404
+      "line": 299
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 405
+      "line": 300
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 406
+      "line": 301
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 431
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 432
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 436
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 437
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 438
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 463
+      "line": 318
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 464
+      "line": 319
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 464
+      "line": 319
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 465
+      "line": 320
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 466
+      "line": 321
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 467
+      "line": 322
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 481
-    },
-    {
-      "rule": "permissive_policy",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 482
+      "line": 346
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 482
+      "line": 347
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 483
+      "line": 352
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 502
+      "line": 353
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 503
+      "line": 354
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 507
+      "line": 375
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 508
+      "line": 376
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 509
+      "line": 380
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 529
+      "line": 381
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 530
+      "line": 382
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 534
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 535
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 536
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 555
+      "line": 411
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 556
+      "line": 412
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 556
+      "line": 412
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 557
+      "line": 413
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 558
+      "line": 414
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 559
+      "line": 415
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 609
+      "line": 440
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 610
+      "line": 441
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 614
+      "line": 445
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 615
+      "line": 446
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 616
+      "line": 447
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 637
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 638
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 639
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 640
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 641
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 668
+      "line": 472
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 669
+      "line": 473
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 669
+      "line": 473
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 670
+      "line": 474
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 671
+      "line": 475
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 672
+      "line": 476
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 692
-    },
-    {
-      "rule": "permissive_policy",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 693
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 693
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 694
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 695
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 696
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 721
+      "line": 490
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 722
+      "line": 491
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 722
+      "line": 491
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 723
+      "line": 492
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 724
+      "line": 511
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 725
+      "line": 512
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 739
+      "line": 516
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 740
+      "line": 517
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 741
+      "line": 518
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 742
+      "line": 538
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 743
+      "line": 539
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 766
+      "line": 543
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 544
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 545
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 564
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 767
+      "line": 565
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 767
+      "line": 565
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 768
+      "line": 566
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 769
+      "line": 567
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 770
+      "line": 568
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 792
+      "line": 618
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 793
+      "line": 619
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 794
+      "line": 623
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 795
+      "line": 624
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 796
+      "line": 625
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 813
+      "line": 646
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 814
+      "line": 647
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 815
+      "line": 648
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 816
+      "line": 649
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 817
+      "line": 650
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 839
+      "line": 677
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 840
+      "line": 678
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 840
+      "line": 678
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 841
+      "line": 679
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 842
+      "line": 680
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 843
+      "line": 681
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 863
+      "line": 701
     },
     {
       "rule": "permissive_policy",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 864
+      "line": 702
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 864
+      "line": 702
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 865
+      "line": 703
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 866
+      "line": 704
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 867
+      "line": 705
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 889
+      "line": 730
+    },
+    {
+      "rule": "permissive_policy",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 731
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 890
+      "line": 731
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 891
+      "line": 732
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 892
+      "line": 733
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 893
+      "line": 734
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 909
+      "line": 748
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 910
+      "line": 749
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 911
+      "line": 750
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 912
+      "line": 751
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 913
+      "line": 752
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 937
+      "line": 775
+    },
+    {
+      "rule": "permissive_policy",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 776
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 938
+      "line": 776
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 939
+      "line": 777
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 940
+      "line": 778
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 941
+      "line": 779
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 957
+      "line": 801
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 958
+      "line": 802
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 980
+      "line": 803
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 981
+      "line": 804
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 982
+      "line": 805
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 983
+      "line": 822
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 984
+      "line": 823
     },
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 1017
+      "line": 824
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 825
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 826
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 848
+    },
+    {
+      "rule": "permissive_policy",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 849
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 849
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 850
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 851
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 852
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 872
+    },
+    {
+      "rule": "permissive_policy",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 873
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 873
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 874
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 875
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 876
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 898
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 899
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 900
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 901
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 902
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 918
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 919
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 920
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 921
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 922
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 946
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 947
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 948
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 949
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 950
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 966
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 967
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 989
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 990
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 991
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 992
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 993
     },
     {
       "rule": "runtime_sql",
@@ -3434,7 +3529,7 @@
     {
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
-      "line": 1036
+      "line": 1035
     },
     {
       "rule": "runtime_sql",
@@ -3445,6 +3540,11 @@
       "rule": "runtime_sql",
       "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
       "line": 1054
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "beauty_book-main/beauty_book-main/supabase/schema.sql",
+      "line": 1063
     },
     {
       "rule": "runtime_sql",
@@ -6972,54 +7072,14 @@
       "line": 32
     },
     {
-      "rule": "runtime_sql",
+      "rule": "demo_ui",
       "file": "panneau-admin-temp/src/api/entities/index.js",
-      "line": 20
+      "line": 12
     },
     {
-      "rule": "runtime_sql",
+      "rule": "demo_ui",
       "file": "panneau-admin-temp/src/api/entities/index.js",
-      "line": 22
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "panneau-admin-temp/src/api/entities/index.js",
-      "line": 23
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "panneau-admin-temp/src/api/entities/index.js",
-      "line": 24
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "panneau-admin-temp/src/api/entities/index.js",
-      "line": 25
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "panneau-admin-temp/src/api/entities/index.js",
-      "line": 26
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "panneau-admin-temp/src/api/entities/index.js",
-      "line": 27
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "panneau-admin-temp/src/api/entities/index.js",
-      "line": 28
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "panneau-admin-temp/src/api/entities/index.js",
-      "line": 29
-    },
-    {
-      "rule": "runtime_sql",
-      "file": "panneau-admin-temp/src/api/entities/index.js",
-      "line": 30
+      "line": 52
     },
     {
       "rule": "demo_ui",
@@ -7040,6 +7100,16 @@
       "rule": "demo_ui",
       "file": "panneau-admin-temp/src/lib/clientOtp.js",
       "line": 7
+    },
+    {
+      "rule": "demo_ui",
+      "file": "panneau-admin-temp/src/lib/generateProWebsite.js",
+      "line": 1214
+    },
+    {
+      "rule": "demo_ui",
+      "file": "panneau-admin-temp/src/lib/generateProWebsite.js",
+      "line": 1403
     },
     {
       "rule": "runtime_sql",
@@ -8150,6 +8220,16 @@
       "rule": "runtime_sql",
       "file": "supabase/migrations/202609190003_image_jobs.sql",
       "line": 21
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "supabase/migrations/202610070001_admin_content_fields.sql",
+      "line": 4
+    },
+    {
+      "rule": "runtime_sql",
+      "file": "supabase/migrations/202610070001_admin_content_fields.sql",
+      "line": 14
     }
   ]
 }

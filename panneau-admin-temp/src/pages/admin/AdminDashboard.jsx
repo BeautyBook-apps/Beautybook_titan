@@ -19,6 +19,7 @@ import AdminAvis from "@/components/admin/AdminAvis";
 import AdminHomePage from "@/components/admin/AdminHomePage";
 import AdminLivraisonExpress from "@/components/admin/AdminLivraisonExpress";
 import AdminImmobilier from "@/components/admin/AdminImmobilier";
+import AdminSiteWeb from "@/components/admin/AdminSiteWeb";
 import AdminExplorer from "@/components/admin/AdminExplorer";
 import AdminVendeurs from "@/components/admin/AdminVendeurs";
 import AdminBoutique from "@/components/admin/AdminBoutique";
@@ -30,7 +31,7 @@ import {
   LayoutDashboard, Video, Users, Scissors, ShoppingBag,
   CalendarCheck, Megaphone, LogOut, Menu, X, PlusSquare,
   Radio, Palette, UserCheck, Bell, Star, Home, ChevronRight,
-  BookOpen, Truck, Building2, Compass, Store, ShoppingBasket, CreditCard, Type, MessageSquare, Gift, ShieldCheck
+  BookOpen, Truck, Building2, Compass, Store, ShoppingBasket, CreditCard, Type, MessageSquare, Gift, ShieldCheck, Globe2
 } from "lucide-react";
 
 const NAV_GROUPS = [
@@ -71,6 +72,7 @@ const NAV_GROUPS = [
       { id: "boutique", label: "Boutique Produits", icon: ShoppingBasket },
       { id: "livraison_express", label: "Livraison Express", icon: Truck },
       { id: "immobilier", label: "Immobilier", icon: Building2 },
+      { id: "siteweb", label: "Créateur de site web", icon: Globe2 },
       { id: "vendeurs", label: "Panneau Vendeurs", icon: Store },
     ]
   },
@@ -112,6 +114,7 @@ const COMPONENTS = {
   boutique: AdminBoutique,
   livraison_express: AdminLivraisonExpress,
   immobilier: AdminImmobilier,
+  siteweb: AdminSiteWeb,
   explorer: AdminExplorer,
   vendeurs: AdminVendeurs,
   paiement: AdminPaiement,

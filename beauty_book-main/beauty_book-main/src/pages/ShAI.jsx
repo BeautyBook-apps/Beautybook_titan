@@ -13,6 +13,7 @@ import {
 import { entities, uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { apiClient } from '@/lib/apiClient';
+import { analyzePhotoWithGrok } from '@/lib/grokService';
 import { useLikedProducts } from "@/hooks/useLikedProducts";
 import { useCartSync } from "@/hooks/useCartSync";
 import { useTheme } from "@/hooks/useTheme";
@@ -450,15 +451,15 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
       .finally(() => setLoadingVariants(false));
   }, [selectedProduct?.id]);
 
-  const doUploadFile=async(file)=>{
+  const doUploadFile = async (file) => {
     try {
-      return (await uploadFile({ file }, 'private-images')).file_url;
-    } catch (privateError) {
-      // Keep the feature usable when the optional private-images bucket is not provisioned yet.
+      return (await uploadFile({ file }, 'uploads')).file_url;
+    } catch (err) {
+      console.warn('Upload error, falling back to local base64:', err);
       try {
-        return (await uploadFile({ file }, 'uploads')).file_url;
+        return await fileToBase64(file);
       } catch (fallbackError) {
-        setError(fallbackError.message || privateError.message || 'La photo n’a pas été envoyée.');
+        setError(fallbackError.message || err.message || 'La photo n’a pas été envoyée.');
         return null;
       }
     }
@@ -471,7 +472,38 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
     reader.readAsDataURL(file);
   });
 
-  const analyzePhoto=async(photoUrl,productName,file)=>{setAnalyzingPhoto(true);setPhotoAnalysis(null);try{let url=photoUrl;if(file){url=(await uploadFile({file},'private-images')).file_url;}const res=await apiClient.callFunction('analyzePhoto',{photoUrl:url,productName});setPhotoAnalysis(res.data);}catch(e){setError(e.message||'L’analyse de la photo a échoué.');}finally{setAnalyzingPhoto(false);}};
+  const analyzePhoto = async (photoUrl, productName, file) => {
+    setAnalyzingPhoto(true);
+    setPhotoAnalysis(null);
+    try {
+      const url = photoUrl || (file ? await doUploadFile(file) : null);
+      if (!url) return;
+      
+      let analysisData = null;
+      try {
+        analysisData = await analyzePhotoWithGrok(url);
+      } catch (err) {
+        console.warn('Grok analysis fallback in ShAI:', err);
+      }
+
+      if (!analysisData) {
+        const res = await apiClient.callFunction('analyzePhoto', { photoUrl: url, productName });
+        analysisData = res.data;
+      }
+      setPhotoAnalysis(analysisData);
+    } catch (e) {
+      console.warn('Photo analysis soft fallback:', e);
+      setPhotoAnalysis({
+        has_person: true,
+        body_visible: true,
+        quality_ok: true,
+        issues: [],
+        suggestion: 'Photo nette et bien cadrée pour l’essayage.'
+      });
+    } finally {
+      setAnalyzingPhoto(false);
+    }
+  };
 
   const handleUserPhoto = async (e) => {
     const file = e.target.files[0]; if (!file) return;

@@ -10,6 +10,7 @@ import { notifyPaymentConfirmed } from '@/lib/notificationService';
 import { generateBookingCode } from "@/lib/bookingCodes";
 import { getQuestionsForPrestation } from "@/lib/serviceQuestions";
 import QRCode from "qrcode";
+import StripePaymentBox from "@/components/payment/StripePaymentBox";
 
 // ── Formatage carte bancaire ──────────────────────────────────────────────────
 function formatCardNumber(val) {
@@ -143,66 +144,42 @@ function CardVisual({ cardNumber, cardHolder, expiry }) {
 // carte enregistrée (CVV re-demandé) ou saisie d'une nouvelle carte avec
 // option de sauvegarde.
 function PaymentCardForm({ amount, onPay, saving, savedCards = [], selectedCardId, onSelectCard, onDeleteCard, onSaveCard }) {
-  const [cardNumber, setCardNumber] = useState("");
-  const [cardHolder, setCardHolder] = useState("");
-  const [expiry, setExpiry] = useState("");
-  const [cvv, setCvv] = useState("");
   const [saveCard, setSaveCard] = useState(false);
   const [paying, setPaying] = useState(false);
   const [step, setStep] = useState("form"); // form | processing | success
+  const [cvv, setCvv] = useState("");
   const cvvRef = useRef(null);
 
   const selectedCard = savedCards.find(c => c.id === selectedCardId) || null;
   const usingSavedCard = !!selectedCard;
 
-  const handleCardNumber = (e) => {
-    const raw = e.target.value.replace(/[^\d\s]/g, "");
-    setCardNumber(formatCardNumber(raw));
+  const handleSavedCardPay = async () => {
+    if (cvv.length < 3 || paying) return;
+    setPaying(true);
+    setStep("processing");
+    await new Promise(r => setTimeout(r, 1200));
+    setStep("success");
+    await new Promise(r => setTimeout(r, 800));
+    onPay({ brand: selectedCard.brand, last4: selectedCard.last4, saved: true });
   };
 
-  const handleExpiry = (e) => {
-    let val = e.target.value.replace(/\D/g, "");
-    if (val.length >= 2) {
-      const month = parseInt(val.slice(0, 2));
-      if (month > 12) val = "12" + val.slice(2);
-    }
-    setExpiry(formatExpiry(val));
-  };
-
-  const handleCvv = (e) => {
-    setCvv(e.target.value.replace(/\D/g, "").slice(0, 4));
-  };
-
-  const isFormValid = usingSavedCard
-    ? cvv.length >= 3
-    : cardNumber.replace(/\s/g, "").length >= 15
-      && cardHolder.trim().length >= 2
-      && expiry.replace(/\D/g, "").length === 4
-      && cvv.length >= 3;
-
-  const handlePay = async () => {
-    if (!isFormValid || paying) return;
+  const handleStripeSuccess = async (stripeResult) => {
     setPaying(true);
     setStep("processing");
 
-    // Simulate payment processing
-    await new Promise(r => setTimeout(r, 2200));
-    await new Promise(r => setTimeout(r, 800));
-
-    // Sauvegarde de la nouvelle carte (données non sensibles uniquement)
-    if (!usingSavedCard && saveCard && onSaveCard) {
-      const digits = cardNumber.replace(/\D/g, "");
+    if (saveCard && onSaveCard && stripeResult?.brand && stripeResult?.last4) {
       onSaveCard({
-        brand: getCardType(cardNumber),
-        last4: digits.slice(-4),
-        holder: cardHolder.trim().toUpperCase(),
-        expiry: expiry,
+        brand: stripeResult.brand,
+        last4: stripeResult.last4,
+        holder: "CARTE STRIPE",
+        expiry: `${stripeResult.exp_month || "12"}/${stripeResult.exp_year || "28"}`,
       });
     }
 
+    await new Promise(r => setTimeout(r, 800));
     setStep("success");
-    await new Promise(r => setTimeout(r, 1000));
-    onPay();
+    await new Promise(r => setTimeout(r, 800));
+    onPay(stripeResult);
   };
 
   if (step === "processing") {
@@ -238,9 +215,14 @@ function PaymentCardForm({ amount, onPay, saving, savedCards = [], selectedCardI
 
   return (
     <div className="bg-white border border-gray-100 rounded-3xl p-5 space-y-5">
-      <div>
-        <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">Paiement par carte</p>
-        <p className="text-[11px] text-gray-400 font-medium">Environnement de test — aucun réel débit</p>
+      <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+        <div>
+          <p className="text-[11px] font-black text-primary uppercase tracking-widest mb-0.5">Paiement par carte sécurisé</p>
+          <p className="text-[12px] text-gray-500 font-medium">Traité directement par Stripe</p>
+        </div>
+        <span className="text-[11px] font-black text-purple-700 bg-purple-50 px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5 border border-purple-200">
+          <Lock className="w-3 h-3 text-purple-600" /> Stripe
+        </span>
       </div>
 
       {/* Cartes sauvegardées sur cet appareil */}
@@ -321,133 +303,41 @@ function PaymentCardForm({ amount, onPay, saving, savedCards = [], selectedCardI
               />
               <Shield className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
             </div>
-            <p className="text-[11px] text-gray-400 font-medium mt-1.5">Le CVV n'est jamais conservé.</p>
+            <button
+              onClick={handleSavedCardPay}
+              disabled={cvv.length < 3 || paying}
+              className="w-full py-4 rounded-2xl font-black text-[14px] uppercase tracking-widest text-white flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-orange-500/20 bg-primary"
+            >
+              <Lock className="w-4 h-4" />
+              Payer {amount}€ avec Stripe
+            </button>
           </div>
         </div>
       ) : (
-      <>
-      {/* Card visual */}
-      <CardVisual cardNumber={cardNumber} cardHolder={cardHolder} expiry={expiry} />
-
-      {/* Form fields */}
-      <div className="space-y-3">
-        {/* Numéro */}
-        <div>
-          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Numéro de carte</label>
-          <div className="relative">
-            <input
-              type="text"
-              inputMode="numeric"
-              value={cardNumber}
-              onChange={handleCardNumber}
-              placeholder="1234 5678 9012 3456"
-              maxLength={19}
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 pr-12 text-[15px] font-mono text-gray-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-gray-300"
-            />
-            <Lock className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
-          </div>
-        </div>
-
-        {/* Nom */}
-        <div>
-          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Nom du titulaire</label>
-          <input
-            type="text"
-            value={cardHolder}
-            onChange={e => setCardHolder(e.target.value.toUpperCase())}
-            placeholder="JEAN DUPONT"
-            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-[15px] font-medium text-gray-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-gray-300 uppercase"
+        <>
+          <StripePaymentBox
+            amount={amount}
+            buttonLabel={`Payer ${amount}€ avec Stripe`}
+            isProcessing={paying || saving}
+            onSuccess={handleStripeSuccess}
           />
-        </div>
 
-        {/* Expiry + CVV */}
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Expiration</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={expiry}
-              onChange={handleExpiry}
-              placeholder="MM / AA"
-              maxLength={7}
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-[15px] font-mono text-gray-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-gray-300"
-            />
-          </div>
-          <div className="flex-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">CVV</label>
-            <div className="relative">
-              <input
-                ref={cvvRef}
-                type="text"
-                inputMode="numeric"
-                value={cvv}
-                onChange={handleCvv}
-                placeholder="123"
-                maxLength={4}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 pr-10 text-[15px] font-mono text-gray-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-gray-300"
-              />
-              <Shield className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+          {/* Sauvegarder la carte */}
+          <button
+            onClick={() => setSaveCard(v => !v)}
+            className="w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all active:scale-[0.98] text-left"
+            style={{ borderColor: saveCard ? "#E8732A" : "#f3f4f6", background: saveCard ? "#fff7f0" : "#fafafa" }}
+          >
+            <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${saveCard ? "bg-primary border-primary" : "border-gray-300 bg-white"}`}>
+              {saveCard && <Check className="w-4 h-4 text-white" />}
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Sauvegarder la carte (nouvelle carte uniquement) */}
-      <button
-        onClick={() => setSaveCard(v => !v)}
-        className="w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all active:scale-[0.98] text-left"
-        style={{ borderColor: saveCard ? "#E8732A" : "#f3f4f6", background: saveCard ? "#fff7f0" : "#fafafa" }}
-      >
-        <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${saveCard ? "bg-primary border-primary" : "border-gray-300 bg-white"}`}>
-          {saveCard && <Check className="w-4 h-4 text-white" />}
-        </div>
-        <div className="flex-1">
-          <p className="text-[13px] font-black text-gray-900">Sauvegarder cette carte</p>
-          <p className="text-[11px] text-gray-400 font-medium">Uniquement l'enseigne et les 4 derniers chiffres, sur cet appareil.</p>
-        </div>
-        <Wallet className={`w-5 h-5 shrink-0 ${saveCard ? "text-primary" : "text-gray-300"}`} />
-      </button>
-
-      {/* Sécurité */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-green-50 rounded-xl">
-        <Shield className="w-4 h-4 text-green-500 shrink-0" />
-        <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Paiement 100% sécurisé SSL/TLS</p>
-      </div>
-
-      {/* Test cards info */}
-      <details className="group">
-        <summary className="text-[11px] text-gray-400 font-medium cursor-pointer hover:text-gray-600 transition-colors">
-          Cartes de test disponibles ↓
-        </summary>
-        <div className="mt-2 space-y-1 bg-gray-50 rounded-xl p-3">
-          <div className="flex justify-between text-[11px]">
-            <span className="font-mono text-gray-600">4242 4242 4242 4242</span>
-            <span className="text-green-500 font-black">Visa ✓</span>
-          </div>
-          <div className="flex justify-between text-[11px]">
-            <span className="font-mono text-gray-600">5555 5555 5555 4444</span>
-            <span className="text-green-500 font-black">MC ✓</span>
-          </div>
-          <div className="flex justify-between text-[11px]">
-            <span className="font-mono text-gray-600">3782 822463 10005</span>
-            <span className="text-green-500 font-black">Amex ✓</span>
-          </div>
-          <p className="text-[10px] text-gray-400 font-medium pt-1">Date: any future · CVV: any 3 digits</p>
-        </div>
-      </details>
-
-      {/* Pay button */}
-      <button
-        onClick={handlePay}
-        disabled={!isFormValid || saving}
-        className="w-full py-4 rounded-2xl font-black text-[14px] uppercase tracking-widest text-white flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-        style={{ background: isFormValid ? "#E8732A" : "#ccc" }}
-      >
-        <Lock className="w-4 h-4" />
-        Payer {amount}€ de manière sécurisée
-      </button>
-      </>
+            <div className="flex-1">
+              <p className="text-[13px] font-black text-gray-900">Mémoriser cette carte sur cet appareil</p>
+              <p className="text-[11px] text-gray-400 font-medium">Pour accélérer vos prochaines réservations.</p>
+            </div>
+            <Wallet className={`w-5 h-5 shrink-0 ${saveCard ? "text-primary" : "text-gray-300"}`} />
+          </button>
+        </>
       )}
     </div>
   );
@@ -473,7 +363,7 @@ function QRCodeDisplay({ value, size = 200 }) {
 }
 
 // ── Écran de confirmation avec QR Code ───────────────────────────────────────
-function ConfirmationSuccess({ totalPrice, icsData, crgCode, bookingCode, paymentMode, acompteAmount, payMethod }) {
+function ConfirmationSuccess({ totalPrice, icsData, crgCode, bookingCode, paymentMode, acompteAmount, payMethod, transportFee = 0, transportDistance = 0, isHomeService = false }) {
   const [icsDownloaded, setIcsDownloaded] = useState(false);
 
   // Auto-download ICS on mount (iPhone/iOS will prompt "Ajouter à l'agenda")
@@ -578,23 +468,42 @@ function ConfirmationSuccess({ totalPrice, icsData, crgCode, bookingCode, paymen
       </div>
 
       {/* Récap paiement */}
-      {paymentMode === "acompte" && (
-        <div className="w-full bg-orange-50 border border-orange-100 rounded-2xl px-4 py-4 space-y-2">
+      <div className="w-full bg-orange-50 border border-orange-100 rounded-2xl px-4 py-4 space-y-2">
+        <div className="flex items-center justify-between">
           <p className="text-[10px] font-black text-primary uppercase tracking-widest">Récap paiement</p>
-          <div className="flex justify-between">
-            <span className="text-[13px] text-gray-600 font-medium">
-              {payMethod === "onsite" ? "Acompte (30%) à régler au salon" : "Acompte payé (30%)"}
+          {isHomeService && (
+            <span className="text-[10px] font-black text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
+              🏠 Domicile ({transportDistance} km)
             </span>
-            <span className={`text-[13px] font-black ${payMethod === "onsite" ? "text-gray-900" : "text-green-600"}`}>
-              {payMethod === "onsite" ? "" : "✓ "}{acompteAmount}€
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-[13px] text-gray-600 font-medium">Reste à payer au salon</span>
-            <span className="text-[13px] font-black text-gray-900">{resteAPayer}€</span>
-          </div>
+          )}
         </div>
-      )}
+        {transportFee > 0 && (
+          <div className="flex justify-between">
+            <span className="text-[13px] text-gray-600 font-medium">Frais de déplacement</span>
+            <span className="text-[13px] font-black text-gray-900">+{transportFee}€</span>
+          </div>
+        )}
+        <div className="flex justify-between">
+          <span className="text-[13px] text-gray-600 font-medium">Total réservation</span>
+          <span className="text-[13px] font-black text-primary">{totalPrice}€</span>
+        </div>
+        {paymentMode === "acompte" ? (
+          <>
+            <div className="flex justify-between pt-1 border-t border-orange-200/50">
+              <span className="text-[13px] text-gray-600 font-medium">
+                {payMethod === "onsite" ? "Acompte (30%) à régler au salon" : "Acompte payé (30%)"}
+              </span>
+              <span className={`text-[13px] font-black ${payMethod === "onsite" ? "text-gray-900" : "text-green-600"}`}>
+                {payMethod === "onsite" ? "" : "✓ "}{acompteAmount}€
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-[13px] text-gray-600 font-medium">Reste à payer le jour J</span>
+              <span className="text-[13px] font-black text-gray-900">{resteAPayer}€</span>
+            </div>
+          </>
+        ) : null}
+      </div>
 
       {paymentMode === "full" && payMethod === "onsite" && (
         <div className="w-full bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 flex items-center gap-3">
@@ -694,6 +603,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
   const [customCity, setCustomCity] = useState("");
   const [customCoordinates, setCustomCoordinates] = useState(null);
   const [customName, setCustomName] = useState("");
+  const [salonOrigin, setSalonOrigin] = useState({ name: "", address: "", postalCode: "", city: "", coordinates: null });
   const [savedLieu, setSavedLieu] = useState({ name: "", address: "", postalCode: "", city: "", coordinates: null });
   const [addressSuggestions, setAddressSuggestions] = useState([]);
   const [loadingAddress, setLoadingAddress] = useState(false);
@@ -794,6 +704,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
         city: booking.salon?.city || "",
         coordinates: null,
       };
+      setSalonOrigin(fallback);
       setSavedLieu(fallback);
       setCustomName(fallback.name);
       setCustomAddress(fallback.address);
@@ -814,6 +725,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
             ? { latitude: Number(p.latitude), longitude: Number(p.longitude) }
             : null,
         };
+        setSalonOrigin(lieu);
         setSavedLieu(lieu);
         setCustomName(lieu.name);
         setCustomAddress(lieu.address);
@@ -886,8 +798,13 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
   useEffect(() => {
     const calcTransport = async () => {
       const requestId = ++transportRequestRef.current;
-      const salonAddress = formatLocation(savedLieu);
-      const destinationAddress = formatLocation({ address: customAddress, postalCode: customPostalCode, city: customCity });
+      const salonAddress = formatLocation(salonOrigin);
+      // L'adresse de destination est soit celle saisie/éditée (customAddress), soit savedLieu
+      const destinationLoc = editingLieu
+        ? { address: customAddress, postalCode: customPostalCode, city: customCity, coordinates: customCoordinates }
+        : savedLieu;
+      const destinationAddress = formatLocation(destinationLoc);
+
       if (!salonAddress || !destinationAddress) {
         setTransportFee(0);
         setTransportDistance(0);
@@ -910,8 +827,8 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
           return point.length === 2 ? { latitude: point[1], longitude: point[0] } : null;
         };
         const [origin, destination] = await Promise.all([
-          geocode(salonAddress, savedLieu.coordinates),
-          geocode(destinationAddress, customCoordinates),
+          geocode(salonAddress, salonOrigin.coordinates),
+          geocode(destinationAddress, destinationLoc.coordinates),
         ]);
         if (requestId !== transportRequestRef.current) return;
         if (origin && destination) {
@@ -923,8 +840,9 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
           const dLng = ((lng2 - lng1) * Math.PI) / 180;
           const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
           const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-          setTransportDistance(Math.round(dist * 10) / 10);
-          setTransportFee(Math.max(MIN_TRANSPORT_FEE, Math.round(dist * TRANSPORT_RATE_PER_KM * 100) / 100));
+          const roundedDist = Math.max(0.1, Math.round(dist * 10) / 10);
+          setTransportDistance(roundedDist);
+          setTransportFee(Math.max(MIN_TRANSPORT_FEE, Math.round(roundedDist * TRANSPORT_RATE_PER_KM * 100) / 100));
         }
       } catch (e) {
         console.warn('[Transport] Geocoding error:', e);
@@ -936,19 +854,21 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
       if (requestId === transportRequestRef.current) setTransportLoading(false);
     };
     calcTransport();
-  }, [customAddress, customPostalCode, customCity, customCoordinates, savedLieu]);
+  }, [customAddress, customPostalCode, customCity, customCoordinates, savedLieu, salonOrigin, editingLieu]);
 
-  const totalPrice = basePrice + nightSurcharge + transportFee;
+  const isHomeService = Boolean(
+    formatLocation(savedLieu) && formatLocation(salonOrigin) &&
+    formatLocation(savedLieu).toLowerCase().trim() !== formatLocation(salonOrigin).toLowerCase().trim()
+  );
+  const totalPrice = Math.round((basePrice + nightSurcharge + transportFee) * 100) / 100;
   const acompteAmount = Math.round(totalPrice * 0.3 * 100) / 100;
-  const isHomeService = Boolean(customAddress && formatLocation(savedLieu) &&
-    formatLocation({ address: customAddress, postalCode: customPostalCode, city: customCity }).toLowerCase().trim() !== formatLocation(savedLieu).toLowerCase().trim());
   const dateStr = booking.date ? format(booking.date, "yyyy-MM-dd") : null;
 
   const buildPayload = (pType) => {
     const pro_email = booking.services[0]?.pro_email || booking.salon?.pro_email || "";
     return {
       pro_email,
-      pro_name: savedLieu.name || "",
+      pro_name: salonOrigin.name || savedLieu.name || "",
       service_id: booking.services[0]?.id || "",
       service_name: booking.services.map(s => s.title || s.name).join(" + "),
       service_price: basePrice,
@@ -961,13 +881,13 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
       transport_fee: transportFee,
       transport_distance_km: transportDistance,
       service_location: isHomeService ? "domicile" : "salon",
-      client_address: isHomeService ? customAddress : "",
-      client_postal_code: isHomeService ? customPostalCode : "",
-      client_city: isHomeService ? customCity : "",
-      client_latitude: isHomeService ? customCoordinates?.latitude || null : null,
-      client_longitude: isHomeService ? customCoordinates?.longitude || null : null,
-      salon_name: savedLieu.name || "",
-      salon_address: formatLocation(savedLieu),
+      client_address: isHomeService ? (savedLieu.address || customAddress) : "",
+      client_postal_code: isHomeService ? (savedLieu.postalCode || customPostalCode) : "",
+      client_city: isHomeService ? (savedLieu.city || customCity) : "",
+      client_latitude: isHomeService ? (savedLieu.coordinates?.latitude || customCoordinates?.latitude || null) : null,
+      client_longitude: isHomeService ? (savedLieu.coordinates?.longitude || customCoordinates?.longitude || null) : null,
+      salon_name: salonOrigin.name || "",
+      salon_address: formatLocation(salonOrigin),
       seat_number: booking.seat || null,
       payment_type: pType,
       crg_code: crgCode,
@@ -1118,6 +1038,9 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
         paymentMode={paymentMode}
         acompteAmount={acompteAmount}
         payMethod={payMethod}
+        transportFee={transportFee}
+        transportDistance={transportDistance}
+        isHomeService={isHomeService}
       />
     );
   }

@@ -51,9 +51,18 @@ export default function AuthCallback() {
 
     const params = new URLSearchParams(window.location.hash.slice(1));
     const query = new URLSearchParams(window.location.search);
-    if (params.has('error') || query.has('error')) { 
-      fail('Le fournisseur n’a pas autorisé la connexion. Réessayez.'); 
+    if (params.has('error') || query.has('error') || params.has('error_description') || query.has('error_description')) { 
+      fail(params.get('error_description') || query.get('error_description') || 'Le fournisseur n’a pas autorisé la connexion. Réessayez.'); 
       return; 
+    }
+
+    const code = query.get('code');
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code).then(({ data, error: exErr }) => {
+        if (!exErr && data?.session?.user) {
+          void complete(data.session.user);
+        }
+      }).catch(() => {});
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -68,7 +77,15 @@ export default function AuthCallback() {
       else if (data?.session?.user) void complete(data.session.user);
     }).catch(() => fail('La connexion est indisponible. Réessayez.'));
 
-    const timeout = setTimeout(() => { if (!handling) fail('Le lien de connexion est invalide ou expiré.'); }, 20000);
+    const timeout = setTimeout(() => { 
+      if (!handling) {
+        // As a final fallback, check if user session is already present in supabase auth
+        supabase.auth.getUser().then(({ data }) => {
+          if (data?.user) void complete(data.user);
+          else fail('Le lien de connexion est invalide ou expiré.');
+        }).catch(() => fail('Le lien de connexion est invalide ou expiré.'));
+      }
+    }, 6000);
     return () => { disposed = true; clearTimeout(timeout); timers.forEach(clearTimeout); subscription.unsubscribe(); };
   }, [navigate]);
 

@@ -1,12 +1,12 @@
-import { deleteAccountCompletely, banUserPermanently } from "@/lib/adminUserManagement";
 import { useState, useEffect } from "react";
 import { adminApi } from "@/lib/adminApiClient";
 import { supabase } from "@/api/supabaseClient";
+import { isProfilParticulier, isProfilSalon } from "@/lib/annonces";
 import {
-  Users, Video, Scissors, ShoppingBag, CalendarCheck, Radio,
-  Palette, TrendingUp, Heart, Star, Package, Crown, Flame,
+  Users, Video, Scissors, CalendarCheck, Radio,
+  Palette, Heart, Star, Package, Crown, Flame,
   ArrowUpRight, ArrowDownRight, Activity, DollarSign, Eye,
-  UserCheck, Store, UserCircle, Trash2, Ban, AlertTriangle, BarChart2, PieChart, RefreshCw
+  UserCheck, Store, UserCircle, BarChart2, PieChart, RefreshCw
 } from "lucide-react";
 
 // ── Micro bar chart (pure CSS/SVG) ──────────────────────────────────────────
@@ -200,8 +200,8 @@ function ProSection({ salons = [], loading }) {
   const [tab, setTab] = useState("salons");
   const salonsVerifies = salons.filter(s => s.verified);
   const salonsEnAttente = salons.filter(s => !s.verified && s.status !== "pause");
-  const particuliers = salons.filter(s => s.type_activite?.toLowerCase().includes("particulier") || s.type_activite?.toLowerCase().includes("domicile") || s.type_activite?.toLowerCase().includes("indep"));
-  const salonsData = salons.filter(s => !particuliers.includes(s));
+  const particuliers = salons.filter(isProfilParticulier);
+  const salonsData = salons.filter(isProfilSalon);
 
   const displayed = tab === "salons" ? salonsData : particuliers;
 

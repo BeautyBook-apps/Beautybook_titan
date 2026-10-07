@@ -54,14 +54,8 @@ function writeLocal(email, settings) {
 function migrateLegacy(email) {
   try {
     if (localStorage.getItem(lsKey(email))) return;
-    const patch = {};
-    const a = localStorage.getItem(LS_LEGACY_AGENT);
-    const v = localStorage.getItem(LS_LEGACY_VOICE);
-    if (a) patch.agent_id = a;
-    if (v) patch.voice = v;
-    if (Object.keys(patch).length > 0) {
-      writeLocal(email, { ...DEFAULT_AI_SETTINGS, ...patch });
-    }
+    // Ne pas copier l'ancien agent global partagé : chaque compte démarre propre
+    writeLocal(email, { ...DEFAULT_AI_SETTINGS });
   } catch { /* stockage indisponible */ }
 }
 function fromRow(row) {

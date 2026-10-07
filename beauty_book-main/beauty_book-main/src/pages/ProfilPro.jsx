@@ -46,15 +46,17 @@ const quickActions = [
 ];
 
 export default function ProfilPro() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { theme } = useTheme();
-  // Lecture synchrone du cache : la première peinture affiche déjà les vraies
-  // données du salon (nom, avatar, ville, statut) au lieu d'une page
-  // intermédiaire avec placeholders (« P », bannière documents, stats à 0).
+  // Lecture synchrone du cache : uniquement pour l'utilisateur actuellement connecté
   const readProCache = () => {
-    try { return JSON.parse(localStorage.getItem('pro_profile_cache') || 'null'); }
+    try { 
+      const cached = JSON.parse(localStorage.getItem('pro_profile_cache') || 'null');
+      if (cached && user?.email && cached.user_email === user.email) return cached;
+      return null;
+    }
     catch { return null; }
   };
   const [activeTab, setActiveTab] = useState("gestion");
@@ -65,7 +67,7 @@ export default function ProfilPro() {
   const [stats, setStats] = useState(() => {
     try {
       const cached = JSON.parse(localStorage.getItem('pro_stats_cache') || 'null');
-      if (cached && (!cached.user_email || cached.user_email === user?.email)) {
+      if (cached && user?.email && cached.user_email === user.email) {
         return { rdvSemaine: cached.rdvSemaine || 0, nouveauxClients: cached.nouveauxClients || 0, caMonth: cached.caMonth || 0, caLastMonth: cached.caLastMonth || 0 };
       }
     } catch {}
@@ -80,19 +82,6 @@ export default function ProfilPro() {
 
   const loadProfil = () => {
     if (!user?.email) return;
-    // Ne PAS réinitialiser proInfo à null : on garde les données affichées
-    // pendant le rafraîchissement en arrière-plan (fini le flash de placeholders).
-
-    const applyCache = (p) => {
-      if (!p) return null;
-      try {
-        const cached = JSON.parse(localStorage.getItem('pro_profile_cache') || 'null');
-        if (cached) {
-          return { ...p, avatar_url: cached.avatar_url || p.avatar_url, cover_url: cached.cover_url || p.cover_url, salon_name: cached.salon_name || p.salon_name, bio: cached.bio || p.bio, city: cached.city || p.city, phone: cached.phone || p.phone, address: cached.address || p.address };
-        }
-      } catch {}
-      return p;
-    };
 
     // 1) Fetch ProfilPro — prefer active record, then latest with data
     supabase.from('ProfilPro').select('id, user_email, salon_name, phone, address, city, bio, avatar_url, cover_url, status, type_activite, travail_nuit, galerie_urls, rating, reviews_count').eq('user_email', user.email).order('created_at', { ascending: false })
@@ -109,20 +98,18 @@ export default function ProfilPro() {
         if (!p) {
           try {
             const cached = JSON.parse(localStorage.getItem('pro_profile_cache') || 'null');
-            if (cached) p = { user_email: user.email, ...cached };
+            if (cached && cached.user_email === user.email) p = { user_email: user.email, ...cached };
           } catch {}
         } else {
           try {
             const cached = JSON.parse(localStorage.getItem('pro_profile_cache') || 'null');
-            if (cached) {
+            if (cached && cached.user_email === user.email) {
               p = { ...p, avatar_url: cached.avatar_url || p.avatar_url, cover_url: cached.cover_url || p.cover_url, salon_name: cached.salon_name || p.salon_name, bio: cached.bio || p.bio, city: cached.city || p.city, phone: cached.phone || p.phone, address: cached.address || p.address };
             }
           } catch {}
         }
         if (p) {
           setProInfo(p);
-          // Cache enrichi (email + statut) : la prochaine ouverture affiche
-          // directement les vraies données, sans page intermédiaire.
           try {
             localStorage.setItem('pro_profile_cache', JSON.stringify({
               user_email: user.email,
@@ -645,7 +632,7 @@ export default function ProfilPro() {
 
         {/* Logout */}
         <button
-          onClick={() => { localStorage.removeItem("bb_is_pro"); supabase.auth.signOut().then(() => window.location.href = "/"); }}
+          onClick={() => { logout(); }}
           className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-red-100 text-red-400 hover:bg-red-50 transition-colors active:scale-95 text-[12px] font-black uppercase tracking-widest"
         >
           <LogOut className="w-4 h-4" />

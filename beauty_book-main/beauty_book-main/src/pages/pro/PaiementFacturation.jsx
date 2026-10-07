@@ -184,10 +184,18 @@ export default function PaiementFacturation() {
           </div>
         )}
 
-        {/* Sécurité */}
-        <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl px-4 py-3 flex items-center gap-3">
-          <Shield className="w-5 h-5 text-green-500 shrink-0" />
-          <p className="text-[12px] text-green-700 font-medium">Vos données de paiement sont chiffrées et sécurisées</p>
+        {/* Sécurité Stripe */}
+        <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-4 flex items-center justify-between border border-purple-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center font-black text-[15px]">
+              S
+            </div>
+            <div>
+              <p className="text-[13px] font-black text-gray-900">Paiements sécurisés par Stripe</p>
+              <p className="text-[11px] text-gray-500 font-medium">Chiffrement AES 256 bits · Conforme aux normes PCI-DSS</p>
+            </div>
+          </div>
+          <span className="text-[10px] font-black text-purple-700 bg-purple-100 px-2.5 py-1 rounded-full uppercase">Stripe</span>
         </div>
 
         {/* Cartes enregistrées */}

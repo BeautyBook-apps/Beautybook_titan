@@ -140,7 +140,7 @@ export default function AdminImmobilier() {
         floor: form.floor || "",
         location: form.location || "",
         city: form.city || "",
-        area: form.area || "",
+        area: toNum(form.area),
         postal_code: form.postal_code || "",
         equip: form.equip || "",
         extra: form.extra || "",

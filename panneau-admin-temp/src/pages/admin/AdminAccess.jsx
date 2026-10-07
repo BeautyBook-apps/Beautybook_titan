@@ -59,7 +59,7 @@ export default function AdminAccess() {
     supabase.auth.getSession().then(async ({ data, error }) => {
       if (!alive.current) return;
       if (error) throw error;
-      if (data.session && !hash.has('error') && !query.has('error')) {
+      if (data.session && !data.session.user?.is_anonymous && !hash.has('error') && !query.has('error')) {
         if (data.session.user?.email_confirmed_at) sessionStorage.removeItem(PENDING);
         if (query.get('auth') === 'recovery') setPhase('password');
         else if (!location.pathname.endsWith('/signup')) { setLoading(true); await checkAccess(); }

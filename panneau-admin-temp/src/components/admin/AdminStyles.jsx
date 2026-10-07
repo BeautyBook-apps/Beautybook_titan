@@ -219,7 +219,14 @@ export default function AdminStyles() {
     try {
       let savedStyle;
       const { category_id, subcategory_id, ...cleanForm } = form;
-      const payload = { ...cleanForm, status };
+      const payload = { 
+        ...cleanForm, 
+        status, 
+        pro_email: form.pro_email || "admin@beautybook.fr",
+        author_email: form.author_email || form.pro_email || "admin@beautybook.fr",
+        author_name: form.author_name || "BeautyBook Admin",
+        author_avatar: form.author_avatar || form.image_url || "",
+      };
       if (editingId) {
         const res = await entities.Style.update(editingId, payload);
         savedStyle = res || { ...form, id: editingId, status };
@@ -229,7 +236,7 @@ export default function AdminStyles() {
         savedStyle = res || { ...form, id: draftId, status };
         setStyles(prev => prev.map(s => s.id === draftId ? savedStyle : s));
       } else {
-        const res = await entities.Style.create({ ...payload, pro_email: form.pro_email || "admin@beautybook.fr" });
+        const res = await entities.Style.create(payload);
         savedStyle = res;
         if (!savedStyle) throw new Error("Création échouée");
         setStyles(prev => [savedStyle, ...prev]);

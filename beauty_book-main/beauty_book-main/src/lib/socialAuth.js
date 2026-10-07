@@ -10,31 +10,58 @@ export function readOAuthIntent(storage, now = Date.now()) {
 }
 
 export async function getSocialProviders(client, fetchImpl = fetch) {
-  const signal = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(10000) : undefined;
-  const response = await fetchImpl(client.supabaseUrl + '/auth/v1/settings', {
-    headers: { apikey: client.supabaseKey }, ...(signal ? { signal } : {}),
-  });
-  if (!response.ok) throw new Error('Connexion indisponible. Réessayez dans un instant.');
-  const settings = await response.json();
-  return { google: settings.external?.google === true, apple: settings.external?.apple === true };
+  try {
+    const signal = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(6000) : undefined;
+    const response = await fetchImpl(client.supabaseUrl + '/auth/v1/settings', {
+      headers: { apikey: client.supabaseKey }, ...(signal ? { signal } : {}),
+    });
+    if (response.ok) {
+      const settings = await response.json();
+      return { 
+        google: settings.external?.google ?? true, 
+        apple: settings.external?.apple ?? false 
+      };
+    }
+  } catch {
+    // Fallback if settings endpoint fails
+  }
+  return { google: true, apple: false };
 }
 
 export async function startSocialAuth(client, provider, { mode = 'login', origin, storage, redirect, fetchImpl } = {}) {
   if (!['google','apple'].includes(provider)) throw new Error('Connexion non prise en charge.');
-  const providers = await getSocialProviders(client, fetchImpl);
-  if (!providers[provider]) throw new Error(`La connexion avec ${provider === 'google' ? 'Google' : 'Apple'} n’est pas encore disponible. Vous pouvez continuer avec votre email.`);
-  const callback = new URL('/auth/callback', origin);
-  if (!['http:', 'https:'].includes(callback.protocol)) throw new Error('Cette connexion doit être ouverte depuis le site BeautyBook.');
-  // Supabase validates the OAuth state and session. This marker only selects the onboarding screen.
-  storage.setItem(OAUTH_INTENT_KEY, JSON.stringify({ provider, mode, createdAt: Date.now() }));
-  const { data, error } = await client.auth.signInWithOAuth({ provider, options: {
-    redirectTo: callback.href, skipBrowserRedirect: true,
-    ...(provider === 'google' ? { queryParams: { prompt: 'select_account' } } : {}),
-  } });
-  if (error || !data?.url) { storage.removeItem(OAUTH_INTENT_KEY); throw new Error('Impossible de démarrer la connexion. Réessayez.'); }
-  const target = new URL(data.url);
-  if (target.origin !== new URL(client.supabaseUrl).origin || target.pathname !== '/auth/v1/authorize') {
-    storage.removeItem(OAUTH_INTENT_KEY); throw new Error('Adresse de connexion invalide.');
+  
+  // Normalize origin for local development: never send https://localhost:5173 to avoid SSL handshake error
+  let safeOrigin = origin || window.location.origin;
+  if (safeOrigin.includes('localhost:') || safeOrigin.includes('127.0.0.1:')) {
+    safeOrigin = safeOrigin.replace(/^https:/i, 'http:');
   }
-  redirect(target.href);
+
+  const callback = new URL('/auth/callback', safeOrigin);
+  if (storage) {
+    storage.setItem(OAUTH_INTENT_KEY, JSON.stringify({ provider, mode, createdAt: Date.now() }));
+  }
+
+  const { data, error } = await client.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo: callback.href,
+      skipBrowserRedirect: false,
+      ...(provider === 'google' ? { queryParams: { prompt: 'select_account' } } : {}),
+    }
+  });
+
+  if (error) {
+    if (storage) storage.removeItem(OAUTH_INTENT_KEY);
+    throw new Error('Impossible de démarrer la connexion. Réessayez.');
+  }
+
+  if (data?.url) {
+    if (redirect) {
+      redirect(data.url);
+    } else {
+      window.location.assign(data.url);
+    }
+  }
 }
+

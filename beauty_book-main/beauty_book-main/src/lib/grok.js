@@ -3,7 +3,7 @@
 // (fonction Vercel qui garde XAI_API_KEY côté serveur).
 import { recordChatUsage } from './apiUsage';
 const LS_AGENT_ID = 'bb_grok_agent_id';
-export const DEFAULT_AGENT_ID = 'agent_xGMVEL6cEMKtWzG8';
+export const DEFAULT_AGENT_ID = 'agent_P7pseF5UxwLIBM5K';
 
 export function getGrokAgentId() {
   try {

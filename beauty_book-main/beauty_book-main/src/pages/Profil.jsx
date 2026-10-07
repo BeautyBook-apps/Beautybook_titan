@@ -63,9 +63,33 @@ function InstagramGrid({ items, onItemClick }) {
   );
 }
 
-function MediaThumb({ item, isRepub = false, onClick }) {
-  const thumb = item.reel_thumbnail || item.thumbnail_url || (item.reel_images && item.reel_images[0]) || (item.images && item.images[0]);
+function getItemBadge(item) {
+  if (item._badgeLabel) {
+    return {
+      label: item._badgeLabel,
+      color: item._badgeColor || "bg-primary",
+      icon: item._badgeIcon || "✨",
+    };
+  }
+  if (item.video_url || item.reel_title || item.duration_sec) {
+    return { label: "Reel", color: "bg-purple-600", icon: "🎬" };
+  }
+  if (item.bundle_price !== undefined || item.is_bundle || item.service_ids) {
+    return { label: "Forfait", color: "bg-amber-500", icon: "💎" };
+  }
+  if (item.price !== undefined || item.pro_email || item.duration_min) {
+    return { label: "Service", color: "bg-blue-600", icon: "✂️" };
+  }
+  if (item.category && (item.images || item.image_url)) {
+    return { label: "Style", color: "bg-pink-600", icon: "✨" };
+  }
+  return { label: "Publication", color: "bg-gray-800", icon: "📸" };
+}
+
+function MediaThumb({ item, isRepub = false, showTypeBadge = true, onClick }) {
+  const thumb = item.reel_thumbnail || item.thumbnail_url || (item.reel_images && item.reel_images[0]) || (item.images && item.images[0]) || item.image_url;
   const isVideo = item.video_url || (thumb && (thumb.endsWith(".webm") || thumb.endsWith(".mp4")));
+  const badge = getItemBadge(item);
 
   return (
     <div
@@ -73,7 +97,7 @@ function MediaThumb({ item, isRepub = false, onClick }) {
       className="aspect-[9/16] overflow-hidden bg-gray-100 cursor-pointer relative rounded-2xl group"
     >
       {thumb ? (
-        <BeautyImage src={thumb} alt={item.title || item.reel_title} className="w-full h-full object-cover transition-transform duration-300 group-active:scale-110" />
+        <BeautyImage src={thumb} alt={item.title || item.reel_title} className="w-full h-full object-cover transition-transform duration-300 group-active:scale-110" style={{ objectPosition: 'center top' }} />
       ) : (
         <div className="w-full h-full bg-gray-200 flex items-center justify-center">
           <Camera className="w-8 h-8 text-gray-400" />
@@ -84,18 +108,28 @@ function MediaThumb({ item, isRepub = false, onClick }) {
           <Play className="w-5 h-5 text-primary ml-0.5" />
         </div>
       </div>
+
+      {/* Badge / Insigne de type de publication (Reel, Style, Service, Forfait...) */}
+      {showTypeBadge && (
+        <div className="absolute top-2 left-2 z-10">
+          <span className={`flex items-center gap-1 text-[8px] font-black uppercase tracking-wider text-white px-2 py-0.5 rounded-full shadow-md backdrop-blur-sm ${badge.color}`}>
+            <span>{badge.icon}</span> {badge.label}
+          </span>
+        </div>
+      )}
+
       {isRepub && (
-        <div className="absolute top-1.5 left-1.5 bg-green-500 rounded-full p-1">
+        <div className="absolute bottom-1.5 right-1.5 bg-green-500 rounded-full p-1 shadow">
           <Repeat2 className="w-2.5 h-2.5 text-white" />
         </div>
       )}
       {isVideo && (
-        <div className="absolute top-1.5 right-1.5 bg-black/50 rounded-full p-1">
+        <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full p-1">
           <Video className="w-2.5 h-2.5 text-white" />
         </div>
       )}
       {item.likes > 0 && (
-        <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-black/40 rounded-full px-1.5 py-0.5">
+        <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-1.5 py-0.5">
           <Heart className="w-2.5 h-2.5 text-red-400 fill-red-400" />
           <span className="text-white text-[9px] font-black">{item.likes >= 1000 ? (item.likes/1000).toFixed(1)+"k" : item.likes}</span>
         </div>
@@ -223,7 +257,9 @@ export default function Profil() {
     setPublications(reels);
     setRepubsList(repubs);
 
-    // ── Charger les favoris (reels likés + services likés + styles likés) depuis la BDD ──
+    const likedBundleIds = (dbLikes || []).filter(l => l.target_type === 'bundle').map(l => l.target_id);
+
+    // ── Charger les favoris (reels likés + services likés + styles likés + bundles) depuis la BDD ──
     const favs = [];
     if (likedReelIds.length > 0) {
       const likedReels = await Promise.all(
@@ -231,7 +267,17 @@ export default function Profil() {
           entities.Reel.filter({ id: rid }, "-created_at", 1).catch(() => [])
         )
       );
-      likedReels.forEach(res => { if (res[0]) favs.push(res[0]); });
+      likedReels.forEach(res => {
+        if (res[0]) {
+          favs.push({
+            ...res[0],
+            _kind: 'reel',
+            _badgeLabel: 'Reel',
+            _badgeColor: 'bg-purple-600',
+            _badgeIcon: '🎬',
+          });
+        }
+      });
     }
     if (likedServiceIds.length > 0) {
       const allServices = await entities.Service.filter({ status: "actif" }, "-created_at", 200).catch(() => []);
@@ -240,6 +286,10 @@ export default function Profil() {
         thumbnail_url: s.image_url,
         title: s.title,
         likes: 0,
+        _kind: 'service',
+        _badgeLabel: 'Service',
+        _badgeColor: 'bg-blue-600',
+        _badgeIcon: '✂️',
       }));
       favs.push(...likedSvcs);
     }
@@ -248,8 +298,26 @@ export default function Profil() {
       const likedStyles = allStyles.filter(s => likedStyleIds.includes(s.id)).map(s => ({
         ...s,
         thumbnail_url: s.image_url || (s.images && s.images[0]),
+        _kind: 'style',
+        _badgeLabel: 'Style',
+        _badgeColor: 'bg-pink-600',
+        _badgeIcon: '✨',
       }));
       favs.push(...likedStyles);
+    }
+    if (likedBundleIds.length > 0) {
+      const allBundles = await entities.ServiceBundle.filter({ is_active: true }, "-created_at", 100).catch(() => []);
+      const likedBundles = allBundles.filter(b => likedBundleIds.includes(b.id)).map(b => ({
+        ...b,
+        thumbnail_url: b.image_url || b.banner_url,
+        title: b.name,
+        likes: 0,
+        _kind: 'bundle',
+        _badgeLabel: 'Forfait',
+        _badgeColor: 'bg-amber-500',
+        _badgeIcon: '💎',
+      }));
+      favs.push(...likedBundles);
     }
     if (favs.length > 0) setFavorisList(favs);
 
@@ -530,10 +598,13 @@ export default function Profil() {
             <div className="grid grid-cols-3 gap-1.5 px-1.5 pb-6">
               {favorisList.map((r) => (
                 <MediaThumb key={r.id} item={r} onClick={() => {
-                  if (r.pro_email && r.price !== undefined && !r.author_email) {
+                  if (r._kind === 'bundle' || r.bundle_price !== undefined) {
+                    // Bundle
+                    navigate(`/bundle/${r.id}`);
+                  } else if (r._kind === 'service' || (r.pro_email && r.price !== undefined && !r.author_email)) {
                     // Service
                     navigate(`/service/${r.id}`);
-                  } else if (r.image_url && r.category && !r.author_email && !r.pro_email) {
+                  } else if (r._kind === 'style' || (r.image_url && r.category && !r.author_email && !r.pro_email)) {
                     // Style
                     navigate(`/style/${r.id}`, { state: { id: r.id, title: r.title, cover: r.image_url, images: r.images || [], category: r.category, description: r.description, likes: r.likes } });
                   } else {

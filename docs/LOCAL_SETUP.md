@@ -42,10 +42,56 @@ Les migrations sont dans supabase/migrations à la racine thelast, dans cet ordr
 7. 202609190001_receptionist.sql
 8. 202609190002_reviews_media.sql
 9. 202609190003_image_jobs.sql
+10. 20260810_add_immobilier_columns.sql (complément des champs du formulaire immobilier, si non appliqué)
+11. 202610070001_admin_content_fields.sql
 
 Examiner les données historiques avant application. Les buckets private-documents, private-images et ai-results sont privés. Le bucket uploads contient les médias publics. Les anciennes données doivent être inventoriées avant tout déplacement ou suppression.
 
 Les administrateurs sont habilités explicitement dans bb_admin_memberships par un responsable autorisé ; aucune inscription publique ne donne ce rôle. ADMIN_REQUIRE_MFA reste activé. Créer des comptes de test distincts pour chaque profil après migration.
+
+## Diagnostic du panneau admin — 7 octobre 2026
+
+### Accès direct au panneau local et données partagées
+
+Le panneau lancé par `npm run dev` sur `http://localhost:5174` ouvre directement
+le tableau de bord. Son extension Vite `server/local-admin.mjs` lit les clés de
+`beauty_book-main/beauty_book-main/backend/.env` exclusivement côté serveur et
+utilise les mêmes tables Supabase que l’application principale. Les statistiques,
+la gestion des contenus et les médias publics ne nécessitent donc pas de session
+utilisateur ni de connexion PostgreSQL dans ce mode local.
+
+Cet accès est limité au serveur de développement lié à localhost, au nom d’hôte
+attendu et à une autorisation aléatoire générée à chaque démarrage. Il est absent
+du build de production. Les écritures sur les paiements, réservations et
+habilitations conservent leurs API métier et leurs prérequis. Les catégories
+historiques stockées uniquement dans le navigateur ne sont pas migrées par ce mode.
+
+Les compteurs se rafraîchissent toutes les 15 secondes lorsque le panneau est
+visible. La page Immobilier de l’application relit également les données au retour
+sur la page, toutes les 15 secondes et lors des événements Supabase disponibles.
+Une vérification réelle création/modification/lecture publique/suppression a été
+effectuée avec un brouillon Style temporaire, supprimé après le test.
+
+Tests de ce mode : `node --test server/local-admin.test.mjs src/api/entities/adminEntity.test.mjs`
+depuis `panneau-admin-temp`.
+
+### Backend métier à configurer
+
+Les clés Supabase fournies sont acceptées par le projet. Le backend local démarre,
+mais DATABASE_URL reste à renseigner. Les tables bb_admin_memberships et
+bb_audit_log sont absentes du schéma exposé par Supabase. Les colonnes
+contact_email, contact_phone, latitude et longitude sont également absentes
+d’ImmobilierListing ; la migration 202610070001_admin_content_fields.sql les ajoute.
+Les migrations de cette correction ont été vérifiées sur une base de test locale,
+sans application distante.
+
+Hors du mode local ci-dessus, les écritures du panneau passent par /api/admin/entities
+avec la session authentifiée. Les erreurs remontent à l’interface. Les anciennes données bb_local_*
+sont conservées dans le navigateur, mais ne sont plus fusionnées avec les lignes
+publiées : leur présence locale ne prouve pas une sauvegarde dans Supabase.
+
+Tests ciblés du panneau : node --test src/api/entities/adminEntity.test.mjs.
+Tests ciblés du backend : node --test --test-concurrency=2 test/admin-content.test.js test/admin-database.test.js test/security.test.js.
 
 ## Intégrations à configurer
 

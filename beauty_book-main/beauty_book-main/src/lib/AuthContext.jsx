@@ -15,15 +15,49 @@ export const AuthProvider = ({ children }) => {
 
   const activeUser = useRef(null);
   const profileRequest = useRef(0);
-  const loadProfile = async (userId) => {
+
+  const clearAllUserCaches = () => {
+    try {
+      const keysToRemove = [
+        'bb_is_pro', 'bb_onboarded', 'pro_profile_cache', 'pro_stats_cache',
+        'bb_switch_to', 'bb_liked_styles', 'bb_liked_services', 'bb_unliked_services',
+        'bb_night_mode'
+      ];
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+      
+      // Remove any dynamic per-user cache keys
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('vueclient_cache_') || k.startsWith('bb_followed_') || k.startsWith('bb_subscribed_') || k.startsWith('chunk_reload_'))) {
+          localStorage.removeItem(k);
+        }
+      }
+      for (const key of Object.keys(sessionStorage)) {
+        if (key.startsWith('bb_') || key.startsWith('chunk_reload_')) sessionStorage.removeItem(key);
+      }
+    } catch {}
+  };
+
+  const loadProfile = async (userId, email) => {
     const request = ++profileRequest.current;
     try {
-      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-      if (error) throw error;
-      if (request === profileRequest.current && activeUser.current === userId) setProfile(data || null);
-      return data;
+      let profileData = null;
+      if (userId) {
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+        if (!error && data) profileData = data;
+      }
+      if (!profileData && email) {
+        const { data, error } = await supabase.from('profiles').select('*').eq('email', email).maybeSingle();
+        if (!error && data) profileData = data;
+      }
+      if (request === profileRequest.current && (activeUser.current === userId || !activeUser.current)) {
+        setProfile(profileData || null);
+      }
+      return profileData;
     } catch {
-      if (request === profileRequest.current && activeUser.current === userId) setProfile(null);
+      if (request === profileRequest.current && (activeUser.current === userId || !activeUser.current)) {
+        setProfile(null);
+      }
       return null;
     }
   };
@@ -35,13 +69,24 @@ export const AuthProvider = ({ children }) => {
     const applySession = (session) => {
       if (disposed) return;
       const next = session?.user || null;
-      if (activeUser.current !== next?.id) { ++profileRequest.current; setProfile(null); }
+      if (activeUser.current !== next?.id) { 
+        ++profileRequest.current; 
+        setProfile(null); 
+        // If switching from one user to another (or logging out), purge old user cache
+        if (activeUser.current !== null && next?.id !== activeUser.current) {
+          clearAllUserCaches();
+        }
+      }
       activeUser.current = next?.id || null;
-      setUser(next); setIsAuthenticated(Boolean(next));
-      setAuthError(null); setIsLoadingAuth(false); setAuthChecked(true);
+      setUser(next); 
+      setIsAuthenticated(Boolean(next));
+      setAuthError(null); 
+      setIsLoadingAuth(false); 
+      setAuthChecked(true);
     };
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      eventReceived = true; applySession(session);
+      eventReceived = true; 
+      applySession(session);
     });
     supabase.auth.getSession().then(({ data, error }) => {
       if (disposed || eventReceived) return;
@@ -49,13 +94,18 @@ export const AuthProvider = ({ children }) => {
       applySession(data?.session);
     }).catch(() => {
       if (!disposed && !eventReceived) {
-        applySession(null); setAuthError({ type: 'session_unavailable', message: 'Session indisponible. Reconnectez-vous.' });
+        applySession(null); 
+        setAuthError({ type: 'session_unavailable', message: 'Session indisponible. Reconnectez-vous.' });
       }
     });
     return () => { disposed = true; activeUser.current = null; ++profileRequest.current; subscription.unsubscribe(); };
   }, []);
 
-  useEffect(() => { if (user?.id) void loadProfile(user.id); }, [user?.id]);
+  useEffect(() => { 
+    if (user?.id || user?.email) {
+      void loadProfile(user.id, user.email); 
+    }
+  }, [user?.id, user?.email]);
 
   useEffect(() => {
     if (!user?.id || !user.email || !profile?.id || profile.email === user.email) return;
@@ -63,12 +113,13 @@ export const AuthProvider = ({ children }) => {
   }, [user?.id, user?.email, profile?.id, profile?.email]);
 
   const logout = async (shouldRedirect = true) => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw new Error('La déconnexion a échoué. Réessayez.');
-    activeUser.current = null; ++profileRequest.current;
-    setUser(null); setProfile(null); setIsAuthenticated(false);
-    for (const key of ['bb_is_pro', 'bb_onboarded', 'pro_profile_cache']) localStorage.removeItem(key);
-    for (const key of Object.keys(sessionStorage)) if (key.startsWith('bb_')) sessionStorage.removeItem(key);
+    try { await supabase.auth.signOut(); } catch {}
+    activeUser.current = null; 
+    ++profileRequest.current;
+    setUser(null); 
+    setProfile(null); 
+    setIsAuthenticated(false);
+    clearAllUserCaches();
     if (shouldRedirect) window.location.href = '/';
   };
 
@@ -80,7 +131,7 @@ export const AuthProvider = ({ children }) => {
     const { data: { user: currentUser } } = await supabase.auth.getUser();
     if (currentUser) {
       setUser(currentUser);
-      await loadProfile(currentUser.id);
+      await loadProfile(currentUser.id, currentUser.email);
     }
   };
 

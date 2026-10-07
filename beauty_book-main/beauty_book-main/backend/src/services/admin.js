@@ -1,4 +1,4 @@
-import db, { transaction } from '../config/pg.js';
+import db from '../config/pg.js';
 import { assert } from '../lib/errors.js';
 
 export const RESOURCES = {
@@ -7,7 +7,7 @@ export const RESOURCES = {
   DemandeProV2: { permission: 'professionals', fields: ['statut','status','admin_notes'] },
   Service: { permission: 'services', fields: ['name','title','description','price','duration','duration_min','category','subcategory','images','status','addons','tags','pro_email','promo_price','promo_ends_at'] },
   Produit: { permission: 'products', fields: ['name','description','price','old_price','images','category','brand','stock','status','tags','pro_email','min_qty','delivery_time','free_shipping','return_policy'] },
-  Style: { permission: 'content', fields: ['title','description','images','image_url','video_url','category','subcategory','status','featured','tags','produits_utilises','outils_utilises','author_email','author_name','pro_email'] },
+  Style: { permission: 'content', fields: ['title','description','images','image_url','video_url','category','subcategory','status','featured','tags','produits_utilises','outils_utilises','author_email','author_name','author_avatar','pro_email','type_cheveux','type_peau','type_prestation','temps_moyen','niveau_difficulte','mots_cles'] },
   Reel: { permission: 'content', fields: ['title','description','video_url','thumbnail_url','images','category','status','tags','author_email','author_name','author_avatar'] },
   Publication: { permission: 'content', fields: ['content','images','video_url','type','status','author_email','author_name'] },
   StyleCategory: { permission: 'categories', fields: ['name','slug','description','icon','color','is_active'] },
@@ -21,7 +21,7 @@ export const RESOURCES = {
   reel_comment_report: { permission: 'reports', fields: [] },
   Notification: { permission: 'notifications', fields: ['user_email','title','message','body','type','action_url','is_read','read'] },
   LiveSession: { permission: 'content', fields: ['title','description','status','thumbnail_url'] },
-  ImmobilierListing: { permission: 'content', fields: ['title','description','price','images','address','city','type','status','area','surface','contact_email','contact_phone'] },
+  ImmobilierListing: { permission: 'content', fields: ['title','description','price','price_fonds_commerce','price_per_m2','tax_mode','salon_type','rooms','floor','location','postal_code','equip','extra','video_url','images','address','city','type','status','area','surface','contact_email','contact_phone','latitude','longitude'] },
   MessageChat: { permission: 'messages', fields: [], readOnly: true },
   PointsFidelite: { permission: 'loyalty', fields: [], readOnly: true },
   PointsFidelitePro: { permission: 'loyalty', fields: [], readOnly: true },
@@ -43,7 +43,7 @@ export function resourceAccess(table, operation) {
   return { ...resource, writing, permission: `${resource.permission}:${writing ? 'write' : 'read'}` };
 }
 
-export async function adminEntity(user, body, requestId) {
+export async function adminEntity(user, body, requestId, database = db) {
   const { table, operation = 'list', id, data = {}, filters = {}, orderBy = '-created_at', limit = 100, offset = 0 } = body;
   const resource = resourceAccess(table, operation);
   const tableSql = `public.${identifier(table)}`;
@@ -66,7 +66,7 @@ export async function adminEntity(user, body, requestId) {
     }
     const column = String(orderBy).replace(/^-/, '').replace('created_date','created_at');
     params.push(Math.min(Math.max(Number(limit) || 100, 1), 500), Math.max(Number(offset) || 0, 0));
-    const { rows } = await db.query(`SELECT to_jsonb(t) - $1::text[] AS row FROM ${tableSql} t ${predicates.length ? 'WHERE ' + predicates.join(' AND ') : ''} ORDER BY ${identifier(column)} ${String(orderBy).startsWith('-') ? 'DESC' : 'ASC'} LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+    const { rows } = await database.query(`SELECT to_jsonb(t) - $1::text[] AS row FROM ${tableSql} t ${predicates.length ? 'WHERE ' + predicates.join(' AND ') : ''} ORDER BY ${identifier(column)} ${String(orderBy).startsWith('-') ? 'DESC' : 'ASC'} LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
     return operation === 'get' ? rows[0]?.row || null : rows.map(row => row.row);
   }
   assert(operation !== 'delete' || !['profiles','ProfilPro','Produit','Service','bb_seller_accounts'].includes(table), 409, 'ARCHIVE_REQUIRED', 'Désactivez cet élément ou utilisez la procédure de suppression de compte.');
@@ -76,7 +76,7 @@ export async function adminEntity(user, body, requestId) {
     assert(!/secret|token|password|credential|stripe|api.key/i.test(JSON.stringify(data)), 400, 'SECRET_CONFIGURATION_FORBIDDEN', 'Les secrets se configurent exclusivement sur le serveur.');
   }
   if ('price' in data) assert(Number.isFinite(Number(data.price)) && Number(data.price) >= 0, 400, 'INVALID_PRICE', 'Prix invalide.');
-  return transaction(async client => {
+  return database.transaction(async client => {
     let rows;
     if (operation === 'create') {
       assert(keys.length, 400, 'EMPTY_CHANGE', 'Aucune donnée fournie.');

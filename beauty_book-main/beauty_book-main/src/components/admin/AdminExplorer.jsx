@@ -3,6 +3,7 @@ import { uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { adminApi } from "@/lib/adminApiClient";
 import { entities } from "@/api/entities";
+import { isProfilParticulier, isProfilSalon } from "@/lib/annonces";
 import { Plus, Trash2, Upload, Loader2, Eye, EyeOff, Pencil, X, Star, Check } from "lucide-react";
 
 const inputCls = "w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-4 py-3 text-[13px] outline-none focus:border-primary";
@@ -308,7 +309,13 @@ function SalonsTab() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    adminApi.listProfilsPro().then(res => setSalons(Array.isArray(res) ? res : res?.data?.results || [])).catch(() => {}).finally(() => setLoading(false));
+    adminApi.listProfilsPro()
+      .then(res => {
+        const all = Array.isArray(res) ? res : res?.data?.results || [];
+        setSalons(all.filter(isProfilSalon));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const toggleStatus = async (s) => {
@@ -395,9 +402,15 @@ function ParticuliersTab() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    entities.ProfilPro.filter({ type_activite: "Particulier" }, "-created_at", 100)
-      .then(res => setPros(Array.isArray(res) ? res : res?.data?.results || []))
-      .catch(() => adminApi.listProfilsPro().then(res => setPros(Array.isArray(res) ? res : res?.data?.results || [])))
+    entities.ProfilPro.filter({}, "-created_at", 500)
+      .then(res => {
+        const all = Array.isArray(res) ? res : res?.data?.results || [];
+        setPros(all.filter(isProfilParticulier));
+      })
+      .catch(() => adminApi.listProfilsPro().then(res => {
+        const all = Array.isArray(res) ? res : res?.data?.results || [];
+        setPros(all.filter(isProfilParticulier));
+      }))
       .catch(() => {}).finally(() => setLoading(false));
   }, []);
 

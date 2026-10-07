@@ -15,6 +15,29 @@ export const ANNONCE_STATUS = {
   cloturee: { label: "Clôturée", color: "#B91C1C", bg: "#FEE2E2" },
 };
 
+export function normalizeTypeActivite(value) {
+  return String(value || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .trim().toLowerCase().replace(/[\s_-]+/g, " ");
+}
+
+export function getProfilType(profile) {
+  const explicit = normalizeTypeActivite(profile?.type_activite);
+  // Les anciens profils utilisent plusieurs libellés (ex. « indépendant(e) »,
+  // « à domicile » ou « salon professionnel »). Les traiter par intention
+  // évite de masquer un profil dès qu'un libellé légèrement différent est
+  // enregistré en base.
+  if (
+    ["particulier", "independant", "freelance", "prestataire", "domicile"].some((value) => explicit.includes(value))
+  ) return "particulier";
+  if (["salon", "etablissement", "institut"].some((value) => explicit.includes(value))) return "salon";
+  // Compatibilité avec les profils créés avant l'ajout du statut.
+  return profile?.salon_name?.trim() ? "salon" : "particulier";
+}
+
+export const isProfilParticulier = profile => getProfilType(profile) === "particulier";
+export const isProfilSalon = profile => getProfilType(profile) === "salon";
+
 // Templates de messages automatiques (personnalisables par le salon)
 // Variables : {nom}, {titre}, {salon}, {date_debut}, {remuneration}
 export const DEFAULT_MSG_ACCEPTE = `Bonjour {nom} 🎉
@@ -410,6 +433,27 @@ export function getMesCandidatures(email) {
   return all.filter(c => c.candidat_email === email);
 }
 
+export async function checkProfessionalAccess(supabase, email) {
+  if (!supabase || !email) return { loading: false, isParticulier: false, isSalon: false, typeActivite: null };
+  try {
+    const { data: profiles } = await supabase.from("ProfilPro")
+      .select("id, type_activite, salon_name, status, created_at")
+      .eq("user_email", email).order("created_at", { ascending: false });
+    let active = (profiles || []).filter(p => p.status === "actif");
+    let best = active[0] || (profiles || [])[0] || null;
+    if (!best) {
+      const { data: demandes } = await supabase.from("DemandeProV2")
+        .select("id, type_activite, salon_name, status, statut, created_at")
+        .eq("user_email", email).order("created_at", { ascending: false }).limit(1);
+      best = demandes?.[0] || null;
+    }
+    const type = getProfilType(best);
+    return { loading: false, isParticulier: !!best && type === "particulier", isSalon: !!best && type === "salon", typeActivite: best?.type_activite || null };
+  } catch {
+    return { loading: false, isParticulier: false, isSalon: false, typeActivite: null };
+  }
+}
+
 // ─── Accès réservé aux salons professionnels ───
 // La gestion des annonces (dashboard + détail + création) est réservée aux profils
 // pro dont le type_activite est "Salon" (salon professionnel).
@@ -419,11 +463,7 @@ export function getMesCandidatures(email) {
 // Retourne { loading, isSalon, typeActivite }.
 export async function checkSalonAccess(supabase, email) {
   if (!supabase || !email) return { loading: false, isSalon: false, typeActivite: null };
-  const isSalonValue = (v) => {
-    if (!v || typeof v !== "string") return false;
-    const norm = v.trim().toLowerCase();
-    return norm === "salon" || norm === "salon professionnel" || norm === "salon-professionnel";
-  };
+  const isSalonValue = (v) => ["salon", "salon professionnel", "salon pro"].includes(normalizeTypeActivite(v));
   try {
     const { data: profiles } = await supabase
       .from("ProfilPro")

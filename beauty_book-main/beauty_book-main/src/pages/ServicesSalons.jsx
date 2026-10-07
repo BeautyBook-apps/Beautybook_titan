@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useThemeBg } from "@/hooks/useTheme";
 import { useAuth } from "@/lib/AuthContext";
-import { Search, Heart, Clock, MapPin, Share2, MessageSquare, Star, Send, X, SlidersHorizontal, Plus, Play, Tag, Volume2, VolumeX, Sparkles, Palette, Scissors, Store, User, Zap, Users, LayoutGrid, Droplets, Calendar, Building2, UserCheck, Package, Paintbrush, Gem, Hand, Leaf, Crown, ArrowUpRight, ArrowRight, Map as MapIcon } from "lucide-react";
+import { Search, Heart, Clock, MapPin, Share2, MessageSquare, Star, X, SlidersHorizontal, Play, Tag, Volume2, VolumeX, Sparkles, Palette, Scissors, Store, User, Zap, Users, LayoutGrid, Droplets, Calendar, Building2, UserCheck, Package, Paintbrush, Gem, Hand, Leaf, Crown, ArrowUpRight, ArrowRight, Map as MapIcon } from "lucide-react";
 import ProfilSheet from "@/components/salons/ProfilSheet";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
@@ -15,6 +15,7 @@ import AdvancedFilterSheet from "@/components/filters/AdvancedFilterSheet";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import { useLocation } from '@/contexts/LocationContext';
 import { isOpenNow } from "@/lib/hours";
+import { isProfilParticulier, isProfilSalon } from "@/lib/annonces";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import './Recherche.css';
 import './ServicesSalons.css';
@@ -376,7 +377,10 @@ function StylesTab({ activeCategory }) {
 
   const fetchStyles = useCallback(async () => {
     try {
-      const items = await entities.Style.filter({ status: "publie" }, "-created_at", 200);
+      let items = await entities.Style.filter({ status: ["publie", "actif"] }, "-created_at", 200).catch(() => []);
+      if (!items || items.length === 0) {
+        items = await entities.Style.filter({}, "-created_at", 200).then(r => (r || []).filter(s => s.status !== "brouillon")).catch(() => []);
+      }
       const mapped = (items || []).map(r => ({
         id: r.id, img: r.image_url || (r.images && r.images[0]) || STYLE_IMG1,
         images: r.images && r.images.length > 0 ? r.images : [r.image_url || STYLE_IMG1],
@@ -1340,14 +1344,78 @@ function ServicesTab({ activeCategory }) {
   );
 }
 
-// ── Carte Profil Pro (Salon / Particulier) — design page Recherche ───────────────
-function DiscoveryProfilCard({ item, media, liked, onLike, onSelect, open, badge, minPrice, highlighted, kind }) {
+// ── Helper d'extraction des médias du profil (galerie photos/vidéos synchronisée) ──
+function extractProfilMedia(item) {
+  const media = [];
+  const add = (u) => {
+    if (!u || typeof u !== 'string') return;
+    const clean = u.trim();
+    if (clean && !media.includes(clean)) media.push(clean);
+  };
+
+  if (Array.isArray(item?.galerie_urls)) {
+    item.galerie_urls.forEach(add);
+  } else if (typeof item?.galerie_urls === 'string' && item.galerie_urls.trim()) {
+    try {
+      const parsed = JSON.parse(item.galerie_urls);
+      if (Array.isArray(parsed)) parsed.forEach(add);
+      else add(item.galerie_urls);
+    } catch {
+      add(item.galerie_urls);
+    }
+  }
+
+  if (Array.isArray(item?.photos)) item.photos.forEach(add);
+  if (Array.isArray(item?.images)) item.images.forEach(add);
+  if (item?.cover_url) add(item.cover_url);
+  if (item?.avatar_url) add(item.avatar_url);
+  if (item?.image_url) add(item.image_url);
+
+  return media.length > 0 ? media : [""];
+}
+
+// ── Carte Profil Pro (Salon / Particulier) — Slider médias & galerie synchronisée ───────────────
+function DiscoveryProfilCard({ item, media: initialMedia, liked, onLike, onSelect, open, badge, minPrice, highlighted, kind }) {
+  const [slideIdx, setSlideIdx] = useState(0);
+  const [muted, setMuted] = useState(true);
+  const touchStartX = useRef(null);
+  const videoRefs = useRef({});
+
+  const validMedia = useMemo(() => {
+    const list = Array.isArray(initialMedia) && initialMedia.length > 0 && initialMedia[0]
+      ? initialMedia
+      : extractProfilMedia(item);
+    return list.filter(Boolean);
+  }, [initialMedia, item]);
+
   const city = [item.city, item.postal_code ? String(item.postal_code).slice(0, 2) : null].filter(Boolean).join(", ");
   const hasRating = item.rating > 0 && item.reviews_count > 0;
   const specialties = item.specialites?.filter(Boolean) || [];
-  const cover = media?.find(Boolean) || item.avatar_url || "";
   const isSalon = kind !== "particulier";
   const BadgeIcon = isSalon ? Building2 : UserCheck;
+
+  const currentUrl = validMedia[slideIdx] || validMedia[0] || "";
+  const currentIsVideo = isVideoUrl(currentUrl);
+
+  const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const handleTouchEnd = (e) => {
+    if (touchStartX.current === null) return;
+    const diff = touchStartX.current - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 35) {
+      if (diff > 0) setSlideIdx((c) => Math.min(c + 1, validMedia.length - 1));
+      else setSlideIdx((c) => Math.max(c - 1, 0));
+    }
+    touchStartX.current = null;
+  };
+
+  const nextSlide = (e) => {
+    e.stopPropagation();
+    setSlideIdx((c) => (c + 1) % validMedia.length);
+  };
+  const prevSlide = (e) => {
+    e.stopPropagation();
+    setSlideIdx((c) => (c - 1 + validMedia.length) % validMedia.length);
+  };
 
   return (
     <article
@@ -1355,13 +1423,52 @@ function DiscoveryProfilCard({ item, media, liked, onLike, onSelect, open, badge
       className={`discovery-salon ${highlighted ? "ring-2 ring-primary" : ""}`}
       style={{ cursor: "pointer" }}
     >
-      <div className="discovery-salon-photo">
-        <BeautyImage src={cover} alt={item.salon_name || item.name || "Professionnel beauté"} loading="lazy" />
-        <div className="discovery-badge-cluster">
+      {/* Slider Media synchronisé avec la galerie */}
+      <div
+        className="discovery-salon-photo relative group select-none"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        {validMedia.map((url, i) => (
+          <div
+            key={i}
+            className="absolute inset-0 transition-transform duration-300 ease-in-out"
+            style={{ transform: `translateX(${(i - slideIdx) * 100}%)` }}
+          >
+            {isVideoUrl(url) ? (
+              <video
+                ref={el => { if (el) videoRefs.current[i] = el; }}
+                src={url}
+                loop
+                muted={muted}
+                playsInline
+                autoPlay={i === slideIdx}
+                className="w-full h-full object-cover"
+                style={{ objectPosition: 'center top' }}
+              />
+            ) : (
+              <BeautyImage
+                src={url}
+                alt={item.salon_name || item.name || "Professionnel beauté"}
+                loading="lazy"
+                className="w-full h-full object-cover"
+                style={{ objectPosition: 'center top' }}
+              />
+            )}
+          </div>
+        ))}
+
+        {/* Dégradé bas et haut */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/20 pointer-events-none" />
+
+        {/* Badges types */}
+        <div className="discovery-badge-cluster pointer-events-none">
           <span className={`entity-badge ${isSalon ? "salon-badge" : "particulier-badge"}`}>
             <BadgeIcon size={12} /> {isSalon ? "Salon Pro" : "Particulier"}
           </span>
         </div>
+
+        {/* Bouton Like */}
         <button
           onClick={(e) => { e.stopPropagation(); onLike(e); }}
           aria-label="Ajouter aux favoris"
@@ -1369,19 +1476,71 @@ function DiscoveryProfilCard({ item, media, liked, onLike, onSelect, open, badge
         >
           <Heart className={`w-4 h-4 ${liked ? "text-white fill-white" : "text-gray-500"}`} />
         </button>
+
+        {/* Statut ouvert / fermé */}
         {open === true && (
-          <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-white/95 rounded-full px-2.5 py-1 z-10">
+          <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-white/95 backdrop-blur-sm rounded-full px-2.5 py-1 z-10 shadow-sm">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span className="text-[10px] font-bold text-green-700">Ouvert</span>
+            <span className="text-[10px] font-black text-green-700">Ouvert</span>
           </div>
         )}
         {open === false && (
-          <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-white/95 rounded-full px-2.5 py-1 z-10">
+          <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-white/95 backdrop-blur-sm rounded-full px-2.5 py-1 z-10 shadow-sm">
             <div className="w-2 h-2 bg-red-500 rounded-full" />
-            <span className="text-[10px] font-bold text-red-500">Fermé</span>
+            <span className="text-[10px] font-black text-red-500">Fermé</span>
           </div>
         )}
-        <span className="discovery-photo-arrow"><ArrowUpRight size={18} /></span>
+
+        {/* Contrôles slider si plusieurs médias */}
+        {validMedia.length > 1 && (
+          <>
+            {/* Flèches de navigation discrètes */}
+            {slideIdx > 0 && (
+              <button
+                onClick={prevSlide}
+                className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 backdrop-blur-sm text-white flex items-center justify-center z-10 opacity-0 group-hover:opacity-100 transition-opacity active:scale-90"
+              >
+                ‹
+              </button>
+            )}
+            {slideIdx < validMedia.length - 1 && (
+              <button
+                onClick={nextSlide}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 backdrop-blur-sm text-white flex items-center justify-center z-10 opacity-0 group-hover:opacity-100 transition-opacity active:scale-90"
+              >
+                ›
+              </button>
+            )}
+
+            {/* Dots */}
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1 z-10">
+              {validMedia.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={(e) => { e.stopPropagation(); setSlideIdx(i); }}
+                  className={`rounded-full transition-all ${i === slideIdx ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`}
+                />
+              ))}
+            </div>
+
+            {/* Compteur */}
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5 z-10">
+              <span className="text-white text-[9px] font-black">{slideIdx + 1}/{validMedia.length}</span>
+            </div>
+          </>
+        )}
+
+        {/* Bouton son si vidéo */}
+        {currentIsVideo && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setMuted(m => !m); }}
+            className="absolute bottom-3 right-3 w-7 h-7 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center z-10 active:scale-90 transition-all"
+          >
+            {muted ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5 text-white" />}
+          </button>
+        )}
+
+        {!currentIsVideo && <span className="discovery-photo-arrow"><ArrowUpRight size={18} /></span>}
       </div>
 
       <div className="discovery-salon-info">
@@ -1416,6 +1575,32 @@ function DiscoveryProfilCard({ item, media, liked, onLike, onSelect, open, badge
 // ── Utilitaire ouvert/fermé ───────────────────────────────────────────────────
 // ── isOpenNow : voir @/lib/hours (gère les plages de nuit, ex 09:00 → 07:00) ──
 
+const PUBLIC_PROFILE_STATUSES = new Set(["", "actif", "active", "publie", "publiee"]);
+
+async function loadPublicProfilPros() {
+  const [activeResult, allResult] = await Promise.all([
+    entities.ProfilPro.filter({ status: "actif" }, "-created_at", 500).catch(() => []),
+    // Repli utile pour les anciennes lignes (status vide ou « active »).
+    entities.ProfilPro.filter({}, "-created_at", 500).catch(() => []),
+  ]);
+  const rows = [...new Map(
+    [...activeResult, ...allResult].map((profile) => [profile.id || profile.user_email, profile])
+  ).values()];
+  return rows.filter((profile) => PUBLIC_PROFILE_STATUSES.has(
+    String(profile?.status || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase()
+  ));
+}
+
+function getProfilCoordinates(profile) {
+  const lat = profile?.latitude ?? profile?.lat ?? (Array.isArray(profile?.coordinates) ? profile.coordinates[0] : null);
+  const lng = profile?.longitude ?? profile?.lng ?? (Array.isArray(profile?.coordinates) ? profile.coordinates[1] : null);
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  return Number.isFinite(parsedLat) && Number.isFinite(parsedLng) && parsedLat !== 0 && parsedLng !== 0
+    ? { lat: parsedLat, lng: parsedLng }
+    : null;
+}
+
 // ── Salons Tab ────────────────────────────────────────────────────────────────
 
 function SalonsTab({ activeCategory }) {
@@ -1431,10 +1616,10 @@ function SalonsTab({ activeCategory }) {
 
   useEffect(() => {
     let cancelled = false;
-    entities.ProfilPro.filter({ status: "actif" }, "-created_at", 500)
+    loadPublicProfilPros()
       .then(async (all) => {
         if (cancelled) return;
-        const salons = all.filter(p => p.salon_name && p.salon_name.trim() !== "");
+        const salons = all.filter(p => isProfilSalon(p));
         const emails = salons.map(p => p.user_email).filter(Boolean);
         const servicesArr = await Promise.all(
           emails.map(e => entities.Service.filter({ pro_email: e, status: "actif" }, "price", 10).catch(() => []))
@@ -1561,15 +1746,13 @@ function SalonsTab({ activeCategory }) {
           ) : (
             <div ref={listRef} className="discovery-grid">
               {sorted.map((item) => {
-                const media = [];
-                if (item.galerie_urls?.length > 0) item.galerie_urls.forEach(u => { if (u && !media.includes(u)) media.push(u); });
-                if (media.length === 0 && item.avatar_url) media.push(item.avatar_url);
+                const media = extractProfilMedia(item);
                 const open = isOpenNow(item.ouverture);
                 return (
                   <div key={item.id} id={`salon-card-${item.id}`}>
                     <DiscoveryProfilCard
                       item={item}
-                      media={media.length > 0 ? media : [""]}
+                      media={media}
                       liked={liked.includes(item.id)}
                       onLike={(e) => { e.stopPropagation(); setLiked(p => p.includes(item.id) ? p.filter(x => x !== item.id) : [...p, item.id]); }}
                       onSelect={() => handleCardSelect(item)}
@@ -1606,10 +1789,10 @@ function ParticuliersTab({ activeCategory }) {
 
   useEffect(() => {
     let cancelled = false;
-    entities.ProfilPro.filter({ status: "actif" }, "-created_at", 500)
+    loadPublicProfilPros()
       .then(async (all) => {
         if (cancelled) return;
-        const particuliers = all.filter(p => !p.salon_name || p.salon_name.trim() === "");
+        const particuliers = all.filter(p => isProfilParticulier(p));
         const emails = particuliers.map(p => p.user_email).filter(Boolean);
         const servicesArr = await Promise.all(
           emails.map(e => entities.Service.filter({ pro_email: e, status: "actif" }, "price", 10).catch(() => []))
@@ -1630,7 +1813,17 @@ function ParticuliersTab({ activeCategory }) {
 
   const filtered = useMemo(() => {
     let list = activeCategory === "Tous" ? profils : profils.filter(p => p.specialites?.some(s => s.toLowerCase().includes(activeCategory.toLowerCase())));
-    if (hasLocation) list = filterByRadius(list, 100);
+    if (hasLocation) {
+      // Ne pas supprimer les profils légitimes qui n'ont pas encore de
+      // coordonnées : ils restent visibles et leur adresse sera géocodée par
+      // Apple Plans dans la carte.
+      const located = list
+        .map((profile) => ({ profile, coordinates: getProfilCoordinates(profile) }))
+        .filter(({ coordinates }) => coordinates)
+        .map(({ profile, coordinates }) => ({ ...profile, latitude: coordinates.lat, longitude: coordinates.lng }));
+      const withoutCoordinates = list.filter((profile) => !getProfilCoordinates(profile));
+      list = [...filterByRadius(located, 100), ...withoutCoordinates];
+    }
     return list;
   }, [profils, activeCategory, hasLocation, filterByRadius]);
 
@@ -1643,20 +1836,15 @@ function ParticuliersTab({ activeCategory }) {
 
   const mapItems = useMemo(() => {
     return filtered.map((p, idx) => {
-      let lat = p.latitude || p.lat || (Array.isArray(p.coordinates) ? p.coordinates[0] : null);
-      let lng = p.longitude || p.lng || (Array.isArray(p.coordinates) ? p.coordinates[1] : null);
-      if (!lat || !lng || isNaN(parseFloat(lat)) || isNaN(parseFloat(lng))) {
-        lat = 48.8566 + (idx * 0.014 - 0.02);
-        lng = 2.3522 + (idx * 0.011 - 0.02);
-      }
+      const coordinates = getProfilCoordinates(p);
       return {
         id: p.id || `part-${idx}`,
         price: minPricesMap[p.user_email] || p.minPrice || 30,
         title: p.salon_name || p.name || 'Coiffeur particulier',
-        lat: parseFloat(lat),
-        lng: parseFloat(lng),
-        address: p.address || p.city || 'À domicile',
-        city: p.city || 'Paris',
+        ...(coordinates ? { lat: coordinates.lat, lng: coordinates.lng } : {}),
+        address: p.address || null,
+        postal_code: p.postal_code || null,
+        city: p.city || null,
         user_email: p.user_email
       };
     });
@@ -1709,21 +1897,13 @@ function ParticuliersTab({ activeCategory }) {
         <>
           {showMap && (
             <div className="discovery-map-panel">
-              {mapItems.length > 0 ? (
-                <>
-                  <MapWithPricePins items={mapItems} onSelectItem={handleMapSelect} height="h-[340px]" />
-                  <p className="discovery-map-caption">
-                    <MapPin size={15} />
-                    {mapItems.length} prestataire(s) localisé(s) sur Apple Maps. Touchez une épingle pour voir la fiche.
-                  </p>
-                </>
-              ) : (
-                <div className="discovery-empty">
-                  <MapPin size={30} className="text-orange-400" />
-                  <h3>Aucune adresse sur la carte</h3>
-                  <p>Les particuliers de cette sélection n'ont pas encore renseigné leurs coordonnées.</p>
-                </div>
-              )}
+              <MapWithPricePins items={mapItems} onSelectItem={handleMapSelect} height="h-[340px]" />
+              <p className="discovery-map-caption">
+                <MapPin size={15} />
+                {mapItems.length > 0
+                  ? `${mapItems.length} prestataire(s) affiché(s) sur Apple Maps. Touchez une épingle pour voir la fiche.`
+                  : "Apple Maps est prêt : les prestataires apparaîtront dès qu'une adresse sera disponible."}
+              </p>
             </div>
           )}
 
@@ -1736,15 +1916,13 @@ function ParticuliersTab({ activeCategory }) {
           ) : (
             <div ref={listRef} className="discovery-grid">
               {sorted.map((item) => {
-                const media = [];
-                if (item.galerie_urls?.length > 0) item.galerie_urls.forEach(u => { if (u && !media.includes(u)) media.push(u); });
-                if (media.length === 0 && item.avatar_url) media.push(item.avatar_url);
+                const media = extractProfilMedia(item);
                 const open = isOpenNow(item.ouverture);
                 return (
                   <div key={item.id} id={`part-card-${item.id}`}>
                     <DiscoveryProfilCard
                       item={item}
-                      media={media.length > 0 ? media : [""]}
+                      media={media}
                       liked={liked.includes(item.id)}
                       onLike={(e) => { e.stopPropagation(); setLiked(p => p.includes(item.id) ? p.filter(x => x !== item.id) : [...p, item.id]); }}
                       onSelect={() => handleCardSelect(item)}

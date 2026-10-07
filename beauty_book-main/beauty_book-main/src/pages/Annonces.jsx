@@ -2,12 +2,12 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Search, SlidersHorizontal, MapPin, Star, X, ArrowUpRight, ArrowRight, Sparkles,
-  Scissors, Waves, Gem, Footprints, Paintbrush, Droplets, Hand, LayoutGrid,
-  Briefcase, Clock, Euro, Users, Plus, ChevronRight, Eye, CalendarDays, BadgeCheck,
-  Send, CheckCircle2, XCircle, FileSignature
+  Scissors, Waves, Gem, Paintbrush, Droplets, Hand,
+  Briefcase, Euro, Users, Plus, Eye, BadgeCheck,
+  Send, FileSignature
 } from "lucide-react";
 import BeautyImage from "@/components/ui/BeautyImage";
-import { getAnnonces, getCategories, getTypesMission, getMesCandidatures, checkSalonAccess } from "@/lib/annonces";
+import { getAnnonces, getCategories, getTypesMission, getMesCandidatures, checkProfessionalAccess } from "@/lib/annonces";
 import { supabase } from "@/api/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import "./Annonces.css";
@@ -111,13 +111,21 @@ export default function Annonces() {
 
   const { user } = useAuth();
   const userEmail = user?.email || (() => { try { return JSON.parse(localStorage.getItem("bb_session") || "{}").email || ""; } catch { return ""; } })();
-  const mesCandidatures = useMemo(() => userEmail ? getMesCandidatures(userEmail) : [], [userEmail, view]);
 
   // Le bouton "Publier une annonce" n'apparaît que pour les salons professionnels
   const [isSalon, setIsSalon] = useState(false);
+  const [isParticulier, setIsParticulier] = useState(false);
   useEffect(() => {
-    if (userEmail) checkSalonAccess(supabase, userEmail).then(r => setIsSalon(r.isSalon));
+    if (userEmail) checkProfessionalAccess(supabase, userEmail).then(r => {
+      setIsSalon(r.isSalon);
+      setIsParticulier(r.isParticulier);
+    });
   }, [userEmail]);
+
+  const mesCandidatures = useMemo(
+    () => isParticulier && userEmail ? getMesCandidatures(userEmail) : [],
+    [userEmail, view, isParticulier]
+  );
 
   const annonces = useMemo(() => getAnnonces(), []);
   const categories = getCategories();
@@ -348,7 +356,7 @@ export default function Annonces() {
           <button
             onClick={() => setView("candidatures")}
             className={`annonce-type ${view === "candidatures" ? "active" : ""}`}
-            style={{ flex: 1, padding: "10px 16px", fontSize: 13 }}
+            style={{ flex: 1, padding: "10px 16px", fontSize: 13, display: isParticulier ? undefined : "none" }}
           >
             <Send size={13} style={{ marginRight: 5 }} /> Mes candidatures
             {mesCandidatures.length > 0 && (

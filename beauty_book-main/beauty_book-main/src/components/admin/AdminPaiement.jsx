@@ -215,6 +215,50 @@ export default function AdminPaiement() {
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-10">
 
+      {/* ── Passerelle Stripe ── */}
+      <Section title="Passerelle de paiement Stripe" icon={CreditCard}>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-purple-50 rounded-2xl border border-purple-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center font-black text-[16px]">
+                S
+              </div>
+              <div>
+                <p className="text-[14px] font-black text-gray-900 flex items-center gap-2">
+                  Stripe Payments <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">CONNECTÉ</span>
+                </p>
+                <p className="text-[11px] text-gray-500 font-medium">Cartes bancaires, Apple Pay, Google Pay, 3D Secure 2</p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-purple-700 bg-purple-100 px-3 py-1 rounded-full uppercase">Mode Test</span>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Clé Publique Stripe (Publishable Key)</p>
+            <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+              <input
+                type="text"
+                readOnly
+                value="pk_test_51TFtM7GVJqnzDwxZH3EHUkKXbAE6JSldMylAe6RE143lcMMENTfpcmc9i4aTaMbLxFCEW6kDtLposnUe5u5SQRBH00NN0Awwjc"
+                className="flex-1 bg-transparent text-[12px] font-mono text-gray-700 outline-none select-all"
+              />
+              <span className="text-[11px] font-black text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Active</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-[12px]">
+            <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+              <p className="text-gray-400 font-bold text-[10px] uppercase">Devise</p>
+              <p className="font-black text-gray-800 text-[13px] mt-0.5">EUR (€)</p>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+              <p className="text-gray-400 font-bold text-[10px] uppercase">Sécurité</p>
+              <p className="font-black text-gray-800 text-[13px] mt-0.5">TLS / PCI-DSS</p>
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* ── Acompte ── */}
       <Section title="Acompte de réservation" icon={CreditCard}>
         <TypeAmountRow

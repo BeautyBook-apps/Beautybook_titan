@@ -245,7 +245,9 @@ export default function Recherche() {
     Promise.allSettled([
       activeRows('ProfilPro', controller.signal),
       activeRows('Service', controller.signal),
-      entities.Style.filter({ status: 'actif' }, '-created_at', 12),
+      entities.Style.filter({ status: ['publie', 'actif'] }, '-created_at', 50)
+        .then(res => (res && res.length > 0) ? res : entities.Style.filter({}, '-created_at', 50))
+        .then(res => (res || []).filter(s => s.status !== 'brouillon')),
       entities.ServiceBundle ? entities.ServiceBundle.filter({}, '-created_at', 10) : Promise.resolve([])
     ]).then(([profiles, services, styles, bundles]) => {
       if (controller.signal.aborted) return;

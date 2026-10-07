@@ -61,7 +61,10 @@ export default function Explorer() {
       try {
         const [allProfils, allStyles] = await Promise.all([
           entities.ProfilPro.filter({ status: "actif" }, "-created_at", 500).catch(() => []),
-          entities.Style.filter({ status: "actif" }, "-created_at", 50).catch(() => []),
+          entities.Style.filter({ status: ["publie", "actif"] }, "-created_at", 100)
+            .then(res => (res && res.length > 0) ? res : entities.Style.filter({}, "-created_at", 100))
+            .then(res => (res || []).filter(s => s.status !== 'brouillon'))
+            .catch(() => []),
         ]);
         if (cancelled) return;
         setProfils(allProfils);

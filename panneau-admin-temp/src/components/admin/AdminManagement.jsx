@@ -34,11 +34,42 @@ export function UserManagement(){
  return <section><Heading title="Comptes et habilitations" {...state}>Les droits d’administration sont séparés des profils clients et professionnels.</Heading><ErrorBox error={state.error} retry={state.load}/><div className="mb-5 flex flex-wrap gap-3"><label className="min-w-60 flex-1 text-sm">Rechercher un compte<input className={input+' mt-2'} value={search} onChange={e=>setSearch(e.target.value)}/></label><button className={button+' self-end'} onClick={access}><ShieldCheck size={17} className="mr-2 inline"/>Charger les habilitations</button></div>{selection&&<form className="mb-5 rounded-2xl border bg-white p-5" onSubmit={e=>{e.preventDefault();save(true);}}><h3 className="mb-3 font-bold">Accès de {selection.email}</h3><label>Rôle<select className={input+' my-3'} value={role} onChange={e=>setRole(e.target.value)}><option value="support">Support</option><option value="moderator">Modération</option><option value="administrator">Administration métier</option><option value="owner">Responsable des accès</option></select></label><div className="flex flex-wrap gap-3"><button className={primary} disabled={busy}>Enregistrer l’habilitation</button><button type="button" className={button} disabled={busy} onClick={()=>save(false)}>Révoquer l’accès</button><button type="button" className={button} onClick={()=>setSelection(null)}>Annuler</button></div></form>}<div className="space-y-3">{state.rows?.filter(row=>[row.email,row.full_name].some(v=>String(v||'').toLowerCase().includes(search.toLowerCase()))).map(row=>{const membership=memberships?.find(m=>m.user_id===row.id&&m.active);return <article key={row.id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-white p-5"><div><strong>{row.full_name||'Compte sans nom'}</strong><p className="mt-1 text-sm text-gray-600">{row.email}</p><p className="mt-1 text-xs text-gray-500">Profil : {row.role}{membership?' · Admin : '+membership.role:''}</p></div>{memberships&&<button className={button} onClick={()=>{setSelection(row);setRole(membership?.role||'support');}}>Gérer l’accès</button>}</article>;})}</div></section>;
 }
 
+import { adminApi } from '@/lib/adminApiClient';
+
 export function Overview(){
  const [data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);
- const load=useCallback(async()=>{setLoading(true);try{setData(await api.get('/admin/stats'));setError('');}catch(e){setError(e.message);}finally{setLoading(false);}},[]);useEffect(()=>{load();},[load]);
- const metrics=[['Comptes',data?.users,Users],['Professionnels actifs',data?.professionals,ShieldCheck],['Demandes vendeurs',data?.pending_sellers,Store],['Produits',data?.products,Package],['Réservations',data?.reservations,CalendarDays],['Rendez-vous en attente',data?.reservations_pending,CalendarDays],['Commandes',data?.commandes,Package],['Paiements Stripe confirmés',data?money(data.paid_cents/100):'—',ArrowUpRight]];
- return <section><Heading title="L’activité de BeautyBook" load={load} loading={loading}>Les indicateurs sont calculés sur l’ensemble des enregistrements du serveur.</Heading><ErrorBox error={error} retry={load}/><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{metrics.map(([label,value,Icon])=><article className="rounded-2xl border border-gray-200 bg-white p-6" key={label}><Icon className="mb-5 text-primary" size={24}/><p className="text-sm text-gray-600">{label}</p><p className="mt-3 text-3xl font-bold">{value??'—'}</p></article>)}</div><p className="mt-5 text-xs text-gray-500">Les encaissements affichés proviennent des événements Stripe vérifiés. Les paiements sur place ne sont pas inclus.</p></section>;
+ const load=useCallback(async()=>{
+   setLoading(true);
+   try{
+     const stats = await adminApi.getStats();
+     setData({
+       users: stats.users,
+       professionals: stats.styles,
+       pending_sellers: 0,
+       products: stats.services,
+       reservations: stats.reservations,
+       reservations_pending: stats.reservations_pending,
+       commandes: stats.commandes,
+       paid_cents: 0,
+       reels: stats.reels,
+       lives: stats.lives_actifs
+     });
+     setError('');
+   }catch(e){
+     setError(e.message);
+   }finally{
+     setLoading(false);
+   }
+ },[]);
+ useEffect(()=>{
+   load();
+   const refresh=()=>{if(document.visibilityState==='visible')load();};
+   window.addEventListener('focus',refresh);
+   const timer=setInterval(refresh,15000);
+   return()=>{window.removeEventListener('focus',refresh);clearInterval(timer);};
+ },[load]);
+ const metrics=[['Comptes utilisateurs',data?.users,Users],['Styles & Prestations',data?.professionals,ShieldCheck],['Services actifs',data?.products,Package],['Réservations totales',data?.reservations,CalendarDays],['Rendez-vous en attente',data?.reservations_pending,CalendarDays],['Commandes',data?.commandes,Package],['Réels publiés',data?.reels,Activity],['Lives actifs',data?.lives,ArrowUpRight]];
+ return <section><Heading title="L’activité de BeautyBook" load={load} loading={loading}>Les indicateurs sont calculés directement à partir de la base de données Supabase.</Heading><ErrorBox error={error} retry={load}/><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{metrics.map(([label,value,Icon])=><article className="rounded-2xl border border-gray-200 bg-white p-6" key={label}><Icon className="mb-5 text-primary" size={24}/><p className="text-sm text-gray-600">{label}</p><p className="mt-3 text-3xl font-bold">{value??'—'}</p></article>)}</div></section>;
 }
 
 export function Operations(){

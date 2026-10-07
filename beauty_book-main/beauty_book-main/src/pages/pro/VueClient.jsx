@@ -588,9 +588,12 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
 
   useEffect(() => {
     if (!targetEmail) return;
-    const isOwnProfile = targetEmail === user?.email;
     const getCached = () => {
-      try { return JSON.parse(localStorage.getItem('pro_profile_cache') || 'null'); } catch { return null; }
+      try { 
+        const cached = JSON.parse(localStorage.getItem('pro_profile_cache') || 'null');
+        if (cached && cached.user_email === targetEmail) return cached;
+        return null;
+      } catch { return null; }
     };
     const fetchProfil = async () => {
       const { data: profiles, error } = await supabase.from('ProfilPro').select('id, user_email, salon_name, phone, address, city, bio, avatar_url, cover_url, status, galerie_urls, followers, ouverture, horaires, travail_nuit, rating, reviews_count, se_deplace, specialites, commodites, latitude, longitude, type_activite, postal_code, seats_count').eq('user_email', targetEmail).order('created_at', { ascending: false });
