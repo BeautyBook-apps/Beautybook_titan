@@ -15,7 +15,7 @@ export default function AdminAnnonces() {
   const [form, setForm] = useState({
     title: "", sponsor_name: "", image_url: "",
     cta_label: "En savoir plus", cta_url: "",
-    type: "feed", status: "actif",
+    type: "feed", status: "actif", start_date: "", end_date: "",
   });
 
   useEffect(() => {
@@ -61,10 +61,12 @@ export default function AdminAnnonces() {
         type: form.type,
         status: form.status,
         target_url: form.cta_url || null,
+        start_date: form.start_date || null,
+        end_date: form.end_date || null,
       });
       setAnnonces(prev => [created, ...prev]);
       setCreating(false);
-      setForm({ title: "", sponsor_name: "", image_url: "", cta_label: "En savoir plus", cta_url: "", type: "feed", status: "actif" });
+      setForm({ title: "", sponsor_name: "", image_url: "", cta_label: "En savoir plus", cta_url: "", type: "feed", status: "actif", start_date: "", end_date: "" });
     } catch {}
     setSaving(false);
   };
@@ -113,6 +115,19 @@ export default function AdminAnnonces() {
             <option value="story">Story</option>
             <option value="banner">Bannière Services</option>
           </select>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-gray-600 text-[11px] font-bold">
+              Début de diffusion
+              <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+                className="mt-1 w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-3 py-3 text-[13px] outline-none focus:border-primary" />
+            </label>
+            <label className="text-gray-600 text-[11px] font-bold">
+              Fin de diffusion
+              <input type="date" value={form.end_date} min={form.start_date || undefined} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+                className="mt-1 w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-3 py-3 text-[13px] outline-none focus:border-primary" />
+            </label>
+          </div>
 
           <input value={form.cta_url} onChange={e => setForm(f => ({ ...f, cta_url: e.target.value }))}
             placeholder="Lien CTA (ex: https://...)"

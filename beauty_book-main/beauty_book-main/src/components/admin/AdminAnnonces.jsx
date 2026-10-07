@@ -7,7 +7,7 @@ import { Trash2, Plus, Eye, EyeOff, Upload, Loader2, Film, Link, Pencil, X } fro
 const EMPTY_FORM = {
   title: "", sponsor_name: "", image_url: "", video_url: "",
   cta_label: "En savoir plus", cta_url: "",
-  pages: ["reels"], status: "actif",
+  pages: ["reels"], status: "actif", start_date: "", end_date: "",
 };
 
 function extractVideoThumb(src) {
@@ -102,6 +102,8 @@ export default function AdminAnnonces() {
       cta_url: a.cta_url || "",
       pages: a.pages || [a.type || "reels"],
       status: a.status || "actif",
+      start_date: a.start_date || "",
+      end_date: a.end_date || "",
     });
     setEditingId(a.id);
     setCreating(true);
@@ -277,6 +279,19 @@ export default function AdminAnnonces() {
                 );
               })}
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-gray-600 text-[11px] font-bold">
+              Début de diffusion
+              <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+                className="mt-1 w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-3 py-3 text-[13px] outline-none focus:border-primary" />
+            </label>
+            <label className="text-gray-600 text-[11px] font-bold">
+              Fin de diffusion
+              <input type="date" value={form.end_date} min={form.start_date || undefined} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+                className="mt-1 w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-3 py-3 text-[13px] outline-none focus:border-primary" />
+            </label>
           </div>
 
           <input value={form.cta_label} onChange={e => setForm(f => ({ ...f, cta_label: e.target.value }))}
