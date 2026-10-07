@@ -11,22 +11,31 @@ function normalizePlacement(value) {
 }
 
 function asPages(ad) {
+  const type = normalizePlacement(ad.type);
+  const typePages = type.includes('style')
+    ? ['styles']
+    : type.includes('service')
+      ? ['services']
+      : ['banner', 'banniere'].includes(type)
+        ? ['styles', 'services']
+        : type.includes('reel') || type === 'feed'
+          ? ['reels']
+          : [];
+
   if (Array.isArray(ad.pages) && ad.pages.length > 0) {
-    return ad.pages.map(page => {
+    const explicitPages = ad.pages.map(page => {
       const value = normalizePlacement(page);
       if (value.includes('style')) return 'styles';
       if (value.includes('service')) return 'services';
       if (value.includes('reel')) return 'reels';
       return String(page).toLowerCase();
     });
+    if (explicitPages.some(page => ['styles', 'services'].includes(page))) return [...new Set(explicitPages)];
+    if (typePages.some(page => ['styles', 'services'].includes(page))) return typePages;
+    return explicitPages;
   }
 
-  const type = normalizePlacement(ad.type);
-  if (['feed', 'reel', 'reels'].includes(type)) return ['reels'];
-  if (type.includes('style')) return ['styles'];
-  if (type.includes('service')) return ['services'];
-  if (['banner', 'banniere'].includes(type)) return ['styles', 'services'];
-  return [];
+  return typePages;
 }
 
 function normalizeAd(ad) {

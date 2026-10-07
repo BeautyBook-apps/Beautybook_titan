@@ -477,6 +477,14 @@ function StylesTab({ activeCategory }) {
             />
           </React.Fragment>
         ))}
+        {filteredStyles.length === 5 && annonces[0] && !hiddenAds.includes(5) && (
+          <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "calc(100dvh - 180px - env(safe-area-inset-bottom, 60px))" }}
+            className="bg-gray-50 flex flex-col items-center px-4 pt-4 pb-8 overflow-y-auto">
+            <div className="w-full max-w-sm">
+              <SponsoredCard annonce={annonces[0]} onClose={() => setHiddenAds(h => [...h, 5])} variant="styles" />
+            </div>
+          </div>
+        )}
       </div>
       {showComments && <CommentsSheet style={showComments} onClose={() => setShowComments(null)} onCommentCountChange={(styleId, newCount) => {
         setStyles(prev => prev.map(s => String(s.id) === String(styleId) ? { ...s, comments: newCount } : s));
