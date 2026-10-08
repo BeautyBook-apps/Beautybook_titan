@@ -5,12 +5,34 @@ export function createAdminEntity(table, apiClient) {
     const response = await apiClient.post('/admin/entities', { table, operation, ...input });
     return response.result;
   };
+
+  // The local admin server validates the payload against the currently
+  // deployed Supabase schema. During a rolling migration, a field can still
+  // be accepted by the UI while the database column is not available yet.
+  // Remove only the exact missing field reported by the server, then retry;
+  // all other errors still reach the caller unchanged.
+  const createWithSchemaCompatibility = async (data) => {
+    const payload = { ...data };
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        return await request('create', { data: payload });
+      } catch (error) {
+        const missingField = error?.status === 409
+          ? error.message?.match(/Le champ ([A-Za-z_][A-Za-z0-9_]*) n[’']existe pas encore/i)?.[1]
+          : null;
+        if (!missingField || !Object.prototype.hasOwnProperty.call(payload, missingField)) throw error;
+        delete payload[missingField];
+      }
+    }
+    throw new Error('Le schéma immobilier est incomplet. Appliquez la migration avant de créer cette annonce.');
+  };
+
   return {
     filter: (filters = {}, orderBy = '-created_at', limit = 500) =>
       request('filter', { filters, orderBy, limit }),
     list: (orderBy = '-created_at', limit = 500) => request('list', { orderBy, limit }),
     get: id => request('get', { id }),
-    create: data => request('create', { data }),
+    create: createWithSchemaCompatibility,
     update: (id, data) => request('update', { id, data }),
     delete: id => request('delete', { id }),
   };
