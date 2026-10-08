@@ -3,23 +3,24 @@ import { apiClient } from '@/lib/apiClient';
 import { compressMedia } from '@/lib/compressMedia';
 
 const checked = ({data,error}) => { if(error) throw error; return data; };
-const legacyAvisPayload = input => ({
+// The deployed Avis table currently exposes the canonical French column names.
+// Keep the retry payload limited to those stable columns when a newer optional
+// field (for example criteres or images) is not present in the schema cache.
+const remoteAvisPayload = input => ({
   reservation_id: input.reservation_id,
   type: input.type,
   auteur_email: input.auteur_email,
-  auteur_name: input.auteur_nom || input.auteur_name || '',
+  auteur_nom: input.auteur_nom || input.auteur_name || '',
   cible_email: input.cible_email,
-  cible_name: input.cible_nom || input.cible_name || '',
-  rating: Number(input.note ?? input.rating),
-  comment: input.commentaire ?? input.comment ?? '',
-  service_name: input.service_nom || input.service_name || '',
-  images: Array.isArray(input.images) ? input.images : [],
+  cible_nom: input.cible_nom || input.cible_name || '',
+  note: Number(input.note ?? input.rating),
+  commentaire: input.commentaire ?? input.comment ?? '',
+  service_nom: input.service_nom || input.service_name || '',
   created_by_id: input.created_by_id,
 });
-const legacyAvisUpdatePayload = input => ({
-  rating: Number(input.note ?? input.rating),
-  comment: input.commentaire ?? input.comment ?? '',
-  images: Array.isArray(input.images) ? input.images : [],
+const remoteAvisUpdatePayload = input => ({
+  note: Number(input.note ?? input.rating),
+  commentaire: input.commentaire ?? input.comment ?? '',
 });
 const createEntity = table => ({
   async filter(filters={},orderBy='-created_at',limit=1000){
@@ -40,8 +41,8 @@ const createEntity = table => ({
     if(!session)throw new Error('Connectez-vous pour effectuer cette action.');
     const result=await supabase.from(table).insert(input).select().single();
     if(table==='Avis'&&result.error?.code==='PGRST204'){
-      const legacyResult=await supabase.from(table).insert(legacyAvisPayload(input)).select().single();
-      return checked(legacyResult);
+      const remoteResult=await supabase.from(table).insert(remoteAvisPayload(input)).select().single();
+      return checked(remoteResult);
     }
     return checked(result);
   },
@@ -49,8 +50,8 @@ const createEntity = table => ({
     if(table==='Reservation')return (await apiClient.put('/api/reservations/'+id,input)).reservation;
     const result=await supabase.from(table).update(input).eq('id',id).select().single();
     if(table==='Avis'&&result.error?.code==='PGRST204'){
-      const legacyResult=await supabase.from(table).update(legacyAvisUpdatePayload(input)).eq('id',id).select().single();
-      return checked(legacyResult);
+      const remoteResult=await supabase.from(table).update(remoteAvisUpdatePayload(input)).eq('id',id).select().single();
+      return checked(remoteResult);
     }
     return checked(result);
   },
