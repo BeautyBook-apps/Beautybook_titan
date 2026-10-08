@@ -194,7 +194,7 @@ export default function AdminStyles() {
    };
 
    const deleteStyle = async (id) => {
-      if (!confirm("Supprimer ce style ?")) return;
+      if (!confirm("Êtes-vous vraiment sûr de vouloir supprimer ce style ? Cette action est définitive.")) return;
       try {
         await adminApi.deleteStyle(id);
         setStyles(prev => prev.filter(s => s.id !== id));

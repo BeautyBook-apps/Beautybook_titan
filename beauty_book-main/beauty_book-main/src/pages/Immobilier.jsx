@@ -5,6 +5,7 @@ import { Search, SlidersHorizontal, Heart, Maximize, X, Map, RotateCcw, MapPin, 
 import MapWithPricePins from "@/components/map/MapWithPricePins";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { entities } from "@/api/entities";
+import { apiClient } from "@/lib/apiClient";
 
 const PRICE_RANGES = [
   { id: "tous", label: "Tous les prix", min: 0, max: Infinity },
@@ -195,7 +196,16 @@ export default function Immobilier() {
     const refresh = () => {
       if (refreshing || document.visibilityState !== 'visible') return;
       refreshing = true;
-      return entities.ImmobilierListing.filter({ status: 'actif' }, '-created_at', 200)
+      const fetchListings = async () => {
+        try {
+          const response = await apiClient.callFunction('getImmobilier', {});
+          return Array.isArray(response?.data?.listings) ? response.data.listings : [];
+        } catch {
+          // Compatibility fallback for environments where the public route is not deployed yet.
+          return entities.ImmobilierListing.filter({ status: 'actif' }, '-created_at', 200);
+        }
+      };
+      return fetchListings()
       .then(items => {
         if (!active) return;
         const list = Array.isArray(items) ? items : [];

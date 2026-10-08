@@ -98,7 +98,7 @@ export const getImmobilier = async (req, res) => {
       query = query.eq('type', type);
     }
 
-    const { data: listings, error } = await query.order('created_date', { ascending: false }).limit(50);
+    const { data: listings, error } = await query.order('created_at', { ascending: false }).limit(50);
     
     if (error) throw error;
 

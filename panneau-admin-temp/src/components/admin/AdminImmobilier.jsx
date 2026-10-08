@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { uploadFile } from '@/api/entities';
 import { adminApi } from "@/lib/adminApiClient";
-import { Plus, Trash2, Upload, Loader2, X, Home, Eye, EyeOff, MapPin, Euro, Phone, Mail, AlertCircle, CheckCircle2, FileText, Clock, Save, Scissors, Building2, Receipt } from "lucide-react";
+import { Plus, Trash2, Upload, Loader2, X, Home, Eye, EyeOff, MapPin, Euro, Phone, Mail, AlertCircle, CheckCircle2, FileText, Clock, Save, Scissors, Building2, Receipt, Edit3 } from "lucide-react";
 import AddressInput from "@/components/ui/AddressInput";
 
 const inputCls = "w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-4 py-3 text-[13px] outline-none focus:border-primary transition-colors";
@@ -70,6 +70,7 @@ export default function AdminImmobilier() {
   const [drafts, setDrafts] = useState(() => loadDraftsList());
   const [activeTab, setActiveTab] = useState("all");
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const imgRef = useRef(null);
   const videoRef = useRef(null);
   const autoSaveTimer = useRef(null);
@@ -152,10 +153,15 @@ export default function AdminImmobilier() {
         latitude: form._lat || null,
         longitude: form._lng || null,
       };
-      const result = await adminApi.createImmobilier(payload);
+      const result = editingId
+        ? await adminApi.updateImmobilier(editingId, payload)
+        : await adminApi.createImmobilier(payload);
       const newItem = result?.data ? result.data : result;
-      setListings(prev => [newItem, ...prev]);
+      setListings(prev => editingId
+        ? prev.map(item => item.id === editingId ? { ...item, ...newItem } : item)
+        : [newItem, ...prev]);
       setCreating(false);
+      setEditingId(null);
       setForm({ ...EMPTY_FORM });
       clearDraft();
       setSuccess(true);
@@ -192,8 +198,26 @@ export default function AdminImmobilier() {
     } catch (err) { console.error("[AdminImmobilier] Toggle error:", err); }
   };
 
+  const editListing = (listing) => {
+    setEditingId(listing.id);
+    setForm({
+      ...EMPTY_FORM,
+      ...listing,
+      price: listing.price ?? "",
+      price_fonds_commerce: listing.price_fonds_commerce ?? "",
+      price_per_m2: listing.price_per_m2 ?? "",
+      surface: listing.surface ?? "",
+      rooms: listing.rooms ?? "",
+      images: Array.isArray(listing.images) ? listing.images : [],
+      video_url: listing.video_url || "",
+    });
+    setError("");
+    setCreating(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const deleteListing = async (id) => {
-    if (!confirm("Supprimer ce bien ?")) return;
+    if (!confirm("Êtes-vous vraiment sûr de vouloir supprimer cette annonce immobilière ? Cette action est définitive.")) return;
     try {
       await adminApi.deleteImmobilier(id);
       setListings(prev => prev.filter(l => l.id !== id));
@@ -232,7 +256,7 @@ export default function AdminImmobilier() {
       {creating && (
         <form onSubmit={createListing} className="bg-white rounded-2xl p-5 border border-gray-200 space-y-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <h3 className="text-gray-900 text-[15px] font-black">Créer une annonce</h3>
+            <h3 className="text-gray-900 text-[15px] font-black">{editingId ? "Modifier l'annonce" : "Créer une annonce"}</h3>
             <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
               <Clock className="w-3 h-3" /> Sauvegarde auto
             </div>
@@ -488,13 +512,13 @@ export default function AdminImmobilier() {
           <div className="flex gap-3">
             <button type="submit" disabled={saving}
               className="flex-1 bg-primary text-white py-3 rounded-xl text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-2 shadow-lg shadow-primary/20">
-              {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Création...</> : "Publier l'annonce"}
+              {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> {editingId ? "Enregistrement..." : "Création..."}</> : editingId ? "Enregistrer les modifications" : "Publier l'annonce"}
             </button>
             <button type="button" onClick={saveAsDraft}
               className="bg-gray-100 text-gray-600 px-4 py-3 rounded-xl text-[13px] font-black flex items-center gap-1.5 active:scale-95 transition-all">
               <Save className="w-4 h-4" /> Brouillon
             </button>
-            <button type="button" onClick={() => { setCreating(false); clearDraft(); setError(""); }}
+            <button type="button" onClick={() => { setCreating(false); setEditingId(null); clearDraft(); setError(""); }}
               className="bg-gray-100 text-gray-600 px-4 py-3 rounded-xl text-[13px] font-black">Annuler</button>
           </div>
         </form>
@@ -570,7 +594,10 @@ export default function AdminImmobilier() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={() => toggleStatus(l)} className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center active:scale-95">
+                  <button onClick={() => editListing(l)} aria-label="Modifier l'annonce" className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center active:scale-95">
+                    <Edit3 className="w-4 h-4 text-blue-500" />
+                  </button>
+                  <button onClick={() => toggleStatus(l)} aria-label="Changer le statut" className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center active:scale-95">
                     {l.status === "actif" ? <EyeOff className="w-4 h-4 text-amber-500" /> : <Eye className="w-4 h-4 text-green-500" />}
                   </button>
                   <button onClick={() => deleteListing(l.id)} className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center active:scale-95">

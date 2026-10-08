@@ -21,6 +21,7 @@ import {partnerCheckout} from './services/partner-commerce.js';
 import {imageJobs} from './services/image-jobs.js';
 import {imageSearch} from './services/image-search.js';
 import {inspectSchema} from './services/readiness.js';
+import contentRoutes from './routes/content.routes.js';
 
 export function createApp() {
   const app = express();
@@ -41,6 +42,10 @@ export function createApp() {
   }));
   app.use('/api',rateLimit({max:180}));
   const authRate=rateLimit({max:12});
+
+  // Public catalogue content is read with the server-side Supabase client so
+  // published immobilier listings remain visible when public RLS reads are restricted.
+  app.use('/api/content', contentRoutes);
 
   app.post('/api/auth/admin/register',(req,res)=>res.status(403).json({error:'Les administrateurs sont habilités par un responsable autorisé.',code:'ADMIN_INVITATION_REQUIRED'}));
   app.post('/api/auth/admin/login',authRate,asyncRoute(async(req,res)=>{
