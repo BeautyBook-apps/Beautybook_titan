@@ -789,7 +789,14 @@ export default function RendezVous() {
           proEmail={reviewModal.pro_email}
           proName={reviewModal.pro_name || reviewModal.salon_name}
           onClose={() => setReviewModal(null)}
-          onSubmitted={() => setReviewModal(null)}
+          onSubmitted={() => {
+            // Reflect the saved note/comment immediately in the reservation list.
+            // This turns the Avis button green without waiting for a reload.
+            const updated = reservations.map(r => r.id === reviewModal.id ? { ...r, review_done: true } : r);
+            setReservations(updated);
+            mergePageCache(cacheKey, { reservations: updated });
+            setReviewModal(null);
+          }}
         />
       )}
 
