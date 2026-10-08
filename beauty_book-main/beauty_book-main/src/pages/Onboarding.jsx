@@ -1,5 +1,6 @@
 import SocialAuthButtons from '@/components/auth/SocialAuthButtons';
 import BeautyImage from '@/components/ui/BeautyImage';
+import BrandLogo from '@/components/ui/BrandLogo';
 import { createAuthFlows, readSignupDraft, saveSignupDraft, strongPassword } from "@/lib/authFlows";
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
@@ -12,17 +13,6 @@ const authFlows = createAuthFlows(supabase);
 const BRAND = "#E8732A";
 const BRAND_LIGHT = "#FFF4ED";
 const INTERESTS = ["COIFFURE", "MAQUILLAGE", "SOINS", "ONGLES", "MASSAGE", "BARBIER", "ÉPILATION"];
-
-function B({ size = 40 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
-      <circle cx="50" cy="50" r="48" fill={BRAND}/>
-      <path d="M35 28h14c8 0 14 5 14 12s-6 12-14 12H35V28z" fill="white" opacity="0.85"/>
-      <path d="M35 52h15c8 0 14 5 14 12s-6 12-14 12H35V52z" fill="white"/>
-      <circle cx="66" cy="32" r="5" fill="white" opacity="0.7"/>
-    </svg>
-  );
-}
 
 function ProgressBar({ step, total }) {
   return (
@@ -70,7 +60,7 @@ function StepSplash({ onNext }) {
     <div className="min-h-screen flex flex-col overflow-hidden relative">
       <div className="absolute inset-0">
         <BeautyImage
-          src="/splash_bg.jpg"
+          src="/splash_bg.jpg?v=20261008"
           alt="Beauty communities"
           className="w-full h-full object-cover object-center"
         />
@@ -79,7 +69,7 @@ function StepSplash({ onNext }) {
 
       <div className="relative z-10 flex-1 flex flex-col px-6 pt-16 pb-10">
         <div className="flex flex-col items-center gap-3 mb-12">
-          <B size={52} />
+          <BrandLogo size={52} alt="Logo BeautyBook" />
           <span className="text-white/80 text-[13px] font-extrabold uppercase tracking-[0.35em]">BeautyBook</span>
         </div>
 
@@ -308,7 +298,7 @@ function StepSocialIdentity({ onNext }) {
     sessionStorage.removeItem('bb_social_name_required'); onNext();
   }
   return <main className="min-h-screen max-w-lg mx-auto bg-white px-6 py-12">
-    <B size={44} /><h1 className="mt-10 text-3xl font-extrabold tracking-tight text-gray-900">Comment vous appeler ?</h1>
+    <BrandLogo size={44} alt="Logo BeautyBook" /><h1 className="mt-10 text-3xl font-extrabold tracking-tight text-gray-900">Comment vous appeler ?</h1>
     <p className="mt-3 mb-8 text-sm text-gray-500">Votre compte est connecté. Complétez votre nom pour vos rendez-vous et votre profil.</p>
     <form onSubmit={submit} className="space-y-5">
       <label className="block text-sm font-semibold text-gray-700">Prénom<input autoComplete="given-name" required maxLength={80} value={prenom} onChange={e => setPrenom(e.target.value)} className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 p-3.5" /></label>

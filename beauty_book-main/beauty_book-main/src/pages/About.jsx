@@ -1,5 +1,6 @@
-import { ArrowLeft, Sparkles, Users, MapPin, Shield, Star } from "lucide-react";
+import { ArrowLeft, Users, MapPin, Shield, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import BrandLogo from "@/components/ui/BrandLogo";
 
 export default function About() {
   const navigate = useNavigate();
@@ -18,8 +19,8 @@ export default function About() {
 
       {/* Hero */}
       <div className="px-5 pt-8 pb-6 text-center">
-        <div className="w-20 h-20 bg-primary rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-primary/20 mb-4">
-          <Sparkles className="w-10 h-10 text-white" />
+        <div className="w-20 h-20 mx-auto flex items-center justify-center mb-4">
+          <BrandLogo size={80} alt="Logo BeautyBook" className="rounded-2xl shadow-lg shadow-primary/20" />
         </div>
         <h1 className="text-[28px] font-black text-gray-900 leading-tight">
           BeautyBook — La première plateforme beauté et bien-être

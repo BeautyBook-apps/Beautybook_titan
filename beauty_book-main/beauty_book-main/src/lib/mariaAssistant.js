@@ -40,6 +40,7 @@ export async function buildKnowledge(proEmail) {
     hoursText: "",
     hoursGroups: [],
     openNow: null,
+    travailNuit: false,
     faq: [],
     loadedAt: new Date().toISOString(),
   };
@@ -55,6 +56,7 @@ export async function buildKnowledge(proEmail) {
       knowledge.address = p.address || "";
       knowledge.city = p.city || "";
       knowledge.phone = p.phone || "";
+      knowledge.travailNuit = !!p.travail_nuit;
       try {
         const ouverture = getEffectiveOpening(p, null);
         const groups = formatOpeningHours(ouverture) || [];

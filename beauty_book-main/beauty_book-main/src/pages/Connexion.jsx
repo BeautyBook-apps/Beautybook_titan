@@ -1,4 +1,5 @@
 import SocialAuthButtons from '@/components/auth/SocialAuthButtons';
+import BrandLogo from '@/components/ui/BrandLogo';
 import { createAuthFlows, strongPassword } from "@/lib/authFlows";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -9,17 +10,6 @@ import { savePassword, hasSavedPassword } from "@/lib/passwordVault";
 
 const BRAND = "#E8732A";
 const BRAND_LIGHT = "#FFF4ED";
-
-function B({ size = 40 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
-      <circle cx="50" cy="50" r="48" fill={BRAND}/>
-      <path d="M35 28h14c8 0 14 5 14 12s-6 12-14 12H35V28z" fill="white" opacity="0.85"/>
-      <path d="M35 52h15c8 0 14 5 14 12s-6 12-14 12H35V52z" fill="white"/>
-      <circle cx="66" cy="32" r="5" fill="white" opacity="0.7"/>
-    </svg>
-  );
-}
 
 function ResetPassword({ onBack }) {
   const [newPassword, setNewPassword] = useState("");
@@ -290,7 +280,7 @@ export default function Connexion() {
     <div className="min-h-screen w-full max-w-[680px] mx-auto bg-white flex flex-col">
       <div className="px-[27px] pt-[43px] pb-4">
         <div className="flex items-center gap-4 mb-[108px]">
-          <B size={60} />
+          <BrandLogo size={60} alt="Logo BeautyBook" />
           <span className="text-[#617089] text-[16px] font-extrabold uppercase tracking-[0.3em]">BeautyBook</span>
         </div>
       </div>

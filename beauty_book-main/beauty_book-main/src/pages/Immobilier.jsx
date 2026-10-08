@@ -197,6 +197,13 @@ export default function Immobilier() {
       if (refreshing || document.visibilityState !== 'visible') return;
       refreshing = true;
       const fetchListings = async () => {
+        // En développement, le backend peut ne pas être lancé ou tourner sur
+        // une ancienne version sans /api/content/immobilier. La table est
+        // publiquement lisible : éviter un appel garanti en 404 supprime le
+        // bruit réseau et garde la page utilisable.
+        if (import.meta.env.DEV && !import.meta.env.VITE_BACKEND_URL) {
+          return entities.ImmobilierListing.filter({ status: 'actif' }, '-created_at', 200);
+        }
         try {
           const response = await apiClient.callFunction('getImmobilier', {});
           return Array.isArray(response?.data?.listings) ? response.data.listings : [];

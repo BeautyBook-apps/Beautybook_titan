@@ -4,6 +4,12 @@ import { createClient } from '@supabase/supabase-js';
 import { resourceAccess } from '../../beauty_book-main/beauty_book-main/backend/src/services/admin.js';
 
 const hidden = new Set(['password', 'access_token', 'refresh_token', 'credentials', 'stripe_customer_id', 'mux_stream_key']);
+// Ces colonnes sont ajoutées par des migrations facultatives de l'immobilier.
+// Tant que Supabase n'a pas reçu la migration, le panneau doit pouvoir créer
+// l'annonce de base sans bloquer sur ces enrichissements.
+const IMMOBILIER_OPTIONAL_COLUMNS = new Set([
+  'latitude', 'longitude', 'estimated_turnover', 'estimated_net_revenue', 'virtual_tour_id',
+]);
 const cleanRow = row => row && Object.fromEntries(Object.entries(row).filter(([key]) => !hidden.has(key)));
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const field = key => {
@@ -55,6 +61,7 @@ export function createLocalDataApi(client, { columns } = {}) {
           for (const [key, value] of Object.entries(payload)) {
             if (available.has(key)) continue;
             if (value === '' || value === null || value === undefined) delete payload[key];
+            else if (table === 'ImmobilierListing' && IMMOBILIER_OPTIONAL_COLUMNS.has(key)) delete payload[key];
             else fail(409, `Le champ ${key} n’existe pas encore dans ${table}. Appliquez la migration de schéma avant de renseigner ce champ.`);
           }
         }

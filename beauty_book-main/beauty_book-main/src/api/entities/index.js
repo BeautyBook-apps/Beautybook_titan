@@ -22,6 +22,12 @@ const remoteAvisUpdatePayload = input => ({
   note: Number(input.note ?? input.rating),
   commentaire: input.commentaire ?? input.comment ?? '',
 });
+// Keep republications compatible with the deployed legacy schema. The UI can
+// send richer metadata, but the minimum durable link is user_email + reel_id.
+const remoteRepubPayload = input => ({
+  user_email: input.user_email,
+  reel_id: input.reel_id,
+});
 const createEntity = table => ({
   async filter(filters={},orderBy='-created_at',limit=1000){
     let query=supabase.from(table).select('*');
@@ -42,6 +48,10 @@ const createEntity = table => ({
     const result=await supabase.from(table).insert(input).select().single();
     if(table==='Avis'&&result.error?.code==='PGRST204'){
       const remoteResult=await supabase.from(table).insert(remoteAvisPayload(input)).select().single();
+      return checked(remoteResult);
+    }
+    if(table==='Repub'&&result.error?.code==='PGRST204'){
+      const remoteResult=await supabase.from(table).insert(remoteRepubPayload(input)).select().single();
       return checked(remoteResult);
     }
     return checked(result);

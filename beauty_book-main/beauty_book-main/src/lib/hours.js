@@ -40,9 +40,17 @@ export function hasHoursData(ouverture) {
 // sinon repli sur le parcours Devenir Pro. Les objets vides sont ignorés pour
 // que l'affichage soit toujours synchronisé avec la section Horaires & Congés.
 export function getEffectiveOpening(proInfo, demande) {
-  if (proInfo && hasHoursData(proInfo.ouverture)) return proInfo.ouverture;
-  if (proInfo && hasHoursData(proInfo.horaires)) return proInfo.horaires;
-  return ouvertureFromDemande(demande) || null;
+  let base = null;
+  if (proInfo && hasHoursData(proInfo.ouverture)) base = proInfo.ouverture;
+  else if (proInfo && hasHoursData(proInfo.horaires)) base = proInfo.horaires;
+  else base = ouvertureFromDemande(demande);
+
+  if (!base) return null;
+
+  // `travail_nuit` est un réglage global du profil : il doit être appliqué
+  // aussi lorsque l'appelant fournit déjà des horaires personnalisés.
+  const travailNuit = proInfo?.travail_nuit ?? demande?.travail_nuit;
+  return applyNightMode(base, !!travailNuit);
 }
 
 const DAYS_SHORT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];

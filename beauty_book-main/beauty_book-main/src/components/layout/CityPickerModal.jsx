@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { MapPin, X, Search, Navigation, ChevronDown } from "lucide-react";
 import MapWithPricePins from "@/components/map/MapWithPricePins";
+import apiClient from "@/lib/apiClient";
 
 const POPULAR_CITIES = [
   { name: "Paris", country: "France", lat: 48.8566, lng: 2.3522 },
@@ -37,9 +38,18 @@ export default function CityPickerModal({ currentCity, onSelect, onClose }) {
   };
 
   const handleConfirm = () => {
-    if (!input.trim()) return;
-    localStorage.setItem("bb_user_city", input.trim());
-    onSelect(input.trim());
+    const nextCity = input.trim();
+    if (!nextCity) return;
+
+    // Update the parent first so the header changes immediately, even when
+    // localStorage is unavailable (private browsing / embedded webview).
+    onSelect(nextCity);
+    try { localStorage.setItem("bb_user_city", nextCity); } catch {}
+    // Une ville saisie manuellement ne doit pas être remplacée immédiatement
+    // par le prochain point GPS.
+    try { localStorage.setItem("bb_location_tracking", "0"); } catch {}
+    window.dispatchEvent(new CustomEvent("bb-location-change", { detail: { city: nextCity } }));
+    window.dispatchEvent(new CustomEvent("bb-location-tracking", { detail: { enabled: false } }));
     onClose();
   };
 
@@ -50,15 +60,16 @@ export default function CityPickerModal({ currentCity, onSelect, onClose }) {
       async (pos) => {
         try {
           const { latitude, longitude } = pos.coords;
-          const API_BASE = import.meta.env.VITE_BACKEND_URL || '';
-          const res = await fetch(`${API_BASE}/maps/reverse?lat=${latitude}&lng=${longitude}`);
-          const data = await res.json();
+          const data = await apiClient.get(`/maps/reverse?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`);
           const city = data.city || "Ma ville";
           const country = data.country || "";
           const label = country ? `${city}, ${country}` : city;
           setInput(label);
-          localStorage.setItem("bb_user_city", label);
           onSelect(label);
+          try { localStorage.setItem("bb_user_city", label); } catch {}
+          try { localStorage.setItem("bb_location_tracking", "1"); } catch {}
+          window.dispatchEvent(new CustomEvent("bb-location-change", { detail: { city: label, latitude, longitude } }));
+          window.dispatchEvent(new CustomEvent("bb-location-tracking", { detail: { enabled: true } }));
           onClose();
         } catch {}
         setGeoLoading(false);
@@ -139,6 +150,7 @@ export default function CityPickerModal({ currentCity, onSelect, onClose }) {
           {/* Confirm */}
           {input.trim().length > 1 && (
             <button
+              type="button"
               onClick={handleConfirm}
               className="w-full bg-primary hover:bg-orange-700 text-white font-black text-[14px] uppercase tracking-widest py-3.5 rounded-2xl shadow-lg shadow-orange-500/25 active:scale-95 transition-all flex items-center justify-center gap-2"
             >

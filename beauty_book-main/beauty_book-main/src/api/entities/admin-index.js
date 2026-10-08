@@ -56,7 +56,7 @@ const KNOWN_COLUMNS = {
   user_favorite: ['id','user_email','target_id','target_type','target_title','target_image','target_data','created_at'],
   reel_comment: ['id','reel_id','user_email','user_name','user_avatar','content','likes','parent_id','created_at','updated_at'],
   user_follow: ['id','follower_email','follower_name','follower_avatar','followed_email','created_at'],
-  ImmobilierListing: ['id','title','description','price','price_fonds_commerce','price_per_m2','tax_mode','salon_type','unit','surface','rooms','floor','type','status','city','address','location','area','postal_code','equip','extra','badge','images','video_url','contact_email','contact_phone','latitude','longitude','_lat','_lng','created_at','updated_at','created_by_id'],
+  ImmobilierListing: ['id','title','description','price','price_fonds_commerce','price_per_m2','tax_mode','salon_type','unit','surface','rooms','floor','type','status','city','address','location','area','postal_code','equip','extra','badge','images','video_url','contact_email','contact_phone','latitude','longitude','_lat','_lng','estimated_turnover','estimated_net_revenue','virtual_tour_id','created_at','updated_at','created_by_id'],
   ServiceBundle: ['id','pro_email','name','description','service_ids','bundle_price','discount_percent','image_url','is_active','is_group','min_persons','max_persons','bundle_price_per_person','category','bonus','created_at','updated_at'],
 };
 

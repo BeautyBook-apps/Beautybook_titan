@@ -158,6 +158,9 @@ export const adminApi = {
   createImmobilier: (data) => entities.ImmobilierListing.create(data),
   updateImmobilier: (id, data) => entities.ImmobilierListing.update(id, data),
   deleteImmobilier: (id) => entities.ImmobilierListing.delete(id),
+  listVirtualTours: () => entities.VisiteVirtuelle.list("-created_at", 200),
+  createVirtualTour: (data) => entities.VisiteVirtuelle.create(data),
+  updateVirtualTour: (id, data) => entities.VisiteVirtuelle.update(id, data),
 
   // Messages
   filterMessages: (filters, orderBy, limit) => entities.MessageChat.filter(filters, orderBy, limit),

@@ -1,6 +1,9 @@
-import { createContext, useContext, useState, useEffect, useRef } from "react";
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
+import apiClient from "@/lib/apiClient";
 
 const LOCATION_KEY = "bb_user_location";
+const TRACKING_KEY = "bb_location_tracking";
+const CITY_KEY = "bb_user_city";
 
 function haversineDistance(lat1, lng1, lat2, lng2) {
   const R = 6371;
@@ -55,35 +58,133 @@ export function LocationProvider({ children }) {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [tracking, setTracking] = useState(() => {
+    try { return localStorage.getItem(TRACKING_KEY) === "1"; } catch { return false; }
+  });
+  const watchIdRef = useRef(null);
+  const lastGeocodedRef = useRef(null);
+  const reverseInFlightRef = useRef(false);
   const requestedRef = useRef(false);
 
-  const requestLocation = () => {
-    if (requestedRef.current) return;
-    requestedRef.current = true;
-    if (!navigator.geolocation) {
-      setError("Geolocation not supported");
+  const publishCity = useCallback((city, country, latitude, longitude) => {
+    if (!city) return;
+    const label = country ? `${city}, ${country}` : city;
+    try { localStorage.setItem(CITY_KEY, label); } catch {}
+    window.dispatchEvent(new CustomEvent("bb-location-change", {
+      detail: { city: label, country: country || "", latitude, longitude, source: "gps" },
+    }));
+  }, []);
+
+  const reverseGeocode = useCallback(async (latitude, longitude) => {
+    if (reverseInFlightRef.current) return;
+    const previous = lastGeocodedRef.current;
+    const movedKm = previous
+      ? haversineDistance(previous.latitude, previous.longitude, latitude, longitude)
+      : Infinity;
+    const elapsedMs = previous ? Date.now() - previous.at : Infinity;
+    // Une ville ne change pas à chaque point GPS : on évite de solliciter le
+    // serveur à chaque rafraîchissement, tout en détectant un trajet.
+    if (movedKm < 1 && elapsedMs < 60_000) return;
+
+    reverseInFlightRef.current = true;
+    try {
+      const data = await apiClient.get(`/maps/reverse?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`);
+      if (data?.city) {
+        lastGeocodedRef.current = { latitude, longitude, at: Date.now() };
+        publishCity(data.city, data.country || "", latitude, longitude);
+      }
+    } catch {
+      // Le suivi des coordonnées continue même si le reverse geocoding est
+      // momentanément indisponible.
+    } finally {
+      reverseInFlightRef.current = false;
+    }
+  }, [publishCity]);
+
+  const handlePosition = useCallback((pos) => {
+    const { latitude, longitude, accuracy } = pos.coords;
+    const loc = { latitude, longitude, accuracy, updated_at: new Date().toISOString() };
+    setLocation(loc);
+    try { localStorage.setItem(LOCATION_KEY, JSON.stringify(loc)); } catch {}
+    setLoading(false);
+    setError(null);
+    void reverseGeocode(latitude, longitude);
+  }, [reverseGeocode]);
+
+  const stopTracking = useCallback(() => {
+    if (watchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+  }, []);
+
+  const startTracking = useCallback(() => {
+    if (!navigator.geolocation || watchIdRef.current !== null) return false;
+    try { localStorage.setItem(TRACKING_KEY, "1"); } catch {}
+    setTracking(true);
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      handlePosition,
+      (err) => {
+        console.warn("[LocationProvider] Geolocation watch error:", err.message);
+        setError(err.message);
+        setLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+    );
+    return true;
+  }, [handlePosition]);
+
+  const requestLocation = useCallback(() => {
+    if (requestedRef.current || !navigator.geolocation) {
+      if (!navigator.geolocation) setError("Geolocation not supported");
       return;
     }
+    requestedRef.current = true;
     setLoading(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const loc = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        setLocation(loc);
-        localStorage.setItem(LOCATION_KEY, JSON.stringify(loc));
-        setLoading(false);
-        setError(null);
+        handlePosition(pos);
+        try { localStorage.setItem(TRACKING_KEY, "1"); } catch {}
+        setTracking(true);
       },
       (err) => {
+        requestedRef.current = false;
         console.warn("[LocationProvider] Geolocation error:", err.message);
         setError(err.message);
         setLoading(false);
       },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
     );
-  };
+  }, [handlePosition]);
 
   useEffect(() => {
-    requestLocation();
+    if (tracking) {
+      startTracking();
+    } else {
+      stopTracking();
+    }
+    return stopTracking;
+  }, [tracking, startTracking, stopTracking]);
+
+  useEffect(() => {
+    // L'application demande une première position comme auparavant. Une fois
+    // autorisée, le watchPosition prend automatiquement le relais.
+    if (tracking) startTracking();
+    else requestLocation();
+
+    const handleTrackingChange = (event) => {
+      const enabled = event.detail?.enabled === true;
+      try { localStorage.setItem(TRACKING_KEY, enabled ? "1" : "0"); } catch {}
+      setTracking(enabled);
+      if (!enabled) requestedRef.current = false;
+    };
+    window.addEventListener("bb-location-tracking", handleTrackingChange);
+    return () => {
+      window.removeEventListener("bb-location-tracking", handleTrackingChange);
+      stopTracking();
+    };
+    // Initialisation volontairement unique : les callbacks gèrent ensuite le suivi.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -96,6 +197,9 @@ export function LocationProvider({ children }) {
         latitude: location?.latitude,
         longitude: location?.longitude,
         requestLocation,
+        tracking,
+        startTracking,
+        stopTracking,
         filterByRadius: (items, radius = 100) => {
           if (!location) return items;
           return filterByRadius(items, location.latitude, location.longitude, radius);

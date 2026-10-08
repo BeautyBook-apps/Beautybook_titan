@@ -13,7 +13,7 @@ import { mintVoiceToken, DEFAULT_AGENT_ID } from '@/lib/grok';
 import { getSalonAISettings, saveSalonAISettings } from '@/lib/salonAI';
 import { buildVoiceInstructions, resolveWelcomeMessage, DEFAULT_INSTRUCTIONS, DEFAULT_WELCOME_MESSAGE } from '@/lib/voiceAgentPrompt';
 import { buildVoiceTools, testVoiceDataAccess } from '@/lib/voiceAgentTools';
-import { summarizeHours } from '@/lib/hours';
+import { getEffectiveOpening, summarizeHours } from '@/lib/hours';
 import { recordVoiceMinutes, getUsageSummary, getCredit, setCredit, getRates, setRates, DEFAULT_RATES, fmtUSD, fmtTokens, FEATURE_LABELS } from '@/lib/apiUsage';
 import ApiUsageTab from '@/components/voice/ApiUsageTab';
 import './ReceptionnistIA.css';
@@ -328,8 +328,7 @@ export default function ReceptionnistIA() {
       const name = liveProfil?.salon_name || salonName || 'votre salon';
       const hoursSummary = (() => {
         try {
-          const groups = summarizeHours(liveProfil?.ouverture || liveProfil?.horaires);
-          return groups.map((g) => `${g.label} : ${g.open ? g.hours : 'Fermé'}`).join(' · ') || '';
+          return summarizeHours(getEffectiveOpening(liveProfil, null)) || '';
         } catch { return ''; }
       })();
       const todayLabel = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -479,12 +478,13 @@ export default function ReceptionnistIA() {
 
   const copyForXaiConsole = async () => {
     const name = profil?.salon_name || salonName || 'votre salon';
+    const effectiveOpening = getEffectiveOpening(profil, null);
     const text = buildVoiceInstructions({
       salonName: name,
       services,
       bundles,
       profil,
-      hoursSummary: '',
+      hoursSummary: summarizeHours(effectiveOpening) || '',
       customInstructions: instructionsDraft,
       todayLabel: '',
     });
@@ -810,8 +810,7 @@ export default function ReceptionnistIA() {
               {(() => {
                 let hoursTxt = '';
                 try {
-                  const groups = summarizeHours(profil?.ouverture || profil?.horaires);
-                  hoursTxt = groups.map((g) => `${g.label} : ${g.open ? g.hours : 'Fermé'}`).join(' · ');
+                  hoursTxt = summarizeHours(getEffectiveOpening(profil, null)) || '';
                 } catch { /* horaires non configurés */ }
                 const addr = profil?.address || profil?.adresse || '';
                 const phone = profil?.phone || profil?.telephone || '';

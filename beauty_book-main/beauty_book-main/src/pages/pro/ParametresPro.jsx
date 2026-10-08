@@ -2,7 +2,7 @@ import BeautyImage from '@/components/ui/BeautyImage';
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, User, Shield, CreditCard, Bell, Globe, HelpCircle,
+  ArrowLeft, Shield, CreditCard, Bell, Globe, HelpCircle,
   Mail, FileText, LogOut, ChevronRight, Scissors, BarChart2,
   Users, Clock, Megaphone, Star, Network, Scan, Radio,
   Store, Lock, Info, Trash2, Sun, Moon
@@ -176,9 +176,6 @@ export default function ParametresPro() {
         {/* COMPTE PARTAGÉ */}
         <SectionLabel>Compte Partagé</SectionLabel>
         <div className="space-y-2">
-          <SettingRow icon={User} iconBg="bg-orange-50" iconColor="text-primary"
-            label="Profil Client" sublabel="Voir et modifier mon profil client"
-            onClick={() => navigate("/profil")} />
           <SettingRow icon={Bell} iconBg="bg-yellow-50" iconColor="text-yellow-500"
             label="Notifications" sublabel="Alertes, rappels, messages"
             onClick={() => navigate("/parametres/notifications")} />

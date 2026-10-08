@@ -150,6 +150,14 @@ function PaymentCardForm({ amount, onPay, saving, savedCards = [], selectedCardI
   const [cvv, setCvv] = useState("");
   const cvvRef = useRef(null);
 
+  const handleCvv = (event) => {
+    setCvv(event.target.value.replace(/\D/g, "").slice(0, 4));
+  };
+
+  useEffect(() => {
+    setCvv("");
+  }, [selectedCardId]);
+
   const selectedCard = savedCards.find(c => c.id === selectedCardId) || null;
   const usingSavedCard = !!selectedCard;
 

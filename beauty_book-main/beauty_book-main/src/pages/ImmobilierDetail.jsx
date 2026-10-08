@@ -1,10 +1,13 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, Heart, MessageSquare, Phone, MapPin, Maximize2, Armchair, Zap, TrendingUp, X, Send, CheckCircle, Box, Users, User, Sparkles, Check } from "lucide-react";
+import { ArrowLeft, Heart, MessageSquare, Phone, MapPin, Maximize2, Armchair, Zap, TrendingUp, X, Send, CheckCircle, Box, Users, User, Sparkles, Check, ExternalLink } from "lucide-react";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
+import { likesApi } from '@/api/likes';
 import { readPageCache, writePageCache } from "@/hooks/usePageCache";
+import MapWithPricePins from "@/components/map/MapWithPricePins";
+import PanoViewer from "@/components/virtualtour/PanoViewer";
 
 const FALLBACK = {
   images: [""],
@@ -149,8 +152,11 @@ export default function ImmobilierDetail() {
   const [listing, setListing] = useState(() => state || readPageCache(id ? `immobilier_${id}` : null)?.listing || null);
   const [imgIdx, setImgIdx] = useState(0);
   const [liked, setLiked] = useState(false);
+  const [showImageLightbox, setShowImageLightbox] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
   const [showMsgModal, setShowMsgModal] = useState(false);
+  const [virtualTour, setVirtualTour] = useState(() => state?.virtual_tour || null);
+  const [showVirtualTour, setShowVirtualTour] = useState(false);
 
   // Charger le listing depuis la BDD si on a un ID.
   // Navigation d'une annonce à l'autre : afficher le cache de la nouvelle annonce
@@ -179,19 +185,132 @@ export default function ImmobilierDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  useEffect(() => {
+    const tourId = listing?.virtual_tour_id;
+    if (!tourId) {
+      setVirtualTour(listing?.virtual_tour || null);
+      return undefined;
+    }
+    let cancelled = false;
+    entities.VisiteVirtuelle.get(tourId)
+      .then(tour => { if (!cancelled) setVirtualTour(tour || null); })
+      .catch(() => { if (!cancelled) setVirtualTour(null); });
+    return () => { cancelled = true; };
+  }, [listing?.virtual_tour_id, listing?.virtual_tour]);
+
   const data = listing || FALLBACK;
   const images = data.images?.length ? data.images : FALLBACK.images;
+
+  useEffect(() => {
+    let cancelled = false;
+    setLiked(false);
+    (async () => {
+      if (!id) return;
+      const { data: authData } = await supabase.auth.getUser().catch(() => ({ data: {} }));
+      const email = authData?.user?.email;
+      if (!email) return;
+      const rows = await likesApi.getUserLikes(email, [id], "immobilier");
+      if (!cancelled) setLiked(rows.length > 0);
+    })().catch(() => {});
+    return () => { cancelled = true; };
+  }, [id]);
+
+  const toggleLike = async () => {
+    const { data: authData } = await supabase.auth.getUser().catch(() => ({ data: {} }));
+    const user = authData?.user;
+    if (!user?.email) return;
+    const targetId = data.id || id;
+    const nextLiked = !liked;
+    setLiked(nextLiked);
+    try {
+      if (nextLiked) {
+        await likesApi.addLike(
+          user.email,
+          targetId,
+          "immobilier",
+          user.user_metadata?.full_name || user.user_metadata?.name || "",
+          user.user_metadata?.avatar_url || "",
+        );
+      } else {
+        await likesApi.removeLike(user.email, targetId, "immobilier");
+      }
+    } catch {
+      setLiked(!nextLiked);
+    }
+  };
   const phone = data.contact_phone || ADMIN_PHONE;
+  const turnover = Number(data.estimated_turnover || 0);
+  const netRevenue = Number(data.estimated_net_revenue || 0);
+  const addressLabel = [data.location || data.address, data.postal_code, data.city].filter(Boolean).join(", ");
+  const mapItem = [{ id: data.id || id || "listing", title: data.title, address: data.location || data.address, postal_code: data.postal_code, city: data.city, latitude: data.latitude ?? data._lat, longitude: data.longitude ?? data._lng, price: data.price }];
+  const appleMapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(addressLabel || data.title || "Emplacement du local")}`;
+
+  if (showVirtualTour && virtualTour?.scenes?.length) {
+    return <PanoViewer scenes={virtualTour.scenes} floorplanUrl={virtualTour.floorplan_url} propertyName={data.title} propertyAddress={addressLabel} onClose={() => setShowVirtualTour(false)} />;
+  }
 
   return (
     <div className="font-display bg-[#f5f5f5] min-h-full" style={{ paddingBottom: "calc(80px + env(safe-area-inset-bottom, 0px))" }}>
 
       {showMsgModal && <MessageModal listing={data} onClose={() => setShowMsgModal(false)} />}
 
+      {showImageLightbox && images[imgIdx] && (
+        <div
+          className="fixed inset-0 z-[80] bg-black/95 flex items-center justify-center p-3"
+          onClick={() => setShowImageLightbox(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image agrandie"
+        >
+          <button
+            type="button"
+            onClick={() => setShowImageLightbox(false)}
+            aria-label="Fermer l'image"
+            className="absolute top-5 right-5 z-20 w-11 h-11 rounded-full bg-white/15 text-white flex items-center justify-center backdrop-blur-sm"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={images[imgIdx]}
+            alt={data.title}
+            className="max-w-[96vw] max-h-[90vh] w-auto h-auto object-contain rounded-xl select-none"
+            onClick={event => event.stopPropagation()}
+          />
+          {imgIdx > 0 && (
+            <button
+              type="button"
+              onClick={event => { event.stopPropagation(); setImgIdx(index => index - 1); }}
+              aria-label="Image précédente"
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/15 text-white flex items-center justify-center backdrop-blur-sm"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+          {imgIdx < images.length - 1 && (
+            <button
+              type="button"
+              onClick={event => { event.stopPropagation(); setImgIdx(index => index + 1); }}
+              aria-label="Image suivante"
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/15 text-white flex items-center justify-center backdrop-blur-sm"
+            >
+              <ArrowLeft className="w-5 h-5 rotate-180" />
+            </button>
+          )}
+          <span className="absolute bottom-5 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-white text-xs font-bold">
+            {imgIdx + 1}/{images.length}
+          </span>
+        </div>
+      )}
+
       {/* ── Gallery ── */}
       <div className="relative h-[300px] bg-black">
-        <BeautyImage src={images[imgIdx]} alt={data.title} className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
+        <BeautyImage
+          src={images[imgIdx]}
+          alt={data.title}
+          onClick={() => setShowImageLightbox(true)}
+          className="w-full h-full object-cover cursor-zoom-in"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
 
         {imgIdx > 0 && <button className="absolute left-0 top-0 w-1/3 h-full z-10" onClick={() => setImgIdx(i => i - 1)} />}
         {imgIdx < images.length - 1 && <button className="absolute right-0 top-0 w-1/3 h-full z-10" onClick={() => setImgIdx(i => i + 1)} />}
@@ -211,7 +330,7 @@ export default function ImmobilierDetail() {
           <button onClick={() => navigate(-1)} className="w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow active:scale-95 transition-all">
             <ArrowLeft className="w-5 h-5 text-gray-800" />
           </button>
-          <button onClick={() => setLiked(l => !l)} className="w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow active:scale-95 transition-all">
+          <button onClick={toggleLike} aria-label={liked ? "Retirer des favoris" : "Ajouter aux favoris"} className="w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow active:scale-95 transition-all">
             <Heart className={`w-5 h-5 ${liked ? "fill-red-500 text-red-500" : "text-gray-700"}`} />
           </button>
         </div>
@@ -247,15 +366,11 @@ export default function ImmobilierDetail() {
           </div>
           <div className="bg-[#1e2535] rounded-2xl p-4 mb-3">
             <p className="text-white/60 text-[10px] font-black uppercase tracking-widest mb-1">CHIFFRE D'AFFAIRES ESTIMÉ</p>
-            <p className="text-white text-[32px] font-black leading-none">5 500 € <span className="text-[16px] font-bold">/mois</span></p>
-            <div className="flex items-center gap-1 mt-1.5">
-              <TrendingUp className="w-3.5 h-3.5 text-green-400" />
-              <span className="text-green-400 text-[11px] font-bold">+12% vs secteur</span>
-            </div>
+            <p className="text-white text-[32px] font-black leading-none">{turnover > 0 ? `${turnover.toLocaleString("fr-FR")} €` : "—"} <span className="text-[16px] font-bold">{turnover > 0 ? "/mois" : "à renseigner"}</span></p>
           </div>
           <div className="bg-gradient-to-r from-orange-500 to-orange-400 rounded-2xl p-4">
             <p className="text-white/80 text-[10px] font-black uppercase tracking-widest mb-1">REVENU NET ESTIMÉ (EBE)</p>
-            <p className="text-white text-[32px] font-black leading-none">3 200 € <span className="text-[16px] font-bold">/mois</span></p>
+            <p className="text-white text-[32px] font-black leading-none">{netRevenue > 0 ? `${netRevenue.toLocaleString("fr-FR")} €` : "—"} <span className="text-[16px] font-bold">{netRevenue > 0 ? "/mois" : "à renseigner"}</span></p>
             <span className="text-white/70 text-[11px] font-medium">✓ Après charges &amp; location</span>
           </div>
         </div>
@@ -286,6 +401,25 @@ export default function ImmobilierDetail() {
           ))}
         </div>
 
+        {/* Apple Maps */}
+        <div className="bg-white rounded-3xl p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-orange-50 rounded-xl flex items-center justify-center">
+                <MapPin className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-[16px] font-black text-gray-900">Emplacement du local</h2>
+                <p className="text-[11px] text-gray-500">{addressLabel || "Adresse à préciser"}</p>
+              </div>
+            </div>
+            <a href={appleMapsUrl} target="_blank" rel="noreferrer" className="text-primary text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+              Apple Plans <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+          <MapWithPricePins items={mapItem} height="h-44" />
+        </div>
+
         {/* Visite virtuelle 3D */}
         <div className="bg-white rounded-3xl p-4 shadow-sm">
           <div className="flex items-center gap-2 mb-3">
@@ -295,18 +429,18 @@ export default function ImmobilierDetail() {
             <span className="text-[13px] font-black text-gray-900 uppercase tracking-wider">VISITE VIRTUELLE 3D</span>
           </div>
           <button
-            onClick={() => setShowMsgModal(true)}
+            onClick={() => virtualTour?.scenes?.length ? setShowVirtualTour(true) : setShowMsgModal(true)}
             className="relative w-full h-40 rounded-2xl overflow-hidden active:scale-[0.99] transition-all"
           >
-            <BeautyImage src={images[0]} alt="Visite 3D" className="w-full h-full object-cover" />
+            <BeautyImage src={virtualTour?.scenes?.[0]?.image_url || images[0]} alt="Visite 3D" className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-2">
               <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center shadow-lg">
                 <Box className="w-6 h-6 text-blue-600" />
               </div>
-              <span className="text-white text-[12px] font-black uppercase tracking-widest">Lancer la visite 3D</span>
+              <span className="text-white text-[12px] font-black uppercase tracking-widest">{virtualTour?.scenes?.length ? "Lancer la visite 3D" : "Demander une visite"}</span>
             </div>
           </button>
-          <p className="text-[11px] text-gray-400 font-medium text-center mt-2">Explorez l'espace à 360° avant votre visite</p>
+          <p className="text-[11px] text-gray-400 font-medium text-center mt-2">{virtualTour?.scenes?.length ? "Explorez l'espace à 360° avant votre visite" : "La visite virtuelle sera bientôt disponible"}</p>
         </div>
 
         {/* Nombre de sièges & Propriétaire */}
@@ -355,11 +489,14 @@ export default function ImmobilierDetail() {
         {/* Description */}
         <div className="bg-white rounded-3xl p-4 shadow-sm">
           <h2 className="text-[16px] font-black text-gray-900 mb-2">Description</h2>
-          <p className="text-[13px] text-gray-600 leading-relaxed text-justify">
-            {data.description
-              ? (showFullDesc ? data.description : data.description.slice(0, 180) + (data.description.length > 180 ? "…" : ""))
-              : "Aucune description fournie pour cette offre."}
-          </p>
+          <div className="space-y-3 text-[13px] text-gray-600 leading-7 text-justify break-words">
+            {(data.description || "Aucune description fournie pour cette offre.")
+              .split(/\n+/)
+              .filter(Boolean)
+              .map((paragraph, index) => (
+                <p key={index}>{showFullDesc || paragraph.length <= 180 ? paragraph : `${paragraph.slice(0, 180).trim()}…`}</p>
+              ))}
+          </div>
           {data.description?.length > 180 && (
             <button onClick={() => setShowFullDesc(v => !v)} className="mt-2 text-primary text-[12px] font-black uppercase tracking-wider">
               {showFullDesc ? "RÉDUIRE" : "LIRE LA SUITE"}

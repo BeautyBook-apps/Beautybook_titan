@@ -22,6 +22,7 @@ import {imageJobs} from './services/image-jobs.js';
 import {imageSearch} from './services/image-search.js';
 import {inspectSchema} from './services/readiness.js';
 import contentRoutes from './routes/content.routes.js';
+import mapsRoutes from './routes/maps.routes.js';
 
 export function createApp() {
   const app = express();
@@ -46,6 +47,9 @@ export function createApp() {
   // Public catalogue content is read with the server-side Supabase client so
   // published immobilier listings remain visible when public RLS reads are restricted.
   app.use('/api/content', contentRoutes);
+  // Reverse geocoding used by the location picker must remain public: the
+  // visitor can choose a city before being authenticated.
+  app.use('/api/maps', mapsRoutes);
 
   app.post('/api/auth/admin/register',(req,res)=>res.status(403).json({error:'Les administrateurs sont habilités par un responsable autorisé.',code:'ADMIN_INVITATION_REQUIRED'}));
   app.post('/api/auth/admin/login',authRate,asyncRoute(async(req,res)=>{

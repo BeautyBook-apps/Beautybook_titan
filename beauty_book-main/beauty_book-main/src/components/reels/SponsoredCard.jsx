@@ -23,6 +23,12 @@ function VideoPlayer({ src, poster, className, style, soundOn = true }) {
   const pauseDeadlineRef = useRef(0);
   const resumeTimerRef = useRef(null);
   const [failed, setFailed] = useState(false);
+  const [mediaSrc, setMediaSrc] = useState(src);
+
+  useEffect(() => {
+    setMediaSrc(src);
+    setFailed(false);
+  }, [src]);
 
   const tryPlay = useCallback(() => {
     const el = ref.current;
@@ -75,7 +81,7 @@ function VideoPlayer({ src, poster, className, style, soundOn = true }) {
   }, [scheduleAutoResume, tryPlay]);
 
   useEffect(() => {
-    if (!src || failed) return;
+    if (!mediaSrc || failed) return;
     const el = ref.current;
     if (!el) return;
     el.muted = !soundOn;
@@ -85,7 +91,7 @@ function VideoPlayer({ src, poster, className, style, soundOn = true }) {
     };
     el.addEventListener("canplay", onCanPlay);
     return () => el.removeEventListener("canplay", onCanPlay);
-  }, [src, failed, tryPlay, soundOn]);
+  }, [mediaSrc, failed, tryPlay, soundOn]);
 
   useEffect(() => {
     if (ref.current) {
@@ -109,12 +115,21 @@ function VideoPlayer({ src, poster, className, style, soundOn = true }) {
 
   return (
     <div className={`relative ${className}`} style={style}>
-      <video ref={ref} src={src} poster={poster}
+      <video ref={ref} src={mediaSrc} poster={poster}
         className="absolute inset-0 w-full h-full object-cover object-top"
         style={{ objectPosition: "top center" }}
         autoPlay playsInline preload="auto" controls={false} loop
         muted={!soundOn}
-        onError={() => setFailed(true)} />
+        onError={() => {
+          // Certains navigateurs échouent sur une réponse vidéo mise en
+          // cache (ERR_CACHE_OPERATION_NOT_SUPPORTED). Une seule nouvelle
+          // URL force une requête propre sans changer le fichier Supabase.
+          if (mediaSrc === src && src) {
+            setMediaSrc(`${src}${src.includes("?") ? "&" : "?"}bb_retry=1`);
+          } else {
+            setFailed(true);
+          }
+        }} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { X, LogIn, UserPlus, Shield, Zap, Gift } from "lucide-react";
+import BrandLogo from "@/components/ui/BrandLogo";
 
 export default function AuthModal({ open, onClose, message }) {
   const navigate = useNavigate();
@@ -31,18 +32,9 @@ export default function AuthModal({ open, onClose, message }) {
             <X className="w-4 h-4 text-gray-400" />
           </button>
 
-          {/* Logo — cercle beige + B logo */}
+          {/* Logo officiel BeautyBook */}
           <div className="flex justify-center mb-5">
-            <div
-              className="w-[84px] h-[84px] rounded-full flex items-center justify-center"
-              style={{ background: "#F5EDE4", border: "3px solid #E8DDD0" }}
-            >
-              <svg width="46" height="50" viewBox="0 0 42 46" fill="none">
-                <rect x="2" y="2" width="22" height="21" rx="10" fill="#F5B87A"/>
-                <rect x="2" y="19" width="28" height="25" rx="12" fill="#E8732A"/>
-                <circle cx="32" cy="8" r="5" fill="#E8732A"/>
-              </svg>
-            </div>
+            <BrandLogo size={84} alt="Logo BeautyBook" className="rounded-[22px] shadow-lg" />
           </div>
 
           {/* Brand */}

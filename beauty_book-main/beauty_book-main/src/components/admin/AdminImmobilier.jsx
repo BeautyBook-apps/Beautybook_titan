@@ -9,6 +9,7 @@ const EMPTY_FORM = {
   title: "", description: "", type: "location", price: "",
   unit: "/MOIS", surface: "", location: "", area: "",
   equip: "", extra: "", images: [], video_url: "",
+  estimated_turnover: "", estimated_net_revenue: "", virtual_tour_id: "",
   status: "actif",
 };
 
@@ -49,7 +50,13 @@ export default function AdminImmobilier() {
     if (!form.title || !form.price) return;
     setSaving(true);
     try {
-      const payload = { ...form, price: parseFloat(form.price) || 0 };
+      const payload = {
+        ...form,
+        price: parseFloat(form.price) || 0,
+        estimated_turnover: parseFloat(form.estimated_turnover) || 0,
+        estimated_net_revenue: parseFloat(form.estimated_net_revenue) || 0,
+        virtual_tour_id: form.virtual_tour_id || null,
+      };
       delete payload.badge;
       const res = editingId
         ? await adminApi.updateImmobilier(editingId, payload)
@@ -144,6 +151,14 @@ export default function AdminImmobilier() {
             <input value={form.surface} onChange={e => setForm(f => ({ ...f, surface: e.target.value }))} placeholder="Surface (ex: 18m²)" className={inputCls} />
             <input value={form.equip} onChange={e => setForm(f => ({ ...f, equip: e.target.value }))} placeholder="Équipement (ex: 1 fauteuil)" className={inputCls} />
             <input value={form.extra} onChange={e => setForm(f => ({ ...f, extra: e.target.value }))} placeholder="Extra (ex: Parking)" className={inputCls} />
+          </div>
+
+          <div className="bg-emerald-50 rounded-2xl p-4 space-y-3 border border-emerald-100">
+            <p className="text-[11px] font-black text-emerald-700 uppercase tracking-widest">Performance estimative</p>
+            <div className="grid grid-cols-2 gap-3">
+              <input type="number" min="0" value={form.estimated_turnover} onChange={e => setForm(f => ({ ...f, estimated_turnover: e.target.value }))} placeholder="CA estimé / mois (€)" className={inputCls} />
+              <input type="number" min="0" value={form.estimated_net_revenue} onChange={e => setForm(f => ({ ...f, estimated_net_revenue: e.target.value }))} placeholder="Revenu net / mois (€)" className={inputCls} />
+            </div>
           </div>
 
           {/* Images */}

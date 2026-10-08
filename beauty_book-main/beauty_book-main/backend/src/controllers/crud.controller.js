@@ -35,7 +35,7 @@ const FALLBACK_COLUMNS = {
   CatalogueOption: ['id','name','description','price','duration_min','service_id','pro_email','category','usage_count','created_at','updated_at','created_by_id'],
   ServiceBundle: ['id','pro_email','name','description','service_ids','bundle_price','discount_percent','image_url','cover_url','banner_url','is_active','is_group','min_persons','max_persons','bundle_price_per_person','category','bonus','created_at','updated_at'],
   AppConfig: ['id','key','value','description','created_at','updated_at'],
-  ImmobilierListing: ['id','title','description','price','images','address','city','type','status','pro_email','bedrooms','bathrooms','area','features','created_at','updated_at','created_by_id'],
+  ImmobilierListing: ['id','title','description','price','images','address','city','type','status','pro_email','bedrooms','bathrooms','area','features','estimated_turnover','estimated_net_revenue','virtual_tour_id','created_at','updated_at','created_by_id'],
   PointsFidelite: ['id','user_email','points','points_total','total_earned','total_spent','points_depenses','level','niveau','history','historique','code_parrainage','created_at','updated_at','created_by_id'],
   PointsFidelitePro: ['id','pro_email','points_total','points_depenses','niveau','created_at','updated_at','created_by_id'],
   SoldeBeautyPay: ['id','user_email','balance','solde','currency','transactions','created_at','updated_at','created_by_id'],

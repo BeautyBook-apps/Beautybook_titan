@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Star, Shield, Zap, Heart } from "lucide-react";
 import { useThemeBg } from "@/hooks/useTheme";
+import BrandLogo from "@/components/ui/BrandLogo";
 
 
 export default function APropos() {
@@ -21,12 +22,7 @@ export default function APropos() {
         {/* Logo + nom */}
         <div className="flex flex-col items-center gap-4 mb-8">
           <div className="w-24 h-24 bg-white rounded-3xl shadow-xl flex items-center justify-center">
-            <svg width="64" height="64" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="36" cy="36" r="34" stroke="#E8732A" strokeWidth="2.5" fill="none" opacity="0.3"/>
-              <path d="M22 20h16c5.523 0 10 4.477 10 10s-4.477 10-10 10H22V20z" fill="#E8732A" opacity="0.85"/>
-              <path d="M22 40h18c5.523 0 10 4.477 10 10s-4.477 10-10 10H22V40z" fill="#E8732A"/>
-              <circle cx="52" cy="24" r="4" fill="#E8732A" opacity="1"/>
-            </svg>
+            <BrandLogo size={64} alt="Logo BeautyBook" className="rounded-2xl" />
           </div>
           <div className="text-center">
             <h2 className="text-[32px] font-black text-gray-900 uppercase tracking-widest">BeautyBook</h2>

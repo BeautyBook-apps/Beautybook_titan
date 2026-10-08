@@ -14,7 +14,7 @@ import { GrokVoiceSession } from "@/lib/grokVoice";
 import { buildVoiceTools } from "@/lib/voiceAgentTools";
 import { buildVoiceInstructions, resolveWelcomeMessage } from "@/lib/voiceAgentPrompt";
 import { getSalonAISettings } from "@/lib/salonAI";
-import { summarizeHours } from "@/lib/hours";
+import { getEffectiveOpening, summarizeHours } from "@/lib/hours";
 import BeautyImage from "@/components/ui/BeautyImage";
 
 const PROFILE_IMG = "/maria-avatar.png";
@@ -138,7 +138,7 @@ export default function VisitorVoiceCall({ proEmail, salonName, avatarUrl, onClo
           // lisible par les visiteurs), colonnes garanties d'abord.
           const { data: profs } = await supabase
             .from("ProfilPro")
-            .select("salon_name,address,phone,ouverture,horaires")
+            .select("salon_name,address,phone,ouverture,horaires,travail_nuit")
             .eq("user_email", proEmail)
             .order("created_at", { ascending: false })
             .limit(1);
@@ -150,8 +150,7 @@ export default function VisitorVoiceCall({ proEmail, salonName, avatarUrl, onClo
         const name = liveProfil?.salon_name || salonName || "votre salon";
         const hoursSummary = (() => {
           try {
-            const groups = summarizeHours(liveProfil?.ouverture || liveProfil?.horaires);
-            return groups.map((g) => `${g.label} : ${g.open ? g.hours : "Fermé"}`).join(" · ") || "";
+            return summarizeHours(getEffectiveOpening(liveProfil, null)) || "";
           } catch { return ""; }
         })();
         const todayLabel = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });

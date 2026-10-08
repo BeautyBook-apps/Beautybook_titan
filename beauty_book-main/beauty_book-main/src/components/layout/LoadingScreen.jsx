@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles } from 'lucide-react';
+import BrandLogo from '@/components/ui/BrandLogo';
 
 export default function LoadingScreen({ message = "Chargement en cours..." }) {
   return (
@@ -23,18 +23,9 @@ export default function LoadingScreen({ message = "Chargement en cours..." }) {
       {/* Center Hero Branding Block */}
       <div className="flex flex-col items-center text-center max-w-sm w-full my-auto">
         
-        {/* BeautyBook Orange Logo Icon (B°) */}
+        {/* Logo officiel BeautyBook */}
         <div className="relative mb-6 animate-pulse-soft">
-          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-[#E8651B] flex items-center justify-center text-white shadow-2xl shadow-orange-500/30 border border-orange-400/20 relative overflow-hidden">
-            <span className="text-5xl sm:text-6xl font-black tracking-tight select-none translate-x-[-2px]">
-              B
-            </span>
-            {/* Peach dot in the top right (B°) */}
-            <span 
-              className="absolute top-5 right-5 sm:top-6 sm:right-6 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-[#FBD0B6] shadow-sm"
-              style={{ backgroundColor: '#FCD3BD' }}
-            />
-          </div>
+          <BrandLogo size={112} alt="Logo BeautyBook" className="rounded-3xl shadow-2xl shadow-orange-500/30" />
         </div>
 
         {/* Brand Name */}

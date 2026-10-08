@@ -197,6 +197,7 @@ export default function Profil() {
     const likedReelIds = (dbLikes || []).filter(l => l.target_type === 'reel').map(l => l.target_id);
     const likedServiceIds = (dbLikes || []).filter(l => l.target_type === 'service').map(l => l.target_id);
     const likedStyleIds = (dbLikes || []).filter(l => l.target_type === 'style').map(l => l.target_id);
+    const likedImmobilierIds = (dbLikes || []).filter(l => l.target_type === 'immobilier').map(l => String(l.target_id));
 
     // Requête Supabase directe — tous les reels publiés, filtrer côté client
     let reels = [];
@@ -247,6 +248,32 @@ export default function Profil() {
         .limit(50);
       if (!repubsErr) repubs = repubsData || [];
     } catch (e) {}
+
+    // La table historique Repub peut ne stocker que reel_id. On complète
+    // l'affichage avec le Reel source pour que la republication reste visible
+    // même lorsque les colonnes de métadonnées n'existent pas encore.
+    if (repubs.length > 0) {
+      const reelIds = repubs.map(item => item.reel_id).filter(Boolean).map(String);
+      if (reelIds.length > 0) {
+        const { data: sourceReels } = await supabase
+          .from('Reel')
+          .select('*')
+          .in('id', reelIds);
+        const sourceById = new Map((sourceReels || []).map(reel => [String(reel.id), reel]));
+        repubs = repubs.map(repub => {
+          const source = sourceById.get(String(repub.reel_id));
+          return {
+            ...source,
+            ...repub,
+            title: repub.reel_title || source?.title || "Vidéo",
+            reel_title: repub.reel_title || source?.title || "Vidéo",
+            reel_thumbnail: repub.reel_thumbnail || source?.thumbnail_url || source?.images?.[0],
+            reel_images: repub.reel_images || source?.images || [],
+            video_url: repub.video_url || source?.video_url,
+          };
+        });
+      }
+    }
 
     const [profil, commandes, reservations, pointsFidelite] = await Promise.all([
       entities.ProfilPro.filter({ user_email: user.email }, "-created_at", 1).catch(() => []),
@@ -304,6 +331,21 @@ export default function Profil() {
         _badgeIcon: '✨',
       }));
       favs.push(...likedStyles);
+    }
+    if (likedImmobilierIds.length > 0) {
+      const allImmobilier = await entities.ImmobilierListing.filter({ status: "actif" }, "-created_at", 200).catch(() => []);
+      const likedImmobilier = allImmobilier
+        .filter(listing => likedImmobilierIds.includes(String(listing.id)))
+        .map(listing => ({
+          ...listing,
+          title: listing.title,
+          thumbnail_url: listing.images?.[0] || listing.image_url,
+          _kind: 'immobilier',
+          _badgeLabel: 'Immobilier',
+          _badgeColor: 'bg-emerald-600',
+          _badgeIcon: '🏠',
+        }));
+      favs.push(...likedImmobilier);
     }
     if (likedBundleIds.length > 0) {
       const allBundles = await entities.ServiceBundle.filter({ is_active: true }, "-created_at", 100).catch(() => []);
@@ -592,7 +634,7 @@ export default function Profil() {
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <Bookmark className="w-12 h-12 text-gray-200" />
               <p className="text-[12px] text-gray-400 font-medium">Aucun favori pour l'instant</p>
-              <p className="text-[11px] text-gray-300 font-medium text-center px-8">Likez des réels pour les voir ici</p>
+              <p className="text-[11px] text-gray-300 font-medium text-center px-8">Likez des réels, styles, services ou annonces immobilières pour les voir ici</p>
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-1.5 px-1.5 pb-6">
@@ -607,6 +649,8 @@ export default function Profil() {
                   } else if (r._kind === 'style' || (r.image_url && r.category && !r.author_email && !r.pro_email)) {
                     // Style
                     navigate(`/style/${r.id}`, { state: { id: r.id, title: r.title, cover: r.image_url, images: r.images || [], category: r.category, description: r.description, likes: r.likes } });
+                  } else if (r._kind === 'immobilier') {
+                    navigate(`/immobilier/${r.id}`, { state: r });
                   } else {
                     // Reel / publication
                     navigate("/reels");

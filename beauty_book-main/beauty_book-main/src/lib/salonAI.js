@@ -78,21 +78,14 @@ function newer(a, b) {
   return String(a?.updated_at || "") >= String(b?.updated_at || "");
 }
 
-const BASE_COLS = "pro_email,vocal_enabled,chatbot_enabled,agent_id,voice";
 const OPT_COLS = ["welcome_message", "custom_instructions", "connection_mode", "appel_interne"];
 
 async function readRow(email) {
-  // Lecture en DEUX temps, déterministe : les colonnes de base existent
-  // toujours ; les colonnes optionnelles (migration parfois non exécutée)
-  // sont lues séparément, une par une, sans jamais provoquer de 400.
-  const r = await supabase.from(TABLE).select(BASE_COLS).eq("pro_email", email).maybeSingle();
-  if (r.error || !r.data) return r;
-  const row = { ...r.data };
-  for (const col of OPT_COLS) {
-    const one = await supabase.from(TABLE).select("pro_email," + col).eq("pro_email", email).maybeSingle();
-    if (!one.error && one.data && one.data[col] !== undefined) row[col] = one.data[col];
-  }
-  return { data: row, error: null };
+  // `select('*')` ne référence aucune colonne optionnelle en dur. Supabase
+  // renvoie uniquement les colonnes réellement présentes dans la table, ce
+  // qui évite les 400 lorsque les migrations vocales ne sont pas encore
+  // appliquées sur le projet distant.
+  return supabase.from(TABLE).select("*").eq("pro_email", email).maybeSingle();
 }
 
 /**
@@ -149,10 +142,26 @@ export async function saveSalonAISettings(proEmail, patch) {
       connection_mode: next.connection_mode === "agent" ? "agent" : "direct",
       updated_at: next.updated_at,
     };
-    const r = await supabase.from(TABLE).upsert(fullPayload, { onConflict: "pro_email" });
+    // Détecte les colonnes existantes sans jamais les citer dans le select.
+    // Cela permet de synchroniser les options vocales dès que la migration
+    // est déployée, tout en restant compatible avec l'ancien schéma.
+    const current = await supabase.from(TABLE).select("*").eq("pro_email", email).maybeSingle();
+    const available = new Set(Object.keys(current.data || {}));
+    const payload = { ...fullPayload };
+    for (const col of OPT_COLS) {
+      if (!available.has(col)) delete payload[col];
+    }
+    const r = await supabase.from(TABLE).upsert(payload, { onConflict: "pro_email" });
     if (r.error) {
-      // Migration non exécutée → repli sans les colonnes optionnelles récentes
-      const { welcome_message, custom_instructions, connection_mode, appel_interne, updated_at, ...basePayload } = fullPayload;
+      // Dernier repli pour une table historique réduite au schéma de base.
+      const basePayload = {
+        pro_email: email,
+        vocal_enabled: !!next.vocal_enabled,
+        chatbot_enabled: !!next.chatbot_enabled,
+        agent_id: next.agent_id || "",
+        voice: next.voice || "ara",
+        updated_at: next.updated_at,
+      };
       await supabase.from(TABLE).upsert(basePayload, { onConflict: "pro_email" });
     }
   } catch { /* RLS ou table absente → le local fait foi */ }

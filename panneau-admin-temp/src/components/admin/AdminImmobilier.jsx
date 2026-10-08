@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { uploadFile } from '@/api/entities';
 import { adminApi } from "@/lib/adminApiClient";
-import { Plus, Trash2, Upload, Loader2, X, Home, Eye, EyeOff, MapPin, Euro, Phone, Mail, AlertCircle, CheckCircle2, FileText, Clock, Save, Scissors, Building2, Receipt, Edit3 } from "lucide-react";
+import { Plus, Trash2, Upload, Loader2, X, Home, Eye, EyeOff, MapPin, Euro, Phone, Mail, AlertCircle, CheckCircle2, FileText, Clock, Save, Scissors, Building2, Receipt, Edit3, Box } from "lucide-react";
 import AddressInput from "@/components/ui/AddressInput";
 
 const inputCls = "w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-4 py-3 text-[13px] outline-none focus:border-primary transition-colors";
@@ -29,6 +29,7 @@ const EMPTY_FORM = {
   location: "", city: "", area: "", postal_code: "",
   equip: "", extra: "",
   images: [], video_url: "",
+  estimated_turnover: "", estimated_net_revenue: "", virtual_tour_id: "",
   contact_email: "", contact_phone: "", status: "actif",
 };
 
@@ -64,7 +65,8 @@ export default function AdminImmobilier() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [form, setForm] = useState(() => loadDraft() || { ...EMPTY_FORM });
+  const [form, setForm] = useState(() => ({ ...EMPTY_FORM, ...(loadDraft() || {}) }));
+  const [virtualTours, setVirtualTours] = useState([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [drafts, setDrafts] = useState(() => loadDraftsList());
@@ -76,8 +78,16 @@ export default function AdminImmobilier() {
   const autoSaveTimer = useRef(null);
 
   useEffect(() => {
-    adminApi.listImmobilier()
-      .then(res => setListings(Array.isArray(res) ? res : res?.data?.results || [])).catch(() => {}).finally(() => setLoading(false));
+    Promise.all([
+      adminApi.listImmobilier(),
+      adminApi.listVirtualTours().catch(() => []),
+    ])
+      .then(([res, tours]) => {
+        setListings(Array.isArray(res) ? res : res?.data?.results || []);
+        setVirtualTours(Array.isArray(tours) ? tours : tours?.data?.results || []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -90,7 +100,7 @@ export default function AdminImmobilier() {
   useEffect(() => {
     if (creating) {
       const draft = loadDraft();
-      if (draft && draft.title) setForm(draft);
+      if (draft && draft.title) setForm(current => ({ ...EMPTY_FORM, ...current, ...draft }));
     }
   }, [creating]);
 
@@ -132,6 +142,9 @@ export default function AdminImmobilier() {
         description: form.description || "",
         type: form.type || "location",
         price: toNum(form.price),
+        estimated_turnover: toNum(form.estimated_turnover),
+        estimated_net_revenue: toNum(form.estimated_net_revenue),
+        virtual_tour_id: form.virtual_tour_id || null,
         price_fonds_commerce: toNum(form.price_fonds_commerce),
         price_per_m2: toNum(form.price_per_m2) || computePricePerM2(form.price, form.surface) || 0,
         tax_mode: form.type === "location" ? (form.tax_mode || "TTC") : null,
@@ -196,6 +209,28 @@ export default function AdminImmobilier() {
       await adminApi.updateImmobilier(listing.id, { status: newStatus });
       setListings(prev => prev.map(l => l.id === listing.id ? { ...l, status: newStatus } : l));
     } catch (err) { console.error("[AdminImmobilier] Toggle error:", err); }
+  };
+
+  const createVirtualTourFromListing = async () => {
+    if (!form.title || !(form.images || []).length) return;
+    setSaving(true);
+    try {
+      const result = await adminApi.createVirtualTour({
+        title: `Visite — ${form.title}`,
+        pro_email: form.contact_email || "",
+        scenes: form.images.map((image_url, index) => ({ title: `Vue ${index + 1}`, image_url, hotspots: [] })),
+        status: "actif",
+      });
+      const tour = result?.data?.result || result?.result || result?.data || result;
+      if (!tour?.id) throw new Error("La visite virtuelle n'a pas été créée.");
+      setVirtualTours(prev => [tour, ...prev]);
+      setForm(current => ({ ...current, virtual_tour_id: tour.id }));
+    } catch (err) {
+      console.error("[AdminImmobilier] Virtual tour error:", err);
+      setError("Impossible de créer la visite virtuelle. Vérifiez la migration VisiteVirtuelle.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const editListing = (listing) => {
@@ -265,7 +300,7 @@ export default function AdminImmobilier() {
           {/* ── Titre ── */}
           <div>
             <label className={labelCls}>Titre de l'annonce *</label>
-            <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+            <input value={form.title ?? ""} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
               placeholder="Ex: Salon de coiffure 80m² — Paris 15e" required className={inputCls} />
           </div>
 
@@ -312,7 +347,7 @@ export default function AdminImmobilier() {
           {/* ── Description ── */}
           <div>
             <label className={labelCls}>Description</label>
-            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            <textarea value={form.description ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               placeholder={isVente ? "Décrivez le fonds de commerce, l'emplacement, la clientèle..." : "Décrivez le local, les conditions de location..."}
               rows={3} className={`${inputCls} resize-none`} />
           </div>
@@ -326,19 +361,19 @@ export default function AdminImmobilier() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Prix de vente (€) *</label>
-                  <input type="number" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
+                  <input type="number" value={form.price ?? ""} onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
                     placeholder="Ex: 120000" required className={inputCls} />
                 </div>
                 <div>
                   <label className={labelCls}>Fonds de commerce (€)</label>
-                  <input type="number" value={form.price_fonds_commerce} onChange={e => setForm(f => ({ ...f, price_fonds_commerce: e.target.value }))}
+                  <input type="number" value={form.price_fonds_commerce ?? ""} onChange={e => setForm(f => ({ ...f, price_fonds_commerce: e.target.value }))}
                     placeholder="Ex: 45000" className={inputCls} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Surface (m²)</label>
-                  <input type="number" value={form.surface} onChange={e => {
+                  <input type="number" value={form.surface ?? ""} onChange={e => {
                     const s = e.target.value;
                     setForm(f => {
                       const updated = { ...f, surface: s };
@@ -349,7 +384,7 @@ export default function AdminImmobilier() {
                 </div>
                 <div>
                   <label className={labelCls}>Prix au m² (€)</label>
-                  <input type="number" value={form.price_per_m2} onChange={e => setForm(f => ({ ...f, price_per_m2: e.target.value }))}
+                  <input type="number" value={form.price_per_m2 ?? ""} onChange={e => setForm(f => ({ ...f, price_per_m2: e.target.value }))}
                     placeholder="Calculé auto" className={inputCls} readOnly={!form.price_per_m2} />
                 </div>
               </div>
@@ -365,7 +400,7 @@ export default function AdminImmobilier() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Loyer mensuel (€) *</label>
-                  <input type="number" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
+                  <input type="number" value={form.price ?? ""} onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
                     placeholder="Ex: 1200" required className={inputCls} />
                 </div>
                 <div>
@@ -385,6 +420,24 @@ export default function AdminImmobilier() {
             </div>
           )}
 
+          {/* ── Performance estimative ── */}
+          <div className="bg-emerald-50 rounded-2xl p-4 space-y-3 border border-emerald-100">
+            <h4 className="text-[11px] font-black text-emerald-700 uppercase tracking-widest flex items-center gap-1.5">
+              <Receipt className="w-3.5 h-3.5" /> Performance estimative
+            </h4>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Chiffre d'affaires estimé (€ / mois)</label>
+                <input type="number" min="0" value={form.estimated_turnover ?? ""} onChange={e => setForm(f => ({ ...f, estimated_turnover: e.target.value }))} placeholder="Ex: 5500" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Revenu net estimé (€ / mois)</label>
+                <input type="number" min="0" value={form.estimated_net_revenue ?? ""} onChange={e => setForm(f => ({ ...f, estimated_net_revenue: e.target.value }))} placeholder="Ex: 3200" className={inputCls} />
+              </div>
+            </div>
+            <p className="text-[10px] text-emerald-700/70">Ces montants indicatifs seront visibles sur la fiche publique de l'annonce.</p>
+          </div>
+
           {/* ── Adresse ── */}
           <div className="bg-gray-50 rounded-2xl p-4 space-y-3 border border-gray-100">
             <h4 className="text-[11px] font-black text-gray-700 uppercase tracking-widest flex items-center gap-1.5">
@@ -393,7 +446,7 @@ export default function AdminImmobilier() {
             <div>
               <label className={labelCls}>Adresse complète *</label>
               <AddressInput
-                value={form.location}
+                value={form.location ?? ""}
                 onChange={(v) => setForm(f => ({ ...f, location: v }))}
                 onCityChange={(city) => setForm(f => ({ ...f, city: f.city || city, area: f.area || city }))}
                 onPostalCodeChange={(pc) => setForm(f => ({ ...f, postal_code: f.postal_code || pc }))}
@@ -405,15 +458,15 @@ export default function AdminImmobilier() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className={labelCls}>Ville</label>
-                <input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="Paris" className={inputCls} />
+                <input value={form.city ?? ""} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="Paris" className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>Quartier</label>
-                <input value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))} placeholder="Opéra" className={inputCls} />
+                <input value={form.area ?? ""} onChange={e => setForm(f => ({ ...f, area: e.target.value }))} placeholder="Opéra" className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>Code postal</label>
-                <input value={form.postal_code} onChange={e => setForm(f => ({ ...f, postal_code: e.target.value }))} placeholder="75002" className={inputCls} />
+                <input value={form.postal_code ?? ""} onChange={e => setForm(f => ({ ...f, postal_code: e.target.value }))} placeholder="75002" className={inputCls} />
               </div>
             </div>
           </div>
@@ -426,18 +479,18 @@ export default function AdminImmobilier() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className={labelCls}>Pièces</label>
-                <input type="number" value={form.rooms} onChange={e => setForm(f => ({ ...f, rooms: e.target.value }))} placeholder="3" className={inputCls} />
+                <input type="number" value={form.rooms ?? ""} onChange={e => setForm(f => ({ ...f, rooms: e.target.value }))} placeholder="3" className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>Étage</label>
-                <input value={form.floor} onChange={e => setForm(f => ({ ...f, floor: e.target.value }))} placeholder="RDC" className={inputCls} />
+                <input value={form.floor ?? ""} onChange={e => setForm(f => ({ ...f, floor: e.target.value }))} placeholder="RDC" className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>Équipements</label>
-                <input value={form.equip} onChange={e => setForm(f => ({ ...f, equip: e.target.value }))} placeholder="Fauteuils, miroirs..." className={inputCls} />
+                <input value={form.equip ?? ""} onChange={e => setForm(f => ({ ...f, equip: e.target.value }))} placeholder="Fauteuils, miroirs..." className={inputCls} />
               </div>
             </div>
-            <input value={form.extra} onChange={e => setForm(f => ({ ...f, extra: e.target.value }))} placeholder="Extras : Parking, Cave, Terrasse..." className={inputCls} />
+            <input value={form.extra ?? ""} onChange={e => setForm(f => ({ ...f, extra: e.target.value }))} placeholder="Extras : Parking, Cave, Terrasse..." className={inputCls} />
           </div>
 
           {/* ── Photos ── */}
@@ -493,17 +546,38 @@ export default function AdminImmobilier() {
             )}
           </div>
 
+          {/* ── Visite virtuelle synchronisée avec la fiche publique ── */}
+          <div className="bg-cyan-50 rounded-2xl p-4 space-y-3 border border-cyan-100">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-cyan-500/10 flex items-center justify-center">
+                <Box className="w-4 h-4 text-cyan-600" />
+              </div>
+              <div>
+                <label className="text-[11px] font-black text-cyan-800 uppercase tracking-widest block">Visite virtuelle</label>
+                <p className="text-[10px] text-cyan-700/70">Elle sera affichée dans le détail de cette annonce.</p>
+              </div>
+            </div>
+            <select value={form.virtual_tour_id || ""} onChange={e => setForm(f => ({ ...f, virtual_tour_id: e.target.value }))} className={inputCls}>
+              <option value="">Aucune visite virtuelle</option>
+              {virtualTours.map(tour => <option key={tour.id} value={tour.id}>{tour.title || "Visite sans nom"}</option>)}
+            </select>
+            <button type="button" onClick={createVirtualTourFromListing} disabled={saving || !form.title || !(form.images || []).length}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-cyan-200 text-cyan-700 rounded-xl py-2.5 text-[11px] font-black disabled:opacity-50">
+              <Plus className="w-3.5 h-3.5" /> Créer une visite depuis les photos importées
+            </button>
+          </div>
+
           {/* ── Contact ── */}
           <div className="bg-gray-50 rounded-2xl p-4 space-y-3 border border-gray-100">
             <h4 className="text-[11px] font-black text-gray-700 uppercase tracking-widest">Contact</h4>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex items-center gap-2">
                 <Mail className="w-4 h-4 text-gray-400 shrink-0" />
-                <input value={form.contact_email} onChange={e => setForm(f => ({ ...f, contact_email: e.target.value }))} placeholder="Email" className={inputCls} />
+                <input value={form.contact_email ?? ""} onChange={e => setForm(f => ({ ...f, contact_email: e.target.value }))} placeholder="Email" className={inputCls} />
               </div>
               <div className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-gray-400 shrink-0" />
-                <input value={form.contact_phone} onChange={e => setForm(f => ({ ...f, contact_phone: e.target.value }))} placeholder="Téléphone" className={inputCls} />
+                <input value={form.contact_phone ?? ""} onChange={e => setForm(f => ({ ...f, contact_phone: e.target.value }))} placeholder="Téléphone" className={inputCls} />
               </div>
             </div>
           </div>

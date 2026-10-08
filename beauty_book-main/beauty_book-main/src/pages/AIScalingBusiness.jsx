@@ -16,6 +16,7 @@ import {
 import { entities } from "@/api/entities";
 import { supabase } from "@/api/supabaseClient";
 import { useTheme } from "@/hooks/useTheme";
+import { getEffectiveOpening, summarizeHours } from "@/lib/hours";
 import './Recherche.css';
 import './AIScalingBusiness.css';
 
@@ -37,7 +38,7 @@ const TABS = [
 
 const CHANNELS = [
   { id: 'app', label: "Application", desc: "Réservations via l'app BeautyBook", icon: Smartphone, color: "#10B981", grad: "linear-gradient(135deg,#10B981,#34D399)" },
-  { id: 'vocal', label: "Agent vocal", desc: "Appels traités par l'IA 24h/24", icon: PhoneCall, color: "#8B5CF6", grad: "linear-gradient(135deg,#8B5CF6,#A78BFA)" },
+  { id: 'vocal', label: "Agent vocal", desc: "Appels traités par l'IA selon les horaires du salon", icon: PhoneCall, color: "#8B5CF6", grad: "linear-gradient(135deg,#8B5CF6,#A78BFA)" },
   { id: 'chatbot', label: "Chatbot site web", desc: "Assistant conversationnel de votre site", icon: MessageSquareText, color: "#3B82F6", grad: "linear-gradient(135deg,#3B82F6,#60A5FA)" },
   { id: 'social', label: "Réseaux sociaux IA", desc: "Campagnes et contenus générés par IA", icon: Share2, color: "#EC4899", grad: "linear-gradient(135deg,#EC4899,#F472B6)" },
   { id: 'maria', label: "Maria IA", desc: "Conciergerie IA BeautyBook", icon: Sparkles, color: "#FF6B00", grad: "linear-gradient(135deg,#FF6B00,#FFB25E)" },
@@ -223,6 +224,9 @@ export default function AIScalingBusiness() {
   }, []);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, tab]);
+
+  const effectiveOpening = useMemo(() => getEffectiveOpening(proProfile, null), [proProfile]);
+  const effectiveHours = useMemo(() => summarizeHours(effectiveOpening) || "Non renseignés", [effectiveOpening]);
 
   /* ── Période ── */
   const period = useMemo(() => {
@@ -578,6 +582,8 @@ export default function AIScalingBusiness() {
 CONTEXTE DU SALON:
 - Nom: ${proProfile?.salon_name || "Non renseigné"}
 - Ville: ${proProfile?.city || "Non renseigné"}
+- Horaires effectifs: ${effectiveHours}
+- Mode nuit: ${proProfile?.travail_nuit ? "activé (plage de nuit appliquée jusqu'à 07:00 le lendemain)" : "désactivé"}
 - Note: ${proProfile?.rating || "N/A"}/5 (${proProfile?.reviews_count || 0} avis)
 - Période analysée: ${PERIODS.find(p => p.id === periodId).label}
 - CA période: ${money(revenueCur)} (${doneCur.length} RDV)

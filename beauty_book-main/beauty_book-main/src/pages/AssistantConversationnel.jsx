@@ -26,6 +26,7 @@ import {
 import {
   buildKnowledge, loadFaq, addFaqEntry, updateFaqEntry, deleteFaqEntry,
 } from "@/lib/mariaAssistant";
+import { getEffectiveOpening, summarizeHours } from "@/lib/hours";
 import { grokChat } from "@/lib/grok";
 import { useTheme } from "@/hooks/useTheme";
 import "./AssistantConversationnel.css";
@@ -200,7 +201,15 @@ export function buildSocialInstructions({ salonName, services, faq, info, cfg })
   const infoBits = [];
   if (info?.address) infoBits.push(`Adresse : ${info.address}`);
   if (info?.phone) infoBits.push(`Téléphone : ${info.phone}`);
-  if (info?.hoursText) infoBits.push(`Horaires : ${info.hoursText}`);
+  const effectiveHours = info?.hoursText || summarizeHours(getEffectiveOpening({
+    ouverture: info?.ouverture,
+    horaires: info?.horaires,
+    travail_nuit: info?.travailNuit ?? info?.travail_nuit,
+  }, null)) || "";
+  if (effectiveHours) infoBits.push(`Horaires : ${effectiveHours}`);
+  if (info?.travailNuit || info?.travail_nuit) {
+    infoBits.push("Mode nuit : activé — les horaires effectifs peuvent se poursuivre jusqu'à 07:00 le lendemain.");
+  }
 
   return `${base}
 
@@ -1265,6 +1274,7 @@ export default function AssistantConversationnel() {
     address: [knowledge?.address, knowledge?.city].filter(Boolean).join(", "),
     phone: knowledge?.phone || "",
     hoursText: knowledge?.hoursText || "",
+    travailNuit: knowledge?.travailNuit || false,
   };
 
   return (

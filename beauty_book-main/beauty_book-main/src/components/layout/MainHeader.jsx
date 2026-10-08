@@ -23,7 +23,9 @@ export default function MainHeader() {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [cartCount, setCartCount] = useState(0);
-  const [userCity, setUserCity] = useState(() => localStorage.getItem("bb_user_city") || "Paris, France");
+  const [userCity, setUserCity] = useState(() => {
+    try { return localStorage.getItem("bb_user_city") || "Paris, France"; } catch { return "Paris, France"; }
+  });
   const [geoLoading, setGeoLoading] = useState(false);
   const [showCityPicker, setShowCityPicker] = useState(false);
 
@@ -109,6 +111,15 @@ export default function MainHeader() {
         .subscribe();
     });
     return () => { disposed = true; if (channel) void supabase.removeChannel(channel); };
+  }, []);
+
+  useEffect(() => {
+    const handleLocationChange = (event) => {
+      const city = event.detail?.city;
+      if (city) setUserCity(city);
+    };
+    window.addEventListener("bb-location-change", handleLocationChange);
+    return () => window.removeEventListener("bb-location-change", handleLocationChange);
   }, []);
 
   return (
