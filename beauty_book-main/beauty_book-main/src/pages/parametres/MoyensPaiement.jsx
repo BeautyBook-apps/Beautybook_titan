@@ -6,6 +6,7 @@ import PaymentCardManager from "@/components/payment/PaymentCardManager";
 const METHODS = [
   { id: "apple", label: "Apple Pay", sub: "Activé", icon: "🍎", active: true },
   { id: "google", label: "Google Pay", sub: "Non configuré", icon: "G", active: false },
+  { id: "link", label: "Link", sub: "Disponible avec Stripe", icon: "L", active: true },
 ];
 
 export default function MoyensPaiement() {

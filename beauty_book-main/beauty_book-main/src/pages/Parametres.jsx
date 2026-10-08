@@ -92,7 +92,7 @@ export default function Parametres() {
         <div className="space-y-2">
           <SettingRow icon={User} iconBg="bg-orange-50" iconColor="text-primary" label="Modifier le profil" onClick={() => navigate("/modifier-profil-client")} />
           <SettingRow icon={Shield} iconBg="bg-purple-50" iconColor="text-purple-500" label="Sécurité" sublabel="Mot de passe, Face ID, appareils" onClick={() => navigate("/parametres/securite")} />
-          <SettingRow icon={CreditCard} iconBg="bg-blue-50" iconColor="text-blue-500" label="Paiement" sublabel="Cartes, Apple Pay, Google Pay" onClick={() => navigate("/parametres/paiement")} />
+          <SettingRow icon={CreditCard} iconBg="bg-blue-50" iconColor="text-blue-500" label="Paiement" sublabel="Cartes, Apple Pay, Google Pay, Link" onClick={() => navigate("/parametres/paiement")} />
         </div>
 
         {/* PRÉFÉRENCES */}

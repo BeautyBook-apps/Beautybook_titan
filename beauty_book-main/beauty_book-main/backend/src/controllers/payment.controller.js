@@ -175,7 +175,7 @@ export const createCheckoutSession = async (req, res) => {
       : `${origin}/panier`;
 
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
+      payment_method_types: ['card', 'link'],
       mode: 'payment',
       line_items: lineItems,
       success_url: successUrl,
@@ -212,7 +212,7 @@ export const createWalletRecharge = async (req, res) => {
     const successPath = returnPath || '/mon-solde';
 
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
+      payment_method_types: ['card', 'link'],
       mode: 'payment',
       line_items: [{
         price_data: {
@@ -375,7 +375,7 @@ export const createSubscriptionCheckout = async (req, res) => {
     const origin = req.headers.origin || process.env.FRONTEND_URL || 'http://localhost:5173';
 
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
+      payment_method_types: ['card', 'link'],
       mode: 'subscription',
       customer_email: email,
       line_items: [{

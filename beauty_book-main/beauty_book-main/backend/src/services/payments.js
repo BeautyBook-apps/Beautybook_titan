@@ -31,7 +31,7 @@ export function createPaymentService(database=db,getStripe=stripeClient,getAppUr
    }
    const amount=Math.round(Number(booking.total_price)*100);
    assert(Number.isSafeInteger(amount) && amount>=50,400,'INVALID_PAYMENT_AMOUNT','Le montant doit être supérieur ou égal à 0,50 €.');
-   const session=await stripe.checkout.sessions.create({mode:'payment',payment_method_types:['card'],customer_email:user.email,client_reference_id:user.id,
+   const session=await stripe.checkout.sessions.create({mode:'payment',payment_method_types:['card','link'],customer_email:user.email,client_reference_id:user.id,
     line_items:[{price_data:{currency:'eur',unit_amount:amount,product_data:{name:booking.service_name.slice(0,200)}},quantity:1}],
     metadata:{reservation_id:booking.id,user_id:user.id},expires_at:Math.floor(Date.now()/1000)+1800,
     success_url:app+'/rendez-vous?payment=verification',cancel_url:app+'/rendez-vous?payment=cancelled',

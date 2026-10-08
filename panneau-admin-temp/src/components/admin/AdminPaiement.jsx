@@ -227,7 +227,7 @@ export default function AdminPaiement() {
                 <p className="text-[14px] font-black text-gray-900 flex items-center gap-2">
                   Stripe Payments <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">CONNECTÉ</span>
                 </p>
-                <p className="text-[11px] text-gray-500 font-medium">Cartes bancaires, Apple Pay, Google Pay, 3D Secure 2</p>
+                <p className="text-[11px] text-gray-500 font-medium">Cartes bancaires, Apple Pay, Google Pay, Link, 3D Secure 2</p>
               </div>
             </div>
             <span className="text-[11px] font-bold text-purple-700 bg-purple-100 px-3 py-1 rounded-full uppercase">Mode Test</span>

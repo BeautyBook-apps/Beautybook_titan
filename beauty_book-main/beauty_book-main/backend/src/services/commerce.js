@@ -122,7 +122,7 @@ export function createCommerceService(database=db,{getStripe=stripeClient,getApp
   assert(['creating','open'].includes(order.status),409,'CHECKOUT_CLOSED','Ce paiement est terminé. Consultez vos commandes.');
   if(order.checkout_url&&new Date(order.expires_at)>new Date())return {checkoutUrl:order.checkout_url,order_id:order.order_id};
   assert(new Date(order.expires_at)>new Date(),409,'CHECKOUT_EXPIRED','Cette tentative a expiré. Le serveur rétablit le stock après vérification du paiement.');
-  const session=await stripe.checkout.sessions.create({mode:'payment',payment_method_types:['card'],customer_email:email,client_reference_id:order.user_id,
+  const session=await stripe.checkout.sessions.create({mode:'payment',payment_method_types:['card','link'],customer_email:email,client_reference_id:order.user_id,
    metadata:{order_id:order.order_id},payment_intent_data:{transfer_group:'order_'+order.order_id,metadata:{order_id:order.order_id}},
    line_items:[{price_data:{currency:'eur',unit_amount:Number(order.amount_cents),product_data:{name:'Commande BeautyBook '+order.order_id.slice(0,8)}},quantity:1}],
    expires_at:Math.floor(new Date(order.expires_at).getTime()/1000),success_url:app+'/mes-commandes?payment=verification',cancel_url:app+'/panier?payment=cancelled',

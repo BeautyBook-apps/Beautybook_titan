@@ -8,7 +8,7 @@ const FAQS = [
   { q: "Comment modifier mon profil ?", a: "Rendez-vous dans Paramètres → Modifier le profil. Vous pouvez y changer votre photo, nom, bio et coordonnées." },
   { q: "Comment fonctionne le programme fidélité ?", a: "Chaque réservation vous rapporte des points BeautyCoins. Vous pouvez les utiliser pour obtenir des réductions sur vos prochaines réservations." },
   { q: "Comment devenir professionnel sur BeautyBook ?", a: "Cliquez sur « Devenir Pro » depuis votre profil. Après validation de votre dossier, vous aurez accès à tous les outils professionnels." },
-  { q: "Puis-je utiliser plusieurs moyens de paiement ?", a: "Oui, vous pouvez ajouter plusieurs cartes et activer Apple Pay ou Google Pay depuis la section Paiement des paramètres." },
+  { q: "Puis-je utiliser plusieurs moyens de paiement ?", a: "Oui, vous pouvez ajouter plusieurs cartes et utiliser Apple Pay, Google Pay ou Link depuis la section Paiement des paramètres, lorsque ces services sont disponibles sur votre appareil." },
   { q: "Comment contacter le support ?", a: "Vous pouvez nous contacter par chat en direct, email ou téléphone. Notre équipe est disponible du lundi au vendredi de 9h à 18h." },
 ];
 

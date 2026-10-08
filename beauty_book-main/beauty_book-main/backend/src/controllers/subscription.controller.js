@@ -13,7 +13,7 @@ export const createSubscriptionCheckout = async (req, res) => {
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      payment_method_types: ['card'],
+      payment_method_types: ['card', 'link'],
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/success`,
       cancel_url: cancelUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/cancel`,
