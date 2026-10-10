@@ -74,7 +74,7 @@ export function createApp() {
   app.post('/api/admin/commandes/:id/refund',requirePermission('orders:write'),asyncRoute(async(req,res)=>res.json(await commerce.requestRefund(req.user,req.params.id,{admin:true,requestId:req.requestId}))));
   app.post('/api/payments/booking-checkout',asyncRoute(async(req,res)=>res.json(await bookingCheckout(req.user,req.body.reservation_id))));
   app.get('/api/capabilities',(req,res)=>res.json({
-    ai:Boolean(process.env.OPENAI_API_KEY),speech:Boolean(process.env.OPENAI_API_KEY),images:Boolean(process.env.OPENAI_API_KEY),
+    ai:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY),speech:Boolean(process.env.OPENAI_API_KEY),images:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY),
     phone:false,
     social:false,
     payments:Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET && process.env.APP_URL),
@@ -101,7 +101,7 @@ export function createApp() {
   app.get('/api/admin/health',requirePermission('operations:read'),asyncRoute(async(req,res)=>{
     const started=Date.now(); await db.query('SELECT 1');
     const {rows}=await db.query('SELECT status,count(*)::integer AS count FROM public.bb_outbox GROUP BY status');
-    res.json({database:{ok:true,latency_ms:Date.now()-started},outbox:rows,integrations:{openai:!!process.env.OPENAI_API_KEY,fal:!!process.env.FAL_KEY,twilio:!!process.env.TWILIO_AUTH_TOKEN,meta:!!process.env.META_APP_SECRET}});
+    res.json({database:{ok:true,latency_ms:Date.now()-started},outbox:rows,integrations:{openai:!!process.env.OPENAI_API_KEY,grok:!!(process.env.XAI_API_KEY || process.env.GROK_API_KEY),fal:!!process.env.FAL_KEY,twilio:!!process.env.TWILIO_AUTH_TOKEN,meta:!!process.env.META_APP_SECRET}});
   }));
 
   app.get('/api/seller/overview',asyncRoute(async(req,res)=>res.json(await sellerOverview(req.user))));

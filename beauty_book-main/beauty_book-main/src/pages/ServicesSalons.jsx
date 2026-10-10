@@ -4,9 +4,10 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useThemeBg } from "@/hooks/useTheme";
 import { useAuth } from "@/lib/AuthContext";
-import { Search, Heart, Clock, MapPin, Share2, MessageSquare, Star, X, SlidersHorizontal, Play, Tag, Volume2, VolumeX, Sparkles, Palette, Scissors, Store, User, Zap, Users, LayoutGrid, Droplets, Calendar, Building2, UserCheck, Package, Paintbrush, Gem, Hand, Leaf, Crown, ArrowUpRight, ArrowRight, Map as MapIcon } from "lucide-react";
+import { Search, Heart, Clock, MapPin, Share2, MessageSquare, Star, X, SlidersHorizontal, Play, Tag, Volume2, VolumeX, Sparkles, Palette, Scissors, Store, User, Zap, Users, LayoutGrid, Droplets, Calendar, Building2, UserCheck, Package, Paintbrush, Gem, Hand, Leaf, Crown, Waves, Eye, Footprints, PenTool, Circle, ArrowUpRight, ArrowRight, Map as MapIcon, Camera, Image as ImageIcon, Loader2 } from "lucide-react";
 import ProfilSheet from "@/components/salons/ProfilSheet";
-import { entities } from '@/api/entities';
+import { entities, uploadFile } from '@/api/entities';
+import apiClient from '@/lib/apiClient';
 import { supabase } from '@/api/supabaseClient';
 import { likesApi } from '@/api/likes';
 import SponsoredCard from "@/components/reels/SponsoredCard";
@@ -17,6 +18,7 @@ import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import { useLocation } from '@/contexts/LocationContext';
 import { isOpenNow } from "@/lib/hours";
 import { isProfilParticulier, isProfilSalon } from "@/lib/annonces";
+import { SALON_CATEGORIES } from "@/lib/categories";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import './Recherche.css';
 import './ServicesSalons.css';
@@ -154,10 +156,115 @@ function CardMediaSlider({ media, onCardClick }) {
   );
 }
 
-const STYLE_CATEGORIES = ["Tous", "Coiffure", "Perruque", "Maquillage", "Ongles", "Soin", "Barbe", "Massage"];
+const STYLE_CATEGORIES = ["Tous", "Coiffure", "Perruque", "Tresses", "Extensions", "Maquillage", "Ongles", "Pédicure", "Soin", "Barbe", "Massage", "Épilation", "Cils & Sourcils", "Spa & Bien-être", "Tatouage", "Piercing"];
+const STYLE_HAIR_TYPES = ["Afro", "Européenne", "Asiatique", "Crépus", "Bouclés", "Ondulés", "Lisses", "Tresses", "Locks"];
+const STYLE_SKIN_TYPES = ["Normale", "Sèche", "Grasse", "Mixte", "Sensible", "Mature"];
+const STYLE_DIFFICULTY_LEVELS = ["Débutant", "Intermédiaire", "Avancé", "Expert"];
+const STYLE_INLINE_FILTER_OPTIONS = {
+  type_cheveux: STYLE_HAIR_TYPES,
+  type_peau: STYLE_SKIN_TYPES,
+  niveau_difficulte: STYLE_DIFFICULTY_LEVELS,
+};
+const STYLE_SUBCATEGORY_FALLBACKS = {
+  Coiffure: ["Coupe Femme", "Coupe Homme", "Coupe Enfant", "Brushing", "Coloration", "Décoloration", "Lissage", "Permanente", "Chignon", "Coiffure de mariage"],
+  Perruque: ["Lace Wig", "Closure", "Frontale", "Perruque naturelle", "Perruque synthétique", "Pose de perruque", "Entretien de perruque"],
+  Tresses: ["Box Braids", "Knotless Braids", "Cornrows", "Fulani Braids", "Vanilles", "Twist", "Passion Twist", "Sisterlocks"],
+  Extensions: ["Clip-in", "Tape-in", "Kératine", "Tissage ouvert", "Tissage fermé", "Pose d'extensions", "Retrait d'extensions"],
+  Maquillage: ["Naturel", "Mariage", "Glamour", "Soirée", "Artistique", "Professionnel", "Maquillage permanent", "Microblading", "Faux cils"],
+  Ongles: ["Gel", "Résine", "Acrylique", "Semi-permanent", "Nail Art", "French", "Baby Boomer", "Capsules", "Chrome"],
+  Pédicure: ["Pédicure classique", "Pédicure spa", "Semi-permanent", "Gel pieds", "French pieds", "Soin des pieds"],
+  Soin: ["Soins visage", "Soins corps", "Hydratation", "Anti-âge", "Acné", "Éclat", "Détox", "Gommage"],
+  Barbe: ["Taille classique", "Taille design", "Dégradé", "Rasage complet", "Soin barbe", "Coloration barbe"],
+  Massage: ["Relaxant", "Sportif", "Thérapeutique", "Drainant", "Prénatal", "Hot Stone", "Aromathérapie"],
+  Épilation: ["Cire chaude", "Cire froide", "Épilation laser", "Sourcils", "Visage", "Corps", "Maillot"],
+  "Cils & Sourcils": ["Extension cil à cil", "Volume russe", "Rehaussement de cils", "Teinture cils", "Brow Lift", "Teinture sourcils"],
+  "Spa & Bien-être": ["Hammam", "Sauna", "Jacuzzi", "Rituel corps", "Rituel visage", "Balnéothérapie", "Détox"],
+  Tatouage: ["Blackwork", "Coloré", "Aquarelle", "Japonais", "Géométrique", "Cover-up", "Temporaire"],
+  Piercing: ["Lobe", "Cartilage", "Nez", "Sourcil", "Lèvre", "Nombril", "Corps"],
+};
+
+const normalizeStyleTaxonomyValue = value => String(value || "")
+  .trim()
+  .toLocaleLowerCase("fr-FR")
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "");
+
+const styleTaxonomyValues = item => [
+  item?.id,
+  item?.name,
+  item?.label,
+  item?.title,
+  item?.slug,
+  item?.category_id,
+  item?.category,
+  item?.category_name,
+  item?.category_slug,
+].flatMap(value => (
+  value && typeof value === "object"
+    ? [value.id, value.name, value.label, value.title, value.slug]
+    : [value]
+)).map(normalizeStyleTaxonomyValue).filter(Boolean);
+
+const styleCategoryValues = item => [
+  item?.category_id,
+  item?.category,
+  item?.category_name,
+  item?.category_slug,
+].flatMap(value => (
+  value && typeof value === "object"
+    ? [value.id, value.name, value.label, value.title, value.slug]
+    : [value]
+)).map(normalizeStyleTaxonomyValue).filter(Boolean);
+
 const SERVICE_CATEGORIES = ["Tous", "Coiffure", "Maquillage", "Ongles", "Soin", "Barbe", "Massage", "Épilation"];
-const SALON_CATEGORIES = ["Tous", "Prestige", "Luxe", "Bio", "Moderne", "Classique"];
+const SALON_FILTER_CATEGORIES = ["Tous", ...SALON_CATEGORIES];
 const PARTICULIER_CATEGORIES = ["Tous", "Coiffure", "Maquillage", "Ongles", "Soin", "Barbe"];
+
+const STYLES_RETURN_STORAGE_KEY = "bb_services_styles_return_context";
+const STYLES_RETURN_MAX_AGE = 15 * 60 * 1000;
+
+function shuffleStyleIds(ids) {
+  const shuffled = [...ids];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function orderStylesForTous(items) {
+  if (!Array.isArray(items) || items.length < 2) return items || [];
+
+  const byId = new Map(items.map(item => [String(item.id), item]));
+  // L'onglet « Tous » doit proposer une découverte différente à chaque
+  // rechargement/récupération des publications. Aucun ordre n'est persisté
+  // dans sessionStorage : le retour vers un style reste géré séparément par
+  // STYLES_RETURN_STORAGE_KEY.
+  const shuffledIds = shuffleStyleIds([...byId.keys()]);
+  // Le premier élément est volontairement la publication mise en avant :
+  // elle doit apparaître en haut du flux, comme une publication récente.
+  const [featuredId, ...remainingIds] = shuffledIds;
+  return [featuredId, ...remainingIds].map(id => byId.get(id)).filter(Boolean);
+}
+
+function readStylesReturnContext() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(STYLES_RETURN_STORAGE_KEY) || "null");
+    if (!parsed || Date.now() - Number(parsed.createdAt || 0) > STYLES_RETURN_MAX_AGE) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveStylesReturnContext(context) {
+  try {
+    sessionStorage.setItem(STYLES_RETURN_STORAGE_KEY, JSON.stringify({
+      ...context,
+      createdAt: Date.now(),
+    }));
+  } catch {}
+}
 
 // ── Offre Sheet (thème-aware) ─────────────────────────────────────────────────
 function OffreSheet({ style, onClose, navigate }) {
@@ -311,7 +418,182 @@ function StyleShareSheet({ style, onClose }) {
   );
 }
 
-function StylesTab({ activeCategory }) {
+function StyleAdvancedFilterBar({ styles = [], value, onChange, activeCategory = "Tous", quickFilter, onQuickFilterConsumed }) {
+  const [open, setOpen] = useState(false);
+  const [adminCategories, setAdminCategories] = useState([]);
+  const [adminSubcategories, setAdminSubcategories] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const rows = result => Array.isArray(result) ? result : result?.data?.results || [];
+    const localRows = key => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
+    const mergeRows = (remoteRows, localKey) => {
+      const seen = new Set();
+      return [...remoteRows, ...localRows(localKey)]
+        .filter(item => item && item.is_active !== false)
+        .filter(item => {
+          const identity = String(item.id || `${item.category_id || ""}:${item.name || item.label || item.title || ""}`);
+          if (seen.has(identity)) return false;
+          seen.add(identity);
+          return true;
+        });
+    };
+    const loadAdminRows = async (entity, filters, sort, limit, localKey) => {
+      const filtered = rows(await entity.filter(filters, sort, limit).catch(() => []));
+      const remoteRows = filtered.length > 0
+        ? filtered
+        : rows(await entity.list(sort, limit).catch(() => []));
+      return mergeRows(remoteRows, localKey);
+    };
+    const refreshTaxonomy = () => Promise.all([
+      loadAdminRows(entities.StyleCategory, { is_active: true }, "-created_at", 500, "bb_style_categories"),
+      loadAdminRows(entities.StyleSubCategory, { is_active: true }, "-created_at", 1000, "bb_style_subcategories"),
+    ]).then(([categories, subcategories]) => {
+      if (!cancelled) {
+        setAdminCategories(rows(categories));
+        setAdminSubcategories(rows(subcategories));
+      }
+    });
+    refreshTaxonomy();
+    const unsubscribeCategory = entities.StyleCategory?.subscribe?.(refreshTaxonomy);
+    const unsubscribeSubcategory = entities.StyleSubCategory?.subscribe?.(refreshTaxonomy);
+    return () => {
+      cancelled = true;
+      unsubscribeCategory?.();
+      unsubscribeSubcategory?.();
+    };
+  }, []);
+
+  const categoryOptions = useMemo(() => {
+    const values = [
+      ...adminCategories.map(item => item.name || item.label || item.title),
+      ...styles.map(style => style.category),
+      ...STYLE_CATEGORIES.slice(1),
+    ];
+    return [...new Set(values.filter(Boolean))];
+  }, [adminCategories, styles]);
+
+  // A category pill has priority over a previous modal selection so that the
+  // subcategories always follow the category currently visible in the UI.
+  const selectedCategoryName = activeCategory !== "Tous" ? activeCategory : (value.category || "");
+
+  const subcategoryOptions = useMemo(() => {
+    if (!selectedCategoryName) return [];
+
+    const selectedCategoryKey = normalizeStyleTaxonomyValue(selectedCategoryName);
+    const selectedCategory = adminCategories.find(item => styleTaxonomyValues(item).includes(selectedCategoryKey));
+    const selectedCategoryKeys = new Set([
+      selectedCategoryName,
+      ...styleTaxonomyValues(selectedCategory),
+    ].map(normalizeStyleTaxonomyValue).filter(Boolean));
+    const adminValues = adminSubcategories
+      .filter(item => {
+        if (!selectedCategoryName) return true;
+        const itemCategoryKeys = styleCategoryValues(item);
+        return itemCategoryKeys.some(key => selectedCategoryKeys.has(key));
+      })
+      .map(item => item.name || item.label || item.title);
+    const styleValues = styles
+      .filter(style => !selectedCategoryName || normalizeStyleTaxonomyValue(style.category) === selectedCategoryKey)
+      .map(style => style.subcategory);
+    const fallbackValues = selectedCategoryName && adminValues.length === 0 && styleValues.length === 0
+      ? (STYLE_SUBCATEGORY_FALLBACKS[selectedCategoryName] || [])
+      : [];
+    return [...new Set([...adminValues, ...styleValues, ...fallbackValues].filter(Boolean))];
+  }, [adminCategories, adminSubcategories, styles, selectedCategoryName]);
+
+  const inlineFilterOptions = quickFilter ? (STYLE_INLINE_FILTER_OPTIONS[quickFilter] || []) : [];
+
+  const activeCount = Object.entries(value).filter(([key, item]) => item && !(key === "sortBy" && item === "recent")).length;
+  const update = (key, item) => onChange({ ...value, [key]: item });
+  const reset = () => onChange({ category: "", subcategory: "", type_cheveux: "", type_peau: "", niveau_difficulte: "", priceMin: "", priceMax: "", sortBy: "recent" });
+  const selectClass = "w-full min-h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-[13px] font-semibold text-gray-700 outline-none focus:border-primary";
+
+  return (
+    <div className="shrink-0 border-b border-gray-100 bg-white px-3 py-2">
+      <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1" role="toolbar" aria-label="Filtres des styles">
+        <button type="button" onClick={() => setOpen(true)} className="min-h-11 shrink-0 flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 text-[13px] font-bold text-gray-600 shadow-sm">
+          <SlidersHorizontal size={16} /> Trier {activeCount > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] text-white">{activeCount}</span>}
+        </button>
+        {inlineFilterOptions.map(item => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => update(quickFilter, value[quickFilter] === item ? "" : item)}
+            className={`min-h-11 shrink-0 rounded-full border px-4 text-[13px] font-bold shadow-sm ${value[quickFilter] === item ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 bg-white text-gray-600"}`}
+          >
+            {item}
+          </button>
+        ))}
+        {subcategoryOptions.map(item => (
+          <button key={item} type="button" onClick={() => update("subcategory", value.subcategory === item ? "" : item)} className={`min-h-11 shrink-0 rounded-full border px-4 text-[13px] font-bold shadow-sm ${value.subcategory === item ? "border-primary bg-primary text-white" : "border-gray-200 bg-white text-gray-600"}`}>
+            {item}
+          </button>
+        ))}
+      </div>
+      {open && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-end bg-black/40" onClick={() => setOpen(false)}>
+          <div className="max-h-[88vh] w-full overflow-y-auto rounded-t-3xl bg-white px-5 pb-[calc(24px+env(safe-area-inset-bottom,16px))] pt-4 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-gray-200" />
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="text-[20px] font-black text-gray-900">Filtrer les styles</p>
+                <p className="mt-1 text-[12px] font-medium text-gray-400">Filtres synchronisés avec le panneau admin</p>
+              </div>
+              <button type="button" onClick={() => setOpen(false)} aria-label="Fermer les filtres" className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-500"><X size={20} /></button>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="text-[11px] font-black uppercase tracking-wide text-gray-500">Catégorie
+                <select className={selectClass} value={value.category} onChange={event => onChange({ ...value, category: event.target.value, subcategory: "" })}>
+                  <option value="">Toutes les catégories</option>{categoryOptions.map(item => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label className="text-[11px] font-black uppercase tracking-wide text-gray-500">Sous-catégorie
+                <select className={selectClass} value={value.subcategory} onChange={event => update("subcategory", event.target.value)}>
+                  <option value="">Toutes les sous-catégories</option>{subcategoryOptions.map(item => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label className="text-[11px] font-black uppercase tracking-wide text-gray-500">Type de cheveux
+                <select className={selectClass} value={value.type_cheveux} onChange={event => update("type_cheveux", event.target.value)}>
+                  <option value="">Tous les types</option>{STYLE_HAIR_TYPES.map(item => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label className="text-[11px] font-black uppercase tracking-wide text-gray-500">Type de peau
+                <select className={selectClass} value={value.type_peau} onChange={event => update("type_peau", event.target.value)}>
+                  <option value="">Tous les types</option>{STYLE_SKIN_TYPES.map(item => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label className="text-[11px] font-black uppercase tracking-wide text-gray-500">Niveau de difficulté
+                <select className={selectClass} value={value.niveau_difficulte} onChange={event => update("niveau_difficulte", event.target.value)}>
+                  <option value="">Tous les niveaux</option>{STYLE_DIFFICULTY_LEVELS.map(item => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label className="text-[11px] font-black uppercase tracking-wide text-gray-500">Trier par
+                <select className={selectClass} value={value.sortBy} onChange={event => update("sortBy", event.target.value)}>
+                  <option value="recent">Plus récents</option>
+                </select>
+              </label>
+            </div>
+            <div className="mt-5 flex gap-3">
+              <button type="button" onClick={reset} className="min-h-12 flex-1 rounded-xl border border-gray-200 text-[12px] font-black uppercase tracking-wide text-gray-600">Réinitialiser</button>
+              <button type="button" onClick={() => setOpen(false)} className="min-h-12 flex-1 rounded-xl bg-primary text-[12px] font-black uppercase tracking-wide text-white shadow-lg shadow-orange-200">Voir les styles</button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
+function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnContext }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   // Affichage direct depuis le cache : pas d'écran « chargement » intermédiaire,
@@ -319,13 +601,35 @@ function StylesTab({ activeCategory }) {
   const [liked, setLiked] = useCachedState("bb_liked_styles", []);
   const [likeCounts, setLikeCounts] = useCachedState("services_salons", {}, c => c?.likeCounts || {});
   const [showImmobilier, setShowImmobilier] = useState(false);
-  const [styles, setStyles] = useCachedState("services_salons", [], c => c?.styles || []);
+  const [styles, setStyles] = useCachedState("services_salons", [], c => orderStylesForTous(c?.styles || []));
   const [annonces, setAnnonces] = useCachedState("services_salons", [], c => c?.annonces || []);
+  const stylesOrderRef = useRef([]);
   const [hiddenAds, setHiddenAds] = useState([]);
+  const [styleFilters, setStyleFilters] = useState(() => ({
+    category: "",
+    subcategory: "",
+    type_cheveux: "",
+    type_peau: "",
+    niveau_difficulte: "",
+    priceMin: "",
+    priceMax: "",
+    sortBy: "recent",
+    ...(returnContext?.filters || {}),
+  }));
   const [loading, setLoading] = useState(() => !readPageCache("services_salons")?.styles?.length);
   const [showComments, setShowComments] = useState(null);
   const [showShare, setShowShare] = useState(null);
   const [showBook, setShowBook] = useState(null);
+
+  useEffect(() => {
+    const category = activeCategory === "Tous" ? "" : activeCategory;
+    setStyleFilters(previous => (
+      previous.category === category && previous.subcategory === ""
+        ? previous
+        : { ...previous, category, subcategory: "" }
+    ));
+  }, [activeCategory]);
+
   const [followed, setFollowed] = useState(() => {
     try {
       const k = user?.email ? `bb_followed_${user.email}` : null;
@@ -333,6 +637,47 @@ function StylesTab({ activeCategory }) {
     } catch { return []; }
   });
   const scrollRef = useRef(null);
+  const restoredReturnRef = useRef(false);
+
+  // « Tous » est un point d'entrée frais : on remet le flux à zéro pour que
+  // la publication aléatoirement mise en avant soit réellement visible en
+  // haut, même si le navigateur avait conservé l'ancien scroll interne.
+  // Un retour depuis une fiche détaillée est volontairement exclu : il est
+  // restauré par l'effet dédié ci-dessous.
+  useEffect(() => {
+    if (activeCategory !== "Tous" || returnContext?.styleId || loading || styles.length === 0) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const list = scrollRef.current;
+      list?.scrollTo({ top: 0, behavior: "auto" });
+      // Le conteneur parent peut également avoir conservé une position
+      // verticale lors d'un rechargement. On le remet à zéro avec la liste.
+      list?.parentElement?.scrollTo({ top: 0, behavior: "auto" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeCategory, returnContext?.styleId, loading, styles.length]);
+
+  useEffect(() => {
+    // Nouveau mélange à l'ouverture/actualisation de la page uniquement.
+    // L'ordre est ensuite conservé pendant les rafraîchissements réseau.
+    setStyles(previous => {
+      const ordered = orderStylesForTous(previous);
+      stylesOrderRef.current = ordered.map(style => String(style.id));
+      return ordered;
+    });
+  }, [setStyles]);
+
+  const orderStylesForCurrentSession = useCallback((items) => {
+    if (!Array.isArray(items) || items.length < 2) return items || [];
+
+    const byId = new Map(items.map(item => [String(item.id), item]));
+    const availableIds = [...byId.keys()];
+    const knownIds = stylesOrderRef.current.filter(id => byId.has(id));
+    const newIds = availableIds.filter(id => !knownIds.includes(id));
+    const orderedIds = [...knownIds, ...shuffleStyleIds(newIds)];
+    stylesOrderRef.current = orderedIds;
+
+    return orderedIds.map(id => byId.get(id)).filter(Boolean);
+  }, []);
 
   // ── Charger les follows ──
   useEffect(() => {
@@ -387,12 +732,18 @@ function StylesTab({ activeCategory }) {
         images: r.images && r.images.length > 0 ? r.images : [r.image_url || STYLE_IMG1],
         video_url: r.video_url || null,
         author: r.pro_email?.split("@")[0] || "Pro",
+        author_name: r.author_name || r.pro_email?.split("@")[0] || "Pro",
+        author_email: r.author_email || r.pro_email || "",
         authorImg: SARAH_IMG,
         title: r.title, likes: r.likes || 0, comments: r.comments || 0,
-        category: r.category, description: r.description,
+        category: r.category, subcategory: r.subcategory, description: r.description,
+        type_cheveux: r.type_cheveux || "", type_peau: r.type_peau || "",
+        niveau_difficulte: r.niveau_difficulte || "", price: r.price ?? r.prix ?? "",
+        created_at: r.created_at,
       }));
-      setStyles(mapped);
-      mergePageCache("services_salons", { styles: mapped });
+      const orderedMapped = orderStylesForCurrentSession(mapped);
+      setStyles(orderedMapped);
+      mergePageCache("services_salons", { styles: orderedMapped });
 
       const styleIds = mapped.map(s => String(s.id));
       if (styleIds.length === 0) return;
@@ -414,8 +765,9 @@ function StylesTab({ activeCategory }) {
         ...s,
         comments: ccm[String(s.id)] ?? s.comments ?? 0,
       }));
-      setStyles(enriched);
-      mergePageCache("services_salons", { styles: enriched });
+      const orderedEnriched = orderStylesForCurrentSession(enriched);
+      setStyles(orderedEnriched);
+      mergePageCache("services_salons", { styles: orderedEnriched });
 
       const counts = await likesApi.getLikeCounts(styleIds, 'style');
       setLikeCounts(counts);
@@ -444,6 +796,24 @@ function StylesTab({ activeCategory }) {
     };
   }, [fetchStyles]);
 
+  useEffect(() => {
+    if (restoredReturnRef.current || !returnContext?.styleId || loading || styles.length === 0) return undefined;
+
+    const timer = window.setTimeout(() => {
+      const container = scrollRef.current;
+      if (!container) return;
+
+      const target = [...container.querySelectorAll("[data-style-id]")]
+        .find(element => element.dataset.styleId === String(returnContext.styleId));
+      const top = target ? target.offsetTop : Number(returnContext.scrollTop || 0);
+      container.scrollTo({ top: Math.max(0, top), behavior: "auto" });
+      restoredReturnRef.current = true;
+      try { sessionStorage.removeItem(STYLES_RETURN_STORAGE_KEY); } catch {}
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loading, returnContext, styles.length]);
+
   const handleLike = async (e, styleId) => {
     e.stopPropagation();
     const alreadyLiked = liked.includes(styleId);
@@ -470,26 +840,50 @@ function StylesTab({ activeCategory }) {
     } catch (e) { console.error('[like] count error:', e); }
   };
 
-  const filteredStyles = activeCategory === "Tous" ? styles : styles.filter(s => s.category === activeCategory);
+  const filteredStyles = useMemo(() => {
+    let result = activeCategory === "Tous" ? [...styles] : styles.filter(s => s.category === activeCategory);
+    if (styleFilters.category) result = result.filter(s => s.category === styleFilters.category);
+    if (styleFilters.subcategory) result = result.filter(s => s.subcategory === styleFilters.subcategory);
+    if (styleFilters.type_cheveux) result = result.filter(s => s.type_cheveux === styleFilters.type_cheveux);
+    if (styleFilters.type_peau) result = result.filter(s => s.type_peau === styleFilters.type_peau);
+    if (styleFilters.niveau_difficulte) result = result.filter(s => s.niveau_difficulte === styleFilters.niveau_difficulte);
+    if (styleFilters.priceMin !== "") result = result.filter(s => Number(s.price) >= Number(styleFilters.priceMin));
+    if (styleFilters.priceMax !== "") result = result.filter(s => Number(s.price) <= Number(styleFilters.priceMax));
+    if (styleFilters.sortBy === "price_asc") result.sort((a, b) => Number(a.price || 0) - Number(b.price || 0));
+    if (styleFilters.sortBy === "price_desc") result.sort((a, b) => Number(b.price || 0) - Number(a.price || 0));
+    return result;
+  }, [activeCategory, styles, styleFilters]);
 
-  const goToDetail = (style) => navigate(`/style/${style.id}`, {
-    state: { id: style.id, title: style.title, cover: style.img, images: style.images, video_url: style.video_url, badge: style.category || "STYLE", category: style.category, description: style.description, likes: likeCounts[style.id] || style.likes, comments: style.comments }
-  });
+  const goToDetail = (style) => {
+    saveStylesReturnContext({
+      styleId: style.id,
+      scrollTop: scrollRef.current?.scrollTop || 0,
+      activeCategory,
+      quickFilter,
+      filters: styleFilters,
+      activeTab: "STYLES",
+    });
+    navigate(`/style/${style.id}`, {
+      state: { id: style.id, title: style.title, cover: style.img, images: style.images, video_url: style.video_url, badge: style.subcategory || style.category || "STYLE", category: style.category, subcategory: style.subcategory, description: style.description, likes: likeCounts[style.id] || style.likes, comments: style.comments }
+    });
+  };
 
   const isVideo = (url) => url && (url.includes(".mp4") || url.includes(".webm") || url.includes(".mov"));
 
   if (loading) return <div className="flex items-center justify-center" style={{ height: "calc(100vh - 220px)" }}><div className="w-8 h-8 border-4 border-gray-200 border-t-primary rounded-full animate-spin" /></div>;
 
   if (filteredStyles.length === 0) return (
-    <>
-      <div className="flex flex-col items-center justify-center gap-3 px-8 text-center" style={{ height: "calc(100vh - 260px)" }}>
+    <div className="h-full flex flex-col">
+      <StyleAdvancedFilterBar styles={styles} value={styleFilters} activeCategory={activeCategory} quickFilter={quickFilter} onQuickFilterConsumed={onQuickFilterConsumed} onChange={setStyleFilters} />
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8 text-center">
         <div className="w-20 h-20 rounded-3xl bg-orange-50 flex items-center justify-center">
           <Palette className="w-10 h-10 text-orange-400" />
         </div>
-        <p className="text-[16px] font-black text-gray-700">Aucun style publié</p>
-        <p className="text-[13px] text-gray-400 font-medium">Les professionnels n'ont pas encore publié de styles.</p>
+        <p className="text-[16px] font-black text-gray-700">{styles.length ? "Aucun style pour ces filtres" : "Aucun style publié"}</p>
+        <p className="text-[13px] text-gray-400 font-medium">{styles.length ? "Modifiez vos critères pour voir d'autres styles." : "Les professionnels n'ont pas encore publié de styles."}</p>
+        {styles.length > 0 && <button type="button" onClick={() => setStyleFilters({ category: "", subcategory: "", type_cheveux: "", type_peau: "", niveau_difficulte: "", priceMin: "", priceMax: "", sortBy: "recent" })} className="min-h-11 px-4 rounded-xl bg-primary text-white text-[12px] font-black">Effacer les filtres</button>}
       </div>
-    </>
+    </div>
   );
 
   return (
@@ -500,16 +894,19 @@ function StylesTab({ activeCategory }) {
           onView={() => { setShowImmobilier(false); navigate("/immobilier"); }}
         />
       )}
-      <div ref={scrollRef} className="overflow-y-scroll hide-scrollbar" style={{ height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))", scrollSnapType: "y mandatory", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
+      <div className="h-full flex flex-col">
+        <StyleAdvancedFilterBar styles={styles} value={styleFilters} activeCategory={activeCategory} quickFilter={quickFilter} onQuickFilterConsumed={onQuickFilterConsumed} onChange={setStyleFilters} />
+        <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-scroll hide-scrollbar" style={{ scrollSnapType: "y mandatory", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
         {filteredStyles.map((style, idx) => (
           <React.Fragment key={style.id}>
             {idx > 0 && idx % 5 === 0 && annonces.length > 0 && !hiddenAds.includes(idx) && (
-              <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))" }}
+              <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "100%" }}
                 className="bg-black flex flex-col overflow-hidden">
                 <SponsoredCard annonce={annonces[Math.floor(idx / 5 - 1) % annonces.length]} onClose={() => setHiddenAds(h => [...h, idx])} variant="styles" />
               </div>
             )}
             <StyleCard
+              styleId={style.id}
               style={style} liked={liked.includes(style.id)} likeCount={likeCounts[style.id] || 0}
               followed={followed.includes(style.author_email)}
               onFollow={(e) => handleFollow(e, style.author_email)}
@@ -522,11 +919,12 @@ function StylesTab({ activeCategory }) {
           </React.Fragment>
         ))}
         {filteredStyles.length === 5 && annonces[0] && !hiddenAds.includes(5) && (
-          <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))" }}
+          <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "100%" }}
             className="bg-black flex flex-col overflow-hidden">
             <SponsoredCard annonce={annonces[0]} onClose={() => setHiddenAds(h => [...h, 5])} variant="styles" />
           </div>
         )}
+        </div>
       </div>
       {showComments && <CommentsSheet style={showComments} onClose={() => setShowComments(null)} onCommentCountChange={(styleId, newCount) => {
         setStyles(prev => prev.map(s => String(s.id) === String(styleId) ? { ...s, comments: newCount } : s));
@@ -537,7 +935,8 @@ function StylesTab({ activeCategory }) {
   );
 }
 
-function StyleCard({ style, liked, likeCount, followed, onFollow, onLike, onComment, onShare, onDetail, onBook, isVideo }) {
+function StyleCard({ style, styleId, liked, likeCount, followed, onFollow, onLike, onComment, onShare, onDetail, onBook, isVideo }) {
+  const { user } = useAuth();
   const [imgIdx, setImgIdx] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(true);
@@ -587,9 +986,12 @@ function StyleCard({ style, liked, likeCount, followed, onFollow, onLike, onComm
     setProgress(ratio * 100);
   };
 
+  const isBeautyBookAdmin = normalizeStyleTaxonomyValue(style.author_name) === "beautybook admin";
+  const displayAuthorName = isBeautyBookAdmin ? "" : style.author_name;
+
   return (
-    <div className="relative w-full shrink-0 overflow-hidden"
-      style={{ height: "calc(100dvh - 252px - env(safe-area-inset-bottom, 60px))", scrollSnapAlign: "start", scrollSnapStop: "always" }}
+    <div data-style-id={styleId || style.id} className="relative w-full shrink-0 overflow-hidden"
+      style={{ height: "100%", scrollSnapAlign: "start", scrollSnapStop: "always" }}
       onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {allMedia.map((url, i) => (
       <div key={i} className="absolute inset-0 w-full h-full transition-transform duration-300 ease-in-out" style={{ transform: `translateX(${(i - imgIdx) * 100}%)` }}>
@@ -625,7 +1027,7 @@ function StyleCard({ style, liked, likeCount, followed, onFollow, onLike, onComm
 
       {/* Contrôles vidéo bas — play/pause + son */}
       {currentIsVideo && (
-        <div className="absolute left-4 right-20 z-20 flex items-center gap-2" style={{ bottom: "calc(100px + env(safe-area-inset-bottom, 0px))" }}>
+        <div className="absolute left-4 right-20 z-20 flex items-center gap-2" style={{ bottom: "calc(128px + env(safe-area-inset-bottom, 0px))" }}>
           <button onClick={togglePlay} className="w-8 h-8 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center active:scale-95">
             {playing
               ? <div className="flex gap-0.5"><div className="w-1 h-3.5 bg-white rounded-full" /><div className="w-1 h-3.5 bg-white rounded-full" /></div>
@@ -638,7 +1040,7 @@ function StyleCard({ style, liked, likeCount, followed, onFollow, onLike, onComm
       )}
 
       {/* Icônes actions — style cercle plein */}
-      <div className="absolute right-3 flex flex-col items-center gap-3 z-10" style={{ bottom: "calc(110px + env(safe-area-inset-bottom, 0px))" }}>
+      <div className="absolute right-3 flex flex-col items-center gap-3 z-10" style={{ bottom: "calc(128px + env(safe-area-inset-bottom, 0px))" }}>
         <button onClick={onLike} className="flex flex-col items-center gap-0.5 active:scale-90 transition-all">
           <div className="w-10 h-10 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center shadow-lg">
             <Heart className={`w-5 h-5 transition-all ${liked ? "fill-red-500 text-red-500 scale-110" : "text-white"}`} />
@@ -666,10 +1068,10 @@ function StyleCard({ style, liked, likeCount, followed, onFollow, onLike, onComm
         </button>
       </div>
 
-      <div className="absolute left-4 right-20 z-10" style={{ bottom: "calc(92px + env(safe-area-inset-bottom, 0px))" }}>
-        {style.author_name && (
+      <div className="absolute left-4 right-20 z-10" style={{ bottom: "calc(104px + env(safe-area-inset-bottom, 0px))" }}>
+        {displayAuthorName && (
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-white text-[13px] font-bold truncate" onClick={onDetail}>{style.author_name}</span>
+            <span className="text-white text-[13px] font-bold truncate" onClick={onDetail}>{displayAuthorName}</span>
             {style.author_email && style.author_email !== user?.email && (
               <button onClick={onFollow} className={`shrink-0 border rounded-full px-2.5 py-0.5 text-[10px] font-black transition-all ${followed ? "border-white/40 text-white/60" : "border-white text-white"}`}>
                 {followed ? "Abonné" : "Suivre"}
@@ -677,19 +1079,36 @@ function StyleCard({ style, liked, likeCount, followed, onFollow, onLike, onComm
             )}
           </div>
         )}
-        <h3 className="text-white text-[20px] font-black leading-tight mb-1 cursor-pointer" onClick={onDetail}>{style.title}</h3>
+        <h3 className="text-white text-[21px] font-black leading-tight mb-1 cursor-pointer drop-shadow-sm" onClick={onDetail}>{style.title}</h3>
         {style.description && (
-          <p className={`text-white/80 text-[11px] font-medium leading-relaxed ${!descExpanded ? 'line-clamp-2' : ''}`}>
-            {style.description}
-            {style.description.length > 60 && (
-              <span className="text-primary font-bold ml-1 cursor-pointer" onClick={(e) => { e.stopPropagation(); setDescExpanded(!descExpanded); }}>
-                {descExpanded ? 'Voir moins' : 'Voir plus'}
-              </span>
+          <div className="relative">
+            <p className={`text-white/90 text-[12px] font-medium leading-relaxed drop-shadow-sm ${!descExpanded ? 'line-clamp-2 pr-14' : ''}`}>
+              {style.description}
+            </p>
+            {style.description.length > 60 && !descExpanded && (
+              <button
+                type="button"
+                aria-expanded="false"
+                className="absolute bottom-0 right-0 bg-gradient-to-l from-black/80 via-black/70 to-transparent pl-3 text-[11px] font-black text-primary"
+                onClick={(e) => { e.stopPropagation(); setDescExpanded(true); }}
+              >
+                Voir plus
+              </button>
             )}
-          </p>
+            {style.description.length > 60 && descExpanded && (
+              <button
+                type="button"
+                aria-expanded="true"
+                className="mt-1 text-[11px] font-black text-primary"
+                onClick={(e) => { e.stopPropagation(); setDescExpanded(false); }}
+              >
+                Voir moins
+              </button>
+            )}
+          </div>
         )}
-        {style.category && (
-          <span className="inline-block mt-1.5 bg-primary/80 text-white text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest cursor-pointer" onClick={onDetail}>{style.category}</span>
+        {(style.subcategory || style.category) && (
+          <span className="inline-block mt-1.5 bg-primary/80 text-white text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest cursor-pointer" onClick={onDetail}>{style.subcategory || style.category}</span>
         )}
       </div>
     </div>
@@ -1664,9 +2083,18 @@ function SalonsTab({ activeCategory }) {
 
   const { profils, minPricesMap } = data;
 
-  const filtered = useMemo(() => (
-    activeCategory === "Tous" ? profils : profils.filter(p => p.specialites?.some(s => s.toLowerCase().includes(activeCategory.toLowerCase())))
-  ), [profils, activeCategory]);
+  const filtered = useMemo(() => {
+    if (activeCategory === "Tous") return profils;
+    const target = activeCategory.toLowerCase();
+    return profils.filter(profile => {
+      const values = [
+        profile.categorie,
+        profile.salon_category,
+        ...(Array.isArray(profile.salon_categories) ? profile.salon_categories : []),
+      ].filter(Boolean).map(value => String(value).toLowerCase());
+      return values.some(value => value === target || value.includes(target));
+    });
+  }, [profils, activeCategory]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -2216,27 +2644,55 @@ const TAB_META = [
 // Icônes des pastilles de catégories (style page Recherche)
 const CAT_ICONS = {
   "Tous": Sparkles, "Coiffure": Scissors, "Maquillage": Paintbrush, "Ongles": Gem,
+  "Perruque": Sparkles, "Tresses": Waves, "Extensions": Sparkles, "Pédicure": Footprints,
   "Soin": Droplets, "Barbe": Zap, "Massage": Hand, "Épilation": Sparkles,
+  "Cils & Sourcils": Eye, "Spa & Bien-être": Heart, "Tatouage": PenTool, "Piercing": Circle,
   "Prestige": Gem, "Luxe": Crown, "Bio": Leaf, "Moderne": Zap, "Classique": Star,
 };
 
-function CategoryPills({ cats, active, onChange }) {
+function CategoryPills({ cats, active, onChange, extras = [], extraActive, onExtraChange }) {
+  // Keep one visual selection in the whole category row. When a quick filter
+  // is active, it replaces the generic "Tous" state instead of appearing
+  // selected alongside it.
+  const activeCategory = extraActive ? null : (cats.includes(active) ? active : "Tous");
+
+  const renderExtra = ({ id, label, Icon }) => (
+    <button
+      key={id}
+      type="button"
+      aria-label={label}
+      aria-pressed={extraActive === id}
+      className={extraActive === id ? "selected" : ""}
+      onClick={() => onExtraChange?.(id)}
+    >
+      <Icon size={16} />
+      {label}
+    </button>
+  );
+
+  const categoryItems = cats.flatMap((cat) => {
+    const Icon = CAT_ICONS[cat] || Sparkles;
+    const categoryButton = (
+      <button
+        key={`category-${cat}`}
+        type="button"
+        aria-pressed={activeCategory === cat}
+        aria-current={activeCategory === cat ? "true" : undefined}
+        className={activeCategory === cat ? "selected" : ""}
+        onClick={() => onChange(cat)}
+      >
+        <Icon size={16} />
+        {cat}
+      </button>
+    );
+
+    if (cat !== "Coiffure" || extras.length === 0) return [categoryButton];
+    return [categoryButton, ...extras.map(renderExtra)];
+  });
+
   return (
     <nav className="discovery-categories" aria-label="Catégories de prestations">
-      {cats.map((cat) => {
-        const Icon = CAT_ICONS[cat] || Sparkles;
-        return (
-          <button
-            key={cat}
-            aria-pressed={active === cat}
-            className={active === cat ? 'selected' : ''}
-            onClick={() => onChange(cat)}
-          >
-            <Icon size={16} />
-            {cat}
-          </button>
-        );
-      })}
+      {categoryItems}
     </nav>
   );
 }
@@ -2273,6 +2729,47 @@ function QuickPublishModal({ onClose }) {
 }
 
 // ── Search Results ────────────────────────────────────────────────────────────
+function VisualSearchResults({ result, onClose }) {
+  const products = result?.products || [];
+  const detectedItems = result?.detected_items || [];
+
+  return (
+    <div className="border-t border-gray-100 bg-white px-4 pb-4 pt-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-widest text-primary">Recherche visuelle</p>
+          <p className="mt-1 text-[12px] text-gray-500">Éléments détectés dans votre photo</p>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Fermer la recherche visuelle" className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-500 transition hover:bg-gray-200">
+          <X size={17} />
+        </button>
+      </div>
+      {detectedItems.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {detectedItems.map((item, index) => <span key={`${item.type}-${index}`} className="rounded-full bg-orange-50 px-3 py-1.5 text-[11px] font-bold text-orange-700">{item.type}{item.color ? ` · ${item.color}` : ""}</span>)}
+        </div>
+      )}
+      {products.length > 0 ? (
+        <>
+          <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-400">Produits correspondants ({products.length})</p>
+          <div className="grid grid-cols-2 gap-3">
+            {products.slice(0, 6).map(product => (
+              <a key={product.id} href={product.url || `/produit/${product.id}`} className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="h-24 bg-gray-100">
+                  {product.img ? <BeautyImage src={product.img} alt={product.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-2xl">✨</div>}
+                </div>
+                <div className="p-2.5"><p className="truncate text-[12px] font-black text-gray-900">{product.name}</p>{product.price != null && <p className="mt-1 text-[11px] font-bold text-primary">{product.price}€</p>}</div>
+              </a>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="rounded-2xl bg-gray-50 px-4 py-5 text-center"><p className="text-[13px] font-bold text-gray-600">Aucun produit correspondant pour le moment.</p><p className="mt-1 text-[11px] text-gray-400">Essayez une photo plus nette ou utilisez la recherche texte.</p></div>
+      )}
+    </div>
+  );
+}
+
 function SearchResults({ query, onClose }) {
   const navigate = useNavigate();
   const [results, setResults] = useState({ styles: [], services: [] });
@@ -2364,7 +2861,8 @@ function SearchResults({ query, onClose }) {
 export default function ServicesSalons() {
   const navigate = useNavigate();
   const urlParams = new URLSearchParams(window.location.search);
-  const initialTab = urlParams.get("tab") || "STYLES";
+  const restoredStylesContext = readStylesReturnContext();
+  const initialTab = urlParams.get("tab") || restoredStylesContext?.activeTab || "STYLES";
 
   // Mapping catégorie id (depuis Home GLOBAL_CATEGORIES) → tab + sous-catégorie
   const CAT_MAP = {
@@ -2388,19 +2886,78 @@ export default function ServicesSalons() {
 
   const [activeTab, setActiveTab] = useState(catMapped?.tab || initialTab);
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [visualSearch, setVisualSearch] = useState(null);
+  const [visualSearchLoading, setVisualSearchLoading] = useState(false);
+  const [visualSearchError, setVisualSearchError] = useState("");
+  const imageSearchInputRef = useRef(null);
   const [showPublish, setShowPublish] = useState(false);
+  const [styleQuickFilter, setStyleQuickFilter] = useState(restoredStylesContext?.quickFilter || null);
+  const [adminStyleCategories, setAdminStyleCategories] = useState([]);
   const [activeCategoryMap, setActiveCategoryMap] = useState({
-    STYLES: catMapped?.tab === "STYLES" ? catMapped.sub : "Tous",
+    STYLES: catMapped?.tab === "STYLES" ? catMapped.sub : (restoredStylesContext?.activeCategory || "Tous"),
     SERVICES: catMapped?.tab === "SERVICES" ? catMapped.sub : "Tous",
     SALONS: "Tous",
     PARTICULIERS: "Tous",
   });
 
-  const closeSearch = () => { setSearch(""); };
+  const loadAdminStyleCategories = useCallback(async () => {
+    const remoteResult = await entities.StyleCategory
+      .filter({ is_active: true }, "-created_at", 500)
+      .catch(() => []);
+    const remoteRows = Array.isArray(remoteResult) ? remoteResult : remoteResult?.data?.results || [];
+    let localRows = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem("bb_style_categories") || "[]");
+      localRows = Array.isArray(parsed) ? parsed : [];
+    } catch {}
+    const seen = new Set();
+    const merged = [...remoteRows, ...localRows]
+      .filter(item => item && item.is_active !== false)
+      .filter(item => {
+        const identity = normalizeStyleTaxonomyValue(item.id || item.name || item.label || item.title);
+        if (!identity || seen.has(identity)) return false;
+        seen.add(identity);
+        return true;
+      });
+    setAdminStyleCategories(merged);
+  }, []);
 
-  const currentCats = activeTab === "STYLES" ? STYLE_CATEGORIES
+  useEffect(() => {
+    loadAdminStyleCategories();
+    const unsubscribe = entities.StyleCategory?.subscribe?.(() => loadAdminStyleCategories());
+    return () => unsubscribe?.();
+  }, [loadAdminStyleCategories]);
+
+  const closeSearch = () => { setSearch(""); setSearchOpen(false); setVisualSearch(null); setVisualSearchError(""); };
+
+  const handleImageSearch = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setSearchOpen(true);
+    setVisualSearch(null);
+    setVisualSearchError("");
+    setVisualSearchLoading(true);
+    try {
+      const { file_url } = await uploadFile({ file });
+      const response = await apiClient.callFunction("shAiImageSearch", { image_url: file_url });
+      setVisualSearch(response?.data || response || { detected_items: [], products: [] });
+    } catch (error) {
+      setVisualSearchError(error?.message || "La recherche par image est momentanément indisponible.");
+    } finally {
+      setVisualSearchLoading(false);
+    }
+  };
+
+  const dynamicStyleCategories = useMemo(() => {
+    const adminNames = adminStyleCategories.map(item => item.name || item.label || item.title).filter(Boolean);
+    return ["Tous", ...new Set([...STYLE_CATEGORIES.slice(1), ...adminNames])];
+  }, [adminStyleCategories]);
+
+  const currentCats = activeTab === "STYLES" ? dynamicStyleCategories
     : activeTab === "SERVICES" ? SERVICE_CATEGORIES
-    : activeTab === "SALONS" ? SALON_CATEGORIES
+    : activeTab === "SALONS" ? SALON_FILTER_CATEGORIES
     : activeTab === "PARTICULIERS" ? PARTICULIER_CATEGORIES : [];
 
   return (
@@ -2408,35 +2965,36 @@ export default function ServicesSalons() {
 
       {showPublish && <QuickPublishModal onClose={() => setShowPublish(false)} />}
 
-      {/* ── Header hero (design page Recherche) ── */}
+      {/* ── En-tête compact : la recherche est accessible à la demande ── */}
       <header className="discovery-hero flex-shrink-0 relative z-40">
-        <div className="discovery-topline">
-          <span className="discovery-eyebrow"><span className="pulse-dot" /> Trouvez votre bonheur</span>
-          <span className="discovery-brand">BeautyBook<span className="brand-dot">.</span></span>
-        </div>
-
-        <div className="discovery-heading">
-          <div>
-            <h1>Services & <em>Salons.</em></h1>
+        <div className="services-page-toolbar">
+          <div className="services-page-heading">
+            <span className="services-page-kicker">BeautyBook</span>
+            <span className="services-page-context">Explorer les styles et prestations</span>
           </div>
+          <button type="button" aria-label={searchOpen ? "Fermer la recherche" : "Ouvrir la recherche"} aria-expanded={searchOpen} onClick={() => setSearchOpen(previous => !previous)} className={`services-search-trigger ${searchOpen ? "active" : ""}`}>
+            <Search size={21} aria-hidden="true" />
+          </button>
         </div>
 
-        {/* Barre de recherche */}
-        <div className="relative">
-          <div className="discovery-searchbar">
-            <label className="discovery-query">
-              <Search size={20} aria-hidden="true" />
-              <span className="sr-only">Rechercher</span>
-              <input
-                type="search"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Styles, services, catégories..."
-              />
+        {searchOpen && <div className="services-search-panel relative">
+          <div className="services-search-controls">
+            <label className="discovery-query flex-1">
+              <Search size={19} aria-hidden="true" />
+              <span className="sr-only">Rechercher un style, un service ou une catégorie</span>
+              <input autoFocus type="search" value={search} onChange={event => { setSearch(event.target.value); setVisualSearch(null); }} placeholder="Styles, services, catégories..." />
             </label>
+            <input ref={imageSearchInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleImageSearch} />
+            <button type="button" onClick={() => imageSearchInputRef.current?.click()} aria-label="Rechercher par image" title="Rechercher par image" className="services-image-search-button">
+              {visualSearchLoading ? <Loader2 size={19} className="animate-spin" /> : <Camera size={19} />}
+              <span className="sr-only">Rechercher par image</span>
+            </button>
           </div>
-          {search.trim().length >= 2 && <SearchResults query={search} onClose={closeSearch} />}
-        </div>
+          <p className="services-search-hint"><ImageIcon size={13} /> Importez une photo pour trouver des produits similaires.</p>
+          {visualSearchError && <p role="alert" className="services-search-error">{visualSearchError}</p>}
+          {visualSearch && <VisualSearchResults result={visualSearch} onClose={() => setVisualSearch(null)} />}
+          {search.trim().length >= 2 && !visualSearch && <SearchResults query={search} onClose={closeSearch} />}
+        </div>}
 
         {/* Onglets principaux */}
         <div className="discovery-entity-tabs-container">
@@ -2461,17 +3019,30 @@ export default function ServicesSalons() {
           <CategoryPills
             cats={currentCats}
             active={activeCategoryMap[activeTab]}
-            onChange={v => setActiveCategoryMap(p => ({ ...p, [activeTab]: v }))}
+            onChange={v => {
+              setActiveCategoryMap(p => ({ ...p, [activeTab]: v }));
+              if (activeTab === "STYLES") setStyleQuickFilter(null);
+            }}
+            extras={activeTab === "STYLES" ? [
+              { id: "type_cheveux", label: "Type de cheveux", Icon: Scissors },
+              { id: "type_peau", label: "Type de peau", Icon: Droplets },
+              { id: "niveau_difficulte", label: "Niveau de difficulté", Icon: Sparkles },
+            ] : []}
+            extraActive={activeTab === "STYLES" ? styleQuickFilter : null}
+            onExtraChange={id => {
+              setActiveCategoryMap(p => ({ ...p, STYLES: "Tous" }));
+              setStyleQuickFilter(previous => previous === id ? null : id);
+            }}
           />
         )}
       </header>
 
       {/* ── Tab Content ── */}
       <div
-        className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 pb-24"
+        className={`flex-1 overflow-y-auto overflow-x-hidden min-h-0 ${activeTab === "STYLES" ? "pb-0" : "pb-24"}`}
         style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain", height: "100%" }}
       >
-        {activeTab === "STYLES" && <StylesTab activeCategory={activeCategoryMap["STYLES"]} />}
+        {activeTab === "STYLES" && <StylesTab activeCategory={activeCategoryMap["STYLES"]} quickFilter={styleQuickFilter} returnContext={restoredStylesContext} onQuickFilterConsumed={() => setStyleQuickFilter(null)} />}
         {activeTab === "SERVICES" && <ServicesTab activeCategory={activeCategoryMap["SERVICES"]} />}
         {activeTab === "SALONS" && <SalonsTab activeCategory={activeCategoryMap["SALONS"]} />}
         {activeTab === "PARTICULIERS" && <ParticuliersTab activeCategory={activeCategoryMap["PARTICULIERS"]} />}

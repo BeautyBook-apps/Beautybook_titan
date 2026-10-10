@@ -30,6 +30,9 @@ export const RESOURCES = {
   bb_seller_accounts: { permission: 'sellers', fields: ['shop_name','status','low_stock_threshold'] },
   bb_handoffs: { permission: 'support', fields: ['status'] },
   bb_outbox: { permission: 'operations', fields: [], readOnly: true },
+  UserSubscription: { permission: 'operations', fields: [], readOnly: true },
+  bb_payment_sessions: { permission: 'operations', fields: [], readOnly: true },
+  bb_order_payments: { permission: 'operations', fields: [], readOnly: true },
   bb_deletion_jobs: { permission: 'users', fields: [], readOnly: true },
 };
 const hidden = ['password','access_token','refresh_token','credentials','stripe_customer_id','mux_stream_key'];

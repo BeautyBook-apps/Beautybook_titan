@@ -2,6 +2,23 @@ import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ExternalLink, X, Play, Volume2, VolumeX } from "lucide-react";
 
+function cacheBustedMediaUrl(src, retry = false) {
+  if (!src) return src;
+  try {
+    const url = new URL(src, window.location.href);
+    // Chrome peut conserver une réponse vidéo partielle Supabase et retourner
+    // ERR_CACHE_OPERATION_NOT_SUPPORTED. Une clé unique force une requête
+    // Range propre sans modifier le fichier distant.
+    if (retry || url.pathname.includes("/storage/v1/object/public/")) {
+      url.searchParams.set("bb_media", `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    }
+    return url.toString();
+  } catch {
+    const separator = src.includes("?") ? "&" : "?";
+    return `${src}${separator}bb_media=${Date.now()}`;
+  }
+}
+
 export default function SponsoredCard({ annonce, onClose, variant = "reels" }) {
   if (!annonce || (!annonce.image_url && !annonce.video_url)) return null;
 
@@ -16,17 +33,19 @@ export default function SponsoredCard({ annonce, onClose, variant = "reels" }) {
   );
 }
 
-function VideoPlayer({ src, poster, className, style, soundOn = true }) {
+function VideoPlayer({ src, poster, className, style, soundOn = false }) {
   const ref = useRef(null);
   const visibleRef = useRef(true);
   const pausedByVisibilityRef = useRef(false);
   const pauseDeadlineRef = useRef(0);
   const resumeTimerRef = useRef(null);
   const [failed, setFailed] = useState(false);
-  const [mediaSrc, setMediaSrc] = useState(src);
+  const [retryCount, setRetryCount] = useState(0);
+  const [mediaSrc, setMediaSrc] = useState(() => cacheBustedMediaUrl(src));
 
   useEffect(() => {
-    setMediaSrc(src);
+    setMediaSrc(cacheBustedMediaUrl(src));
+    setRetryCount(0);
     setFailed(false);
   }, [src]);
 
@@ -84,14 +103,18 @@ function VideoPlayer({ src, poster, className, style, soundOn = true }) {
     if (!mediaSrc || failed) return;
     const el = ref.current;
     if (!el) return;
+
+    // Le navigateur doit recevoir la vidéo muette dès son montage pour
+    // autoriser l'autoplay. Le changement de son ne doit jamais appeler
+    // load(), sinon la vidéo repart de zéro et le clic est perdu.
     el.muted = !soundOn;
-    el.load();
     const onCanPlay = () => {
       if (visibleRef.current && !pausedByVisibilityRef.current) tryPlay();
     };
     el.addEventListener("canplay", onCanPlay);
+    if (el.readyState >= 3) onCanPlay();
     return () => el.removeEventListener("canplay", onCanPlay);
-  }, [mediaSrc, failed, tryPlay, soundOn]);
+  }, [mediaSrc, failed, tryPlay]);
 
   useEffect(() => {
     if (ref.current) {
@@ -118,14 +141,15 @@ function VideoPlayer({ src, poster, className, style, soundOn = true }) {
       <video ref={ref} src={mediaSrc} poster={poster}
         className="absolute inset-0 w-full h-full object-cover object-top"
         style={{ objectPosition: "top center" }}
-        autoPlay playsInline preload="auto" controls={false} loop
+        autoPlay playsInline preload="metadata" controls={false} loop
         muted={!soundOn}
         onError={() => {
           // Certains navigateurs échouent sur une réponse vidéo mise en
           // cache (ERR_CACHE_OPERATION_NOT_SUPPORTED). Une seule nouvelle
           // URL force une requête propre sans changer le fichier Supabase.
-          if (mediaSrc === src && src) {
-            setMediaSrc(`${src}${src.includes("?") ? "&" : "?"}bb_retry=1`);
+          if (retryCount === 0 && src) {
+            setRetryCount(1);
+            setMediaSrc(cacheBustedMediaUrl(src, true));
           } else {
             setFailed(true);
           }
@@ -158,7 +182,7 @@ function AdCountdown({ total = 5, onSkip }) {
 function ReelsAd({ annonce, onClose }) {
   const [showSkip, setShowSkip] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [soundOn, setSoundOn] = useState(true);
+  const [soundOn, setSoundOn] = useState(false);
   const isVideo = !!annonce.video_url;
 
   const descSentences = (() => {
@@ -200,9 +224,10 @@ function ReelsAd({ annonce, onClose }) {
           {isVideo ? (
             <div className="flex items-center gap-2 shrink-0">
               <button
-                onClick={() => setSoundOn(v => !v)}
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setSoundOn(v => !v); }}
                 aria-label={soundOn ? "Couper le son" : "Activer le son"}
-                className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white active:scale-95 transition-all"
+                className="w-11 h-11 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center text-white active:scale-95 transition-all touch-manipulation"
               >
                 {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
               </button>
@@ -254,7 +279,7 @@ function ReelsAd({ annonce, onClose }) {
 function StylesAd({ annonce, onClose }) {
   const [showSkip, setShowSkip] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [soundOn, setSoundOn] = useState(true);
+  const [soundOn, setSoundOn] = useState(false);
   const isVideo = !!annonce.video_url;
 
   const descSentences = (() => {
@@ -294,9 +319,10 @@ function StylesAd({ annonce, onClose }) {
         {isVideo ? (
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => setSoundOn(v => !v)}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setSoundOn(v => !v); }}
               aria-label={soundOn ? "Couper le son" : "Activer le son"}
-              className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white active:scale-95 transition-all"
+              className="w-11 h-11 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center text-white active:scale-95 transition-all touch-manipulation"
             >
               {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>

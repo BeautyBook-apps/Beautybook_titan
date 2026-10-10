@@ -2,6 +2,30 @@ const NOMINATIM_HEADERS = {
   "User-Agent": "BeautyBookApp/1.0 (contact@beautybook.fr)",
   "Accept-Language": "fr",
 };
+const MAPS_TIMEOUT_MS = 6000;
+
+function validCoordinate(value, min, max) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= min && number <= max ? number : null;
+}
+
+async function fetchJson(url, options = {}) {
+  // AbortSignal.timeout n'est pas disponible dans toutes les versions Node
+  // utilisées en développement. Un AbortController local garde le même
+  // délai sans provoquer d'exception avant même l'appel réseau.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), MAPS_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Maps provider returned ${response.status}`);
+    return response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 export const placesAutocomplete = async (req, res) => {
   try {
@@ -105,20 +129,37 @@ export const geocode = async (req, res) => {
 
 // ── Reverse geocode: lat/lng → ville (public, pas d'auth) ──
 export const reverseGeocode = async (req, res) => {
-  try {
-    const { lat, lng } = req.query;
-    if (!lat || !lng) return res.status(400).json({ error: "lat & lng required" });
+  const latitude = validCoordinate(req.query.lat, -90, 90);
+  const longitude = validCoordinate(req.query.lng, -180, 180);
+  if (latitude === null || longitude === null) return res.status(400).json({ error: "lat & lng required" });
 
-    const resp = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+  try {
+    const data = await fetchJson(
+      `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=jsonv2&addressdetails=1`,
       { headers: NOMINATIM_HEADERS }
     );
-    const data = await resp.json();
-    const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county || "";
+    const city = data.address?.city || data.address?.town || data.address?.village || data.address?.municipality || data.address?.county || "";
     const country = data.address?.country_code?.toUpperCase() || "";
-    return res.json({ city, country });
+    if (city) return res.json({ city, country });
   } catch (error) {
-    console.error("reverseGeocode error:", error.message);
-    return res.status(500).json({ error: error.message });
+    console.warn("reverseGeocode Nominatim unavailable:", error.message);
+  }
+
+  // Nominatim can throttle local development traffic. The French public
+  // address API is a compatible fallback for the application's city label.
+  try {
+    const data = await fetchJson(
+      `https://api-adresse.data.gouv.fr/reverse/?lon=${longitude}&lat=${latitude}`,
+      { headers: { "Accept-Language": "fr" } }
+    );
+    const properties = data.features?.[0]?.properties || {};
+    return res.json({
+      city: properties.city || properties.municipality || "",
+      country: properties.context?.includes("France") ? "FR" : "",
+    });
+  } catch (error) {
+    // Location tracking must remain usable when both geocoders are down.
+    console.warn("reverseGeocode providers unavailable:", error.message);
+    return res.json({ city: "", country: "", unavailable: true });
   }
 };

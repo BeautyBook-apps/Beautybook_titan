@@ -6,7 +6,9 @@
  * Vidéos → MediaRecorder (re-encodage bitrate adaptatif)
  */
 
-const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50 Mo
+// Le serveur d'administration accepte 20 Mo par média. On garde une marge
+// pour l'encodage JSON/base64 utilisé par l'upload local.
+const MAX_SIZE_BYTES = 18 * 1024 * 1024;
 
 // ─── IMAGES ──────────────────────────────────────────────────────────────────
 
@@ -98,6 +100,7 @@ export async function compressVideo(file, opts = {}) {
     maxBytes = MAX_SIZE_BYTES,
     maxWidth = 1280,
     maxHeight = 720,
+    force = false,
     onProgress = null, // (pct) => void
   } = opts;
 
@@ -105,7 +108,7 @@ export async function compressVideo(file, opts = {}) {
   if (!file.type.startsWith('video/')) return file;
 
   // Si déjà sous la limite
-  if (file.size <= maxBytes) return file;
+  if (file.size <= maxBytes && !force) return file;
 
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
@@ -113,7 +116,7 @@ export async function compressVideo(file, opts = {}) {
     video.playsInline = true;
     const url = URL.createObjectURL(file);
 
-    video.onloadedmetadata = async () => {
+    video.onloadedmetadata = () => {
       const vWidth = video.videoWidth;
       const vHeight = video.videoHeight;
       const duration = video.duration;
@@ -141,6 +144,12 @@ export async function compressVideo(file, opts = {}) {
       canvas.height = outH;
       const ctx = canvas.getContext('2d');
 
+      if (!window.MediaRecorder || typeof canvas.captureStream !== 'function') {
+        URL.revokeObjectURL(url);
+        resolve(file);
+        return;
+      }
+
       // Capturer le stream du canvas
       const canvasStream = canvas.captureStream(30);
 
@@ -149,14 +158,14 @@ export async function compressVideo(file, opts = {}) {
       const videoBitrateKbps = Math.round(videoBitrate / 1000);
 
       // MediaRecorder avec le bon codec
-      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      const recorderMimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
         ? 'video/webm;codecs=vp9'
         : MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
           ? 'video/webm;codecs=vp8'
           : 'video/webm';
 
       const recorder = new MediaRecorder(canvasStream, {
-        mimeType,
+        mimeType: recorderMimeType,
         videoBitsPerSecond: videoBitrate,
       });
 
@@ -172,9 +181,10 @@ export async function compressVideo(file, opts = {}) {
           resolve(file); // Si pas d'amélioration, garder l'original
           return;
         }
-        const ext = mimeType.includes('vp9') ? 'webm' : 'webm';
+        const ext = 'webm';
         const baseName = file.name.replace(/\.[^.]+$/, '');
-        resolve(new File([blob], `${baseName}.${ext}`, { type: mimeType, lastModified: Date.now() }));
+        // Le serveur valide le MIME principal, sans le suffixe codecs=...
+        resolve(new File([blob], `${baseName}.${ext}`, { type: 'video/webm', lastModified: Date.now() }));
       };
 
       recorder.onerror = () => {
@@ -183,12 +193,12 @@ export async function compressVideo(file, opts = {}) {
       };
 
       recorder.start(100);
-      video.currentTime = 0;
-      video.play().catch(() => {});
+
+      let started = false;
 
       const drawFrame = () => {
-        if (video.ended || video.paused || video.currentTime >= duration) {
-          recorder.stop();
+        if (video.ended || video.currentTime >= duration - 0.05) {
+          if (recorder.state !== 'inactive') recorder.stop();
           video.pause();
           return;
         }
@@ -204,8 +214,20 @@ export async function compressVideo(file, opts = {}) {
         setTimeout(drawFrame, delay);
       };
 
-      video.onseeked = () => drawFrame();
-      video.currentTime = 0;
+      const startCapture = async () => {
+        if (started) return;
+        started = true;
+        try {
+          await video.play();
+          drawFrame();
+        } catch {
+          if (recorder.state !== 'inactive') recorder.stop();
+          else { URL.revokeObjectURL(url); resolve(file); }
+        }
+      };
+
+      video.oncanplay = startCapture;
+      if (video.readyState >= 2) startCapture();
     };
 
     video.onerror = () => {
@@ -233,7 +255,7 @@ export async function compressMedia(file, opts = {}) {
   }
 
   if (type.startsWith('video/')) {
-    return compressVideo(file, opts);
+    return compressVideo(file, { ...opts, force: Boolean(opts.forceVideoTranscode) });
   }
 
   // Autres types → pas de compression

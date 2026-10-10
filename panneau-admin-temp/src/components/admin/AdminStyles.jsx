@@ -3,8 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { adminApi } from "@/lib/adminApiClient";
 import { entities } from "@/api/entities";
 import { uploadFile } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
-import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3, Palette, Tag, Tags, Zap, Clock, ChevronDown, ChevronUp, Scissors, Wrench, Lightbulb } from "lucide-react";
+import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3, Palette, Tag, Tags, Zap, Clock, Wrench, Lightbulb, Check, CheckSquare2, MonitorPlay, Heart, MessageSquare, Share2 } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import AdminStyleCategories from "./AdminStyleCategories";
 import AdminStyleSubCategories from "./AdminStyleSubCategories";
@@ -23,6 +22,55 @@ const DIFFICULTY_LEVELS = ["Débutant", "Intermédiaire", "Avancé", "Expert"];
 
 const HAIR_TYPES = ["Afro", "Européenne", "Asiatique", "Crépus", "Bouclés", "Ondulés", "Lisses", "Tresses", "Locks"];
 const SKIN_TYPES = ["Normale", "Sèche", "Grasse", "Mixte", "Sensible", "Mature"];
+
+function StylePreviewModal({ style, onClose }) {
+  if (!style) return null;
+  const media = style.images?.[0] || style.image_url;
+  const isVideo = style.video_url && /\.(mp4|webm|mov)(\?|$)/i.test(style.video_url);
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative h-[min(760px,calc(100vh-32px))] w-full max-w-[430px] overflow-hidden rounded-[2rem] bg-slate-950 shadow-2xl" onClick={event => event.stopPropagation()}>
+        <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-4 py-4">
+          <span className="rounded-full bg-black/35 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white backdrop-blur-md">Prévisualisation</span>
+          <button type="button" onClick={onClose} aria-label="Fermer la prévisualisation" className="flex h-10 w-10 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-md transition hover:bg-black/55">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="absolute inset-0">
+          {isVideo ? (
+            <video src={style.video_url} poster={media || undefined} autoPlay muted loop playsInline className="h-full w-full object-cover" />
+          ) : media ? (
+            <img src={media} alt={style.title || "Style"} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full items-center justify-center bg-slate-800"><Image className="h-12 w-12 text-slate-500" /></div>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/15 to-black/20" />
+        </div>
+
+        <div className="absolute bottom-0 left-0 right-0 z-10 p-5 text-white">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="rounded-full bg-primary px-3 py-1 text-[10px] font-black uppercase tracking-widest">{style.subcategory || style.category || "STYLE"}</span>
+            <span className={`rounded-full px-3 py-1 text-[10px] font-black ${style.status === "publie" ? "bg-emerald-400 text-emerald-950" : "bg-white/20 text-white"}`}>
+              {style.status === "publie" ? "Publié" : "Brouillon"}
+            </span>
+          </div>
+          <h2 className="text-[28px] font-black leading-tight">{style.title || "Style sans titre"}</h2>
+          {style.description && <p className="mt-2 line-clamp-3 text-[13px] font-medium leading-relaxed text-white/85">{style.description}</p>}
+          <div className="mt-5 flex items-center gap-3">
+            {[Heart, MessageSquare, Share2].map((Icon, index) => (
+              <div key={index} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/40 backdrop-blur-md">
+                <Icon className="h-5 w-5 text-white" />
+              </div>
+            ))}
+            <div className="ml-auto rounded-full bg-primary px-4 py-2 text-[11px] font-black uppercase tracking-wider">Offre</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminStyles() {
   const [activeTab, setActiveTab] = useState("styles");
@@ -50,34 +98,15 @@ export default function AdminStyles() {
   const [tagInput, setTagInput] = useState("");
 
   const [form, setForm] = useState(EMPTY_FORM);
-  const [draftId, setDraftId] = useState(null);
+  const [previewMedia, setPreviewMedia] = useState(null);
   const [editingId, setEditingId] = useState(null);
-  const autoSaveTimer = useRef(null);
+  const [selectedStyleIds, setSelectedStyleIds] = useState([]);
+  const [previewStyle, setPreviewStyle] = useState(null);
 
   const [subcategories, setSubcategories] = useState([]);
 
   const updateForm = (updater) => {
-    setForm(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      if (next.title) {
-        clearTimeout(autoSaveTimer.current);
-        autoSaveTimer.current = setTimeout(() => autoSaveDraft(next), 1500);
-      }
-      return next;
-    });
-  };
-
-  const autoSaveDraft = async (data) => {
-    try {
-      const { category_id, subcategory_id, ...cleanData } = data;
-      const styleData = { ...cleanData, pro_email: data.pro_email || "admin@beautybook.fr" };
-      if (draftId) {
-        await entities.Style.update(draftId, { ...styleData, status: "brouillon" });
-      } else {
-        const res = await entities.Style.create({ ...styleData, status: "brouillon" });
-        if (res?.id) setDraftId(res.id);
-      }
-    } catch {}
+    setForm(prev => typeof updater === "function" ? updater(prev) : updater);
   };
 
   const loadProduits = async () => {
@@ -101,11 +130,6 @@ export default function AdminStyles() {
       if (exists) return { ...f, produits_utilises: f.produits_utilises.filter(p => p.id !== produit.id) };
       return { ...f, produits_utilises: [...(f.produits_utilises || []), { id: produit.id, name: produit.name, brand: produit.brand || "", price: produit.price || 0, image_url: produit.image_url || "", source: produit.source || "boutique" }] };
     });
-  };
-
-  const clearDraft = async () => {
-    if (draftId && !editingId) { await entities.Style.delete(draftId).catch(() => {}); setDraftId(null); }
-    setForm(EMPTY_FORM);
   };
 
   const refreshList = () => {
@@ -146,6 +170,11 @@ export default function AdminStyles() {
     if (form.category_id) loadSubcategories(form.category_id);
     else loadSubcategories();
   }, [form.category_id]);
+
+  useEffect(() => {
+    const availableIds = new Set(styles.map(style => style.id));
+    setSelectedStyleIds(previous => previous.filter(id => availableIds.has(id)));
+  }, [styles]);
 
   const uploadMedia = async (e) => {
     const files = Array.from(e.target.files);
@@ -195,7 +224,6 @@ export default function AdminStyles() {
   };
 
   const editStyle = (style) => {
-    setDraftId(null);
     setEditingId(style.id);
     setForm({
       title: style.title || "", description: style.description || "", category: style.category || "",
@@ -214,10 +242,24 @@ export default function AdminStyles() {
     catch (err) { alert("Erreur suppression : " + err.message); }
   };
 
+  const deleteSelectedStyles = async () => {
+    const ids = selectedStyleIds.filter(Boolean);
+    if (!ids.length) return;
+    if (!confirm(`Supprimer définitivement ${ids.length} style${ids.length > 1 ? "s" : ""} sélectionné${ids.length > 1 ? "s" : ""} ?`)) return;
+    setSaving(true);
+    const results = await Promise.allSettled(ids.map(id => adminApi.deleteStyle(id)));
+    const failed = results.filter(result => result.status === "rejected").length;
+    const deletedIds = ids.filter((_, index) => results[index].status === "fulfilled");
+    setStyles(previous => previous.filter(style => !deletedIds.includes(style.id)));
+    setSelectedStyleIds([]);
+    setSaving(false);
+    if (failed) alert(`${failed} suppression${failed > 1 ? "s" : ""} n'a pas pu aboutir.`);
+    else setTimeout(refreshList, 500);
+  };
+
   const saveStyle = async (status) => {
     if (!form.title || !form.image_url) { alert("Titre et image principale requis."); return; }
     setSaving(true);
-    clearTimeout(autoSaveTimer.current);
     try {
       let savedStyle;
       const { category_id, subcategory_id, ...cleanForm } = form;
@@ -233,17 +275,13 @@ export default function AdminStyles() {
         const res = await entities.Style.update(editingId, payload);
         savedStyle = res || { ...form, id: editingId, status };
         setStyles(prev => prev.map(s => s.id === editingId ? savedStyle : s));
-      } else if (draftId) {
-        const res = await entities.Style.update(draftId, payload);
-        savedStyle = res || { ...form, id: draftId, status };
-        setStyles(prev => prev.map(s => s.id === draftId ? savedStyle : s));
       } else {
         const res = await entities.Style.create(payload);
         savedStyle = res;
         if (!savedStyle) throw new Error("Création échouée");
         setStyles(prev => [savedStyle, ...prev]);
       }
-      setDraftId(null); setEditingId(null); setCreating(false); setForm(EMPTY_FORM); refreshList();
+      setEditingId(null); setCreating(false); setForm(EMPTY_FORM); refreshList();
     } catch (err) { alert("Erreur : " + err.message); }
     setSaving(false);
   };
@@ -273,6 +311,22 @@ export default function AdminStyles() {
     const matchCat = !filterCategory || s.category === filterCategory;
     const matchSub = !filterSubCategory || s.subcategory === filterSubCategory;
     return matchSearch && matchCat && matchSub;
+  });
+
+  const groupedStyles = filtered.reduce((groups, style) => {
+    const category = style.category || "Sans catégorie";
+    const subcategory = style.subcategory || "Sans sous-catégorie";
+    if (!groups[category]) groups[category] = {};
+    if (!groups[category][subcategory]) groups[category][subcategory] = [];
+    groups[category][subcategory].push(style);
+    return groups;
+  }, {});
+  const visibleStyleIds = filtered.map(style => style.id);
+  const allVisibleSelected = visibleStyleIds.length > 0 && visibleStyleIds.every(id => selectedStyleIds.includes(id));
+  const toggleStyleSelection = (id) => setSelectedStyleIds(previous => previous.includes(id) ? previous.filter(selectedId => selectedId !== id) : [...previous, id]);
+  const toggleAllVisible = () => setSelectedStyleIds(previous => {
+    if (allVisibleSelected) return previous.filter(id => !visibleStyleIds.includes(id));
+    return [...new Set([...previous, ...visibleStyleIds])];
   });
 
   if (loading) return <div className="flex justify-center py-16"><div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
@@ -317,10 +371,10 @@ export default function AdminStyles() {
           </div>
 
           {creating && (
+            <>
             <form onSubmit={e => { e.preventDefault(); saveStyle("publie"); }} className="bg-white rounded-2xl p-5 border border-gray-200 space-y-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <h3 className="text-gray-900 text-[15px] font-black">{editingId ? "Modifier le style" : "Créer un style"}</h3>
-                {form.title && !editingId && <span className="text-[10px] text-gray-400 font-medium">{draftId ? "Brouillon sauvegardé" : "Sauvegarde auto..."}</span>}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -406,11 +460,16 @@ export default function AdminStyles() {
                           <Draggable key={`img-${i}`} draggableId={`img-${i}`} index={i}>
                             {(provided, snapshot) => (
                               <div ref={provided.innerRef} {...provided.draggableProps} className={`relative group ${snapshot.isDragging ? "z-50 opacity-80" : ""}`}>
-                                <div className={`w-20 h-20 rounded-xl overflow-hidden border-2 ${i === 0 ? "border-primary ring-2 ring-primary/20" : "border-gray-200"}`}>
-                                  <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
-                                </div>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewMedia({ type: "image", url, title: form.title || "Image du style" })}
+                              className={`w-20 h-20 rounded-xl overflow-hidden border-2 cursor-zoom-in ${i === 0 ? "border-primary ring-2 ring-primary/20" : "border-gray-200"}`}
+                              aria-label="Prévisualiser l'image"
+                            >
+                              <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                            </button>
                                 {i === 0 && <span className="absolute -top-1 -left-1 bg-primary text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow">MAIN</span>}
-                                <button type="button" onClick={() => removeMedia(i)}
+                            <button type="button" onClick={(event) => { event.stopPropagation(); removeMedia(i); }}
                                   className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
                                   <X className="w-3 h-3" />
                                 </button>
@@ -422,12 +481,17 @@ export default function AdminStyles() {
                           </Draggable>
                         ))}
                         {form.video_url && (
-                          <div className="relative group">
-                            <div className="w-20 h-20 rounded-xl bg-gray-900 border-2 border-purple-400 flex flex-col items-center justify-center">
-                              <Video className="w-6 h-6 text-white" />
-                              <span className="text-white text-[8px] font-black mt-1">VIDÉO</span>
-                            </div>
-                            <button type="button" onClick={() => updateForm(f => ({ ...f, video_url: "" }))}
+                      <div className="relative group">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewMedia({ type: "video", url: form.video_url, title: form.title || "Vidéo du style" })}
+                          className="w-20 h-20 rounded-xl overflow-hidden bg-gray-900 border-2 border-purple-400 flex items-center justify-center cursor-zoom-in"
+                          aria-label="Prévisualiser la vidéo"
+                        >
+                          <video src={form.video_url} muted playsInline preload="metadata" className="w-full h-full object-cover pointer-events-none" />
+                          <span className="absolute inset-0 flex items-center justify-center bg-black/25"><Video className="w-6 h-6 text-white" /></span>
+                        </button>
+                        <button type="button" onClick={(event) => { event.stopPropagation(); updateForm(f => ({ ...f, video_url: "" })); }}
                               className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
                               <X className="w-3 h-3" />
                             </button>
@@ -550,51 +614,112 @@ export default function AdminStyles() {
                   className="flex-1 bg-gray-700 text-white py-3 rounded-xl text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-2 min-w-[120px]">
                   Brouillon
                 </button>
-                <button type="button" onClick={() => { setCreating(false); setEditingId(null); setDraftId(null); setForm(EMPTY_FORM); }}
+                <button type="button" onClick={() => { setCreating(false); setEditingId(null); setForm(EMPTY_FORM); }}
                   className="bg-gray-100 text-gray-600 py-3 px-4 rounded-xl text-[13px] font-black">Annuler</button>
-              </div>
-            </form>
+          </div>
+        </form>
+        {previewMedia && (
+          <div className="fixed inset-0 z-[100] bg-black/75 flex items-center justify-center p-5" onClick={() => setPreviewMedia(null)}>
+            <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center" onClick={event => event.stopPropagation()}>
+              <button type="button" onClick={() => setPreviewMedia(null)} className="absolute -top-3 -right-3 z-10 w-9 h-9 rounded-full bg-white text-gray-700 flex items-center justify-center shadow-lg" aria-label="Fermer l'aperçu">
+                <X className="w-5 h-5" />
+              </button>
+              {previewMedia.type === "video" ? (
+                <video src={previewMedia.url} controls autoPlay playsInline className="max-h-[85vh] max-w-full rounded-2xl bg-black" />
+              ) : (
+                <img src={previewMedia.url} alt={previewMedia.title} className="max-h-[85vh] max-w-full object-contain rounded-2xl" />
+              )}
+            </div>
+          </div>
+        )}
+            </>
           )}
 
           <p className="text-gray-500 text-[12px]">{filtered.length} style(s)</p>
-          <div className="space-y-3">
-            {filtered.map(style => (
-              <div key={style.id} className="bg-white rounded-2xl p-4 border border-gray-200 shadow-sm">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-gray-100">
-                    {style.image_url
-                      ? <img src={style.image_url} alt={style.title} className="w-full h-full object-cover" />
-                      : <div className="w-full h-full flex items-center justify-center"><Image className="w-5 h-5 text-gray-400" /></div>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-gray-900 text-[13px] font-black truncate">{style.title}</p>
-                    <p className="text-gray-500 text-[11px]">{style.category}{style.subcategory ? ` › ${style.subcategory}` : ""} · {style.pro_email}</p>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="text-gray-400 text-[10px]">❤️ {style.likes || 0}</span>
-                      <span className="text-gray-400 text-[10px]">👁 {style.views || 0}</span>
-                      {style.temps_moyen && <span className="text-gray-400 text-[10px] flex items-center gap-0.5"><Clock className="w-2.5 h-2.5" />{style.temps_moyen}</span>}
-                      {style.niveau_difficulte && <span className="text-gray-400 text-[10px]">{style.niveau_difficulte}</span>}
-                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${style.status === "publie" ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-500"}`}>
-                        {style.status === "publie" ? "Publié" : "Brouillon"}
-                      </span>
-                      {style.featured && <Star className="w-3 h-3 text-yellow-500 fill-yellow-400" />}
+          {filtered.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5" aria-live="polite">
+              <button type="button" onClick={toggleAllVisible} className="min-h-11 flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[12px] font-black text-gray-700 transition hover:border-primary hover:text-primary">
+                <CheckSquare2 className="h-4 w-4" />
+                {allVisibleSelected ? "Désélectionner tout" : "Tout sélectionner"}
+              </button>
+              {selectedStyleIds.length > 0 && (
+                <button type="button" onClick={deleteSelectedStyles} disabled={saving} className="min-h-11 flex items-center gap-2 rounded-xl bg-red-500 px-3 py-2 text-[12px] font-black text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  Supprimer ({selectedStyleIds.length})
+                </button>
+              )}
+              <span className="text-[11px] text-gray-500">
+                {selectedStyleIds.length ? `${selectedStyleIds.length} sélectionné(s)` : "Sélectionnez plusieurs styles pour les supprimer rapidement."}
+              </span>
+            </div>
+          )}
+          <div className="space-y-5">
+            {Object.entries(groupedStyles).map(([category, subgroups]) => (
+              <section key={category} className="space-y-3" aria-labelledby={`style-category-${category}`}>
+                <div className="flex items-center gap-3 border-b border-gray-200 pb-2">
+                  <h3 id={`style-category-${category}`} className="text-[15px] font-black text-gray-900">{category}</h3>
+                  <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-black text-primary">
+                    {Object.values(subgroups).reduce((count, items) => count + items.length, 0)}
+                  </span>
+                </div>
+                {Object.entries(subgroups).map(([subcategory, items]) => (
+                  <div key={`${category}-${subcategory}`} className="space-y-2">
+                    <div className="flex items-center gap-2 px-1">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">{subcategory}</span>
+                      <span className="text-[10px] text-gray-400">({items.length})</span>
+                    </div>
+                    <div className="space-y-3">
+                      {items.map(style => {
+                        const selected = selectedStyleIds.includes(style.id);
+                        return (
+                          <div key={style.id} className={`rounded-2xl border bg-white p-4 shadow-sm transition ${selected ? "border-primary ring-2 ring-primary/10" : "border-gray-200"}`}>
+                            <div className="flex items-center gap-3">
+                              <button type="button" onClick={() => toggleStyleSelection(style.id)} aria-label={`${selected ? "Désélectionner" : "Sélectionner"} ${style.title}`} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition ${selected ? "border-primary bg-primary text-white" : "border-gray-200 bg-gray-50 text-gray-400 hover:border-primary hover:text-primary"}`}>
+                                {selected ? <Check className="h-5 w-5" /> : <span className="h-4 w-4 rounded border border-current" />}
+                              </button>
+                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-gray-100">
+                                {style.image_url
+                                  ? <img src={style.image_url} alt={style.title} className="h-full w-full object-cover" />
+                                  : <div className="flex h-full w-full items-center justify-center"><Image className="h-5 w-5 text-gray-400" /></div>}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[13px] font-black text-gray-900">{style.title}</p>
+                                <p className="text-[11px] text-gray-500">{style.category || "Sans catégorie"}{style.subcategory ? ` › ${style.subcategory}` : ""} · {style.pro_email}</p>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <span className="text-[10px] text-gray-400">❤️ {style.likes || 0}</span>
+                                  <span className="text-[10px] text-gray-400">👁 {style.views || 0}</span>
+                                  {style.temps_moyen && <span className="flex items-center gap-0.5 text-[10px] text-gray-400"><Clock className="h-2.5 w-2.5" />{style.temps_moyen}</span>}
+                                  {style.niveau_difficulte && <span className="text-[10px] text-gray-400">{style.niveau_difficulte}</span>}
+                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${style.status === "publie" ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-500"}`}>
+                                    {style.status === "publie" ? "Publié" : "Brouillon"}
+                                  </span>
+                                  {style.featured && <Star className="h-3 w-3 fill-yellow-400 text-yellow-500" />}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <button type="button" onClick={() => setPreviewStyle(style)} aria-label={`Prévisualiser ${style.title}`} title="Prévisualiser" className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-50 transition hover:bg-purple-100 active:scale-95">
+                                  <MonitorPlay className="h-4 w-4 text-purple-500" />
+                                </button>
+                                <button type="button" onClick={() => editStyle(style)} aria-label={`Modifier ${style.title}`} title="Modifier" className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 transition hover:bg-blue-100 active:scale-95">
+                                  <Edit3 className="h-4 w-4 text-blue-500" />
+                                </button>
+                                <button type="button" onClick={() => toggleStatus(style)} aria-label={`${style.status === "publie" ? "Masquer" : "Publier"} ${style.title}`} title={style.status === "publie" ? "Masquer" : "Publier"} className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 transition hover:bg-gray-200 active:scale-95">
+                                  {style.status === "publie" ? <EyeOff className="h-4 w-4 text-amber-500" /> : <Eye className="h-4 w-4 text-green-500" />}
+                                </button>
+                                <button type="button" onClick={() => deleteStyle(style.id)} aria-label={`Supprimer ${style.title}`} title="Supprimer" className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 transition hover:bg-red-100 active:scale-95">
+                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => editStyle(style)} className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center active:scale-95 transition-all">
-                      <Edit3 className="w-4 h-4 text-blue-500" />
-                    </button>
-                    <button onClick={() => toggleStatus(style)} className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center active:scale-95 transition-all">
-                      {style.status === "publie" ? <EyeOff className="w-4 h-4 text-amber-500" /> : <Eye className="w-4 h-4 text-green-500" />}
-                    </button>
-                    <button onClick={() => deleteStyle(style.id)} className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center active:scale-95 transition-all">
-                      <Trash2 className="w-4 h-4 text-red-500" />
-                    </button>
-                  </div>
-                </div>
-              </div>
+                ))}
+              </section>
             ))}
-            {filtered.length === 0 && <p className="text-gray-400 text-center py-10 text-[13px]">Aucun style trouvé.</p>}
+            {filtered.length === 0 && <p className="py-10 text-center text-[13px] text-gray-400">Aucun style trouvé.</p>}
           </div>
         </div>
       )}
@@ -603,6 +728,7 @@ export default function AdminStyles() {
       {activeTab === "subcategories" && <AdminStyleSubCategories />}
       {activeTab === "automation" && <AdminStyleAutomation />}
       {activeTab === "conseils" && <AdminStyleConseils styles={styles} />}
+      {previewStyle && <StylePreviewModal style={previewStyle} onClose={() => setPreviewStyle(null)} />}
     </div>
   );
 }

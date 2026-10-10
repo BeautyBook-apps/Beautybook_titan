@@ -16,3 +16,6 @@ export const GLOBAL_CATEGORIES = [
   { id: "cils",        label: "Cils & Sourcils",  dbValue: "Soin",        Icon: Eye,       color: "text-cyan-500",     bg: "bg-cyan-50",     border: "border-cyan-200" },
   { id: "spa",         label: "Spa & Bien-être",  dbValue: "Massage",     Icon: Heart,     color: "text-amber-600",    bg: "bg-amber-50",    border: "border-amber-200" },
 ];
+
+// Positionnement d'un salon professionnel, partagé par l'inscription et la recherche.
+export const SALON_CATEGORIES = ["Prestige", "Luxe", "Bio", "Moderne", "Classique"];

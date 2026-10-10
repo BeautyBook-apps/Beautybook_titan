@@ -193,9 +193,19 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
       });
       setStep(4);
     } catch (e) {
-      setErrorMsg(e.message);
+      const message = e.code === 'AI_NOT_CONFIGURED'
+        ? 'Le service de simulation IA n’est pas encore configuré sur le serveur.'
+        : e.code === 'DATABASE_NOT_CONFIGURED'
+          ? 'Le serveur de simulation n’est pas encore connecté à sa base de données.'
+          : ['AUTH_REQUIRED', 'SESSION_INVALID'].includes(e.code)
+          ? 'Connectez-vous pour lancer une simulation de coiffure.'
+          : e.code === 'AI_PROVIDER_ERROR'
+            ? 'Le service Grok n’a pas pu traiter cette photo. Réessayez dans quelques instants.'
+          : e.message || 'La simulation n’a pas pu être générée.';
+      setErrorMsg(message);
       setResult({
-        error: e.message,
+        error: message,
+        errorCode: e.code,
         styleLabel: selectedStyle.label,
         userPhotoUrl,
         fallback: false
@@ -262,11 +272,11 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                 <h3 className="text-[24px] font-black text-gray-900 mt-3">AI Hairstyle</h3>
                 <p className="text-[22px] font-black text-primary">Changer</p>
                 <p className="text-[13px] text-gray-600 mt-3 leading-relaxed">
-                  Notre IA OpenAI génère une <strong>vraie photo de vous</strong> avec la coiffure choisie en quelques secondes.
+                  Notre IA Grok génère une <strong>vraie photo de vous</strong> avec la coiffure choisie en quelques secondes.
                 </p>
                 <div className="mt-3 flex items-center justify-center gap-1.5 bg-white/70 rounded-2xl px-3 py-2">
                   <Sparkles className="w-3.5 h-3.5 text-primary" />
-                  <span className="text-[11px] font-black text-primary">Propulsé par OpenAI AI</span>
+                  <span className="text-[11px] font-black text-primary">Propulsé par Grok</span>
                 </div>
               </div>
               <div className="space-y-3">
@@ -280,12 +290,20 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                   </div>
                 ))}
               </div>
-              <button
-                onClick={() => setStep(2)}
-                className="w-full bg-gray-900 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 uppercase tracking-widest active:scale-95 transition-all"
+              <div
+                className="sticky bottom-0 z-10 -mx-1 mt-1 border-t border-orange-100 bg-white/95 px-1 pt-3 backdrop-blur-md"
+                style={{ paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}
               >
-                COMMENCER <ArrowRight className="w-4 h-4" />
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setStep(2)}
+                  aria-label="Commencer le guide photo"
+                  className="group flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-[14px] font-black uppercase tracking-[0.12em] text-white shadow-[0_12px_28px_rgba(232,115,42,0.28)] transition-all hover:bg-primary/90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25"
+                >
+                  <span>COMMENCER</span>
+                  <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" aria-hidden="true" />
+                </button>
+              </div>
             </div>
           )}
 
@@ -412,7 +430,7 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                     {selectedStyle.author && (
                       <p className="text-[10px] text-primary font-bold">✦ Publié par {selectedStyle.author}</p>
                     )}
-                    <p className="text-[11px] text-gray-500">OpenAI IA va générer votre photo avec ce style</p>
+                    <p className="text-[11px] text-gray-500">Grok va générer votre photo avec ce style</p>
                   </div>
                 </div>
               )}
@@ -420,7 +438,7 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
               <div className="bg-blue-50 rounded-2xl p-3 flex items-start gap-2 border border-blue-100">
                 <Shield className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-blue-700 leading-relaxed">
-                  <strong>Vie privée garantie</strong> — Vos photos sont traitées de façon sécurisée par OpenAI AI et ne sont pas stockées.
+                  <strong>Vie privée</strong> — Vos photos sont transmises de façon sécurisée au service IA pour générer votre simulation.
                 </p>
               </div>
 
@@ -494,13 +512,13 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                 <div className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 border ${result.fallback ? "bg-purple-50 border-purple-100" : "bg-gradient-to-r from-orange-50 to-yellow-50 border-orange-100"}`}>
                   <Sparkles className={`w-3.5 h-3.5 ${result.fallback ? "text-purple-500" : "text-primary"}`} />
                   <span className={`text-[11px] font-black ${result.fallback ? "text-purple-600" : "text-primary"}`}>
-                    {result.fallback ? "Généré par IA (mode fallback)" : "Généré par OpenAI AI"}
+                    {result.fallback ? "Généré par IA (mode fallback)" : "Généré par Grok"}
                   </span>
                 </div>
               </div>
               {result.fallback && (
                 <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 text-center">
-                  <p className="text-[11px] text-purple-700 font-medium">{result.fallbackMessage || "Image générée par IA — crédits fal.ai épuisés"}</p>
+                    <p className="text-[11px] text-purple-700 font-medium">{result.fallbackMessage || "Image générée par IA"}</p>
                 </div>
               )}
 
@@ -509,7 +527,16 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                 <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
                   <p className="text-[14px] font-black text-red-600 mb-2">⚠️ Génération échouée</p>
                   <p className="text-[12px] text-gray-600">{result.error}</p>
-                  <p className="text-[11px] text-gray-500 mt-2">Rechargez votre solde sur <a href="https://fal.ai/dashboard/billing" target="_blank" className="text-primary underline">fal.ai/dashboard/billing</a> ou réessayez plus tard.</p>
+                  <p className="text-[11px] text-gray-500 mt-2">Vérifiez votre connexion ou réessayez dans quelques instants.</p>
+                  {['AUTH_REQUIRED', 'SESSION_INVALID'].includes(result.errorCode) && (
+                    <button
+                      type="button"
+                      onClick={() => { onClose?.(); navigate('/connexion'); }}
+                      className="mt-4 min-h-11 rounded-xl bg-primary px-5 py-3 text-[12px] font-black text-white active:scale-[0.98] transition-transform"
+                    >
+                      SE RECONNECTER
+                    </button>
+                  )}
                 </div>
               ) : result.fallback ? (
                 /* Mode fallback — analyse IA sans image générée */
@@ -564,7 +591,7 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                     onTouchEnd={() => setIsDragging(false)}
                     onTouchMove={onTouchMove}
                   >
-                    {/* APRÈS — image générée par OpenAI */}
+                    {/* APRÈS — image générée par Grok */}
                     <div className="absolute inset-0">
                       <BeautyImage
                         src={result.generatedImageUrl}
@@ -613,7 +640,7 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                     {result.author && (
                       <p className="text-[11px] text-primary font-bold">✦ Style de {result.author}</p>
                     )}
-                    <p className="text-[11px] text-gray-400 font-medium">Image générée par OpenAI AI</p>
+                    <p className="text-[11px] text-gray-400 font-medium">Image générée par Grok</p>
                   </div>
                 </div>
               </div>

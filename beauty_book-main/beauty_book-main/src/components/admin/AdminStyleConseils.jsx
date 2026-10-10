@@ -17,6 +17,18 @@
 
  const normaliseText = (value) => String(value || "").trim().toLowerCase();
 
+ const normaliseMapping = (value) => {
+   const next = {};
+   const claimed = new Set();
+   Object.entries(value && typeof value === "object" ? value : {}).forEach(([styleId, ids]) => {
+     next[String(styleId)] = (Array.isArray(ids) ? ids : [])
+       .map(item => String(item?.id || item))
+       .filter(id => id && !claimed.has(id));
+     next[String(styleId)].forEach(id => claimed.add(id));
+   });
+   return next;
+ };
+
  export default function AdminStyleConseils({ styles = [] }) {
    const [reels, setReels] = useState([]);
    const [mapping, setMapping] = useState({});
@@ -48,7 +60,14 @@
 
    const visibleReels = useMemo(() => {
      const query = normaliseText(search);
+     const ownerByReel = new Map(
+       Object.entries(mapping).flatMap(([styleId, ids]) =>
+         (Array.isArray(ids) ? ids : []).map(id => [String(id?.id || id), String(styleId)])
+       )
+     );
      return reels.filter(reel => {
+       const ownerStyleId = ownerByReel.get(String(reel.id));
+       if (ownerStyleId && ownerStyleId !== String(selectedStyleId)) return false;
        if (!query) return true;
        return [
          reel.title,
@@ -57,7 +76,7 @@
          reel.category,
        ].some(value => normaliseText(value).includes(query));
      });
-   }, [reels, search]);
+   }, [mapping, reels, search, selectedStyleId]);
 
    useEffect(() => {
      if (!selectedStyleId && availableStyles[0]?.id) {
@@ -83,7 +102,7 @@
        const stored = config?.value?.styles || {};
        setReels(rows);
        setConfigRow(config);
-       setMapping(stored && typeof stored === "object" ? stored : {});
+       setMapping(normaliseMapping(stored));
      }).catch(err => {
        if (!cancelled) setError(err.message || "Impossible de charger les conseils.");
      }).finally(() => {
@@ -94,7 +113,14 @@
 
    const persistSelection = async (styleId, ids) => {
      if (!styleId) return;
-     const nextMapping = { ...mapping, [String(styleId)]: ids.map(String) };
+     const currentStyleId = String(styleId);
+     const claimedByOtherStyle = new Set(
+       Object.entries(mapping)
+         .filter(([mappedStyleId]) => String(mappedStyleId) !== currentStyleId)
+         .flatMap(([, mappedIds]) => (Array.isArray(mappedIds) ? mappedIds : []).map(id => String(id?.id || id)))
+     );
+     const uniqueIds = [...new Set(ids.map(String))].filter(id => !claimedByOtherStyle.has(id));
+     const nextMapping = { ...mapping, [currentStyleId]: uniqueIds };
      setSaving(true);
      setError("");
      try {
@@ -114,6 +140,10 @@
 
    const toggleReel = (reelId) => {
      const id = String(reelId);
+     const ownerStyleId = Object.entries(mapping).find(([, ids]) =>
+       (Array.isArray(ids) ? ids : []).some(item => String(item?.id || item) === id)
+     )?.[0];
+     if (ownerStyleId && String(ownerStyleId) !== String(selectedStyleId)) return;
      const nextIds = selectedReelIds.includes(id)
        ? selectedReelIds.filter(item => item !== id)
        : [...selectedReelIds, id];
@@ -310,4 +340,3 @@
      </div>
    );
  }
-

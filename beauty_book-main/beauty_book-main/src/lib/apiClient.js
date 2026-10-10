@@ -14,6 +14,7 @@ export const apiClient = {
     return requestApi(endpoint, options, {
       baseUrl: import.meta.env.VITE_BACKEND_URL || '',
       getSession: async () => (await supabase.auth.getSession()).data.session,
+      refreshSession: async () => (await supabase.auth.refreshSession()).data.session,
     });
   },
   get(endpoint) { return this.request(endpoint, { method: 'GET' }); },

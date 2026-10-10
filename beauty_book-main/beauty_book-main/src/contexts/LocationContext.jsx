@@ -64,6 +64,7 @@ export function LocationProvider({ children }) {
   const watchIdRef = useRef(null);
   const lastGeocodedRef = useRef(null);
   const reverseInFlightRef = useRef(false);
+  const reverseCooldownUntilRef = useRef(0);
   const requestedRef = useRef(false);
 
   const publishCity = useCallback((city, country, latitude, longitude) => {
@@ -77,6 +78,7 @@ export function LocationProvider({ children }) {
 
   const reverseGeocode = useCallback(async (latitude, longitude) => {
     if (reverseInFlightRef.current) return;
+    if (Date.now() < reverseCooldownUntilRef.current) return;
     const previous = lastGeocodedRef.current;
     const movedKm = previous
       ? haversineDistance(previous.latitude, previous.longitude, latitude, longitude)
@@ -91,11 +93,21 @@ export function LocationProvider({ children }) {
       const data = await apiClient.get(`/maps/reverse?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`);
       if (data?.city) {
         lastGeocodedRef.current = { latitude, longitude, at: Date.now() };
+        reverseCooldownUntilRef.current = 0;
         publishCity(data.city, data.country || "", latitude, longitude);
+      } else if (data?.unavailable) {
+        // Keep a short cooldown when both providers are unavailable so GPS
+        // updates do not create a request storm in the background.
+        lastGeocodedRef.current = { latitude, longitude, at: Date.now() };
+        reverseCooldownUntilRef.current = Date.now() + 60_000;
       }
     } catch {
       // Le suivi des coordonnées continue même si le reverse geocoding est
-      // momentanément indisponible.
+      // momentanément indisponible. Mémoriser l'échec évite de renvoyer une
+      // requête à chaque point GPS lorsque l'API répond en 500.
+      const now = Date.now();
+      lastGeocodedRef.current = { latitude, longitude, at: now };
+      reverseCooldownUntilRef.current = now + 60_000;
     } finally {
       reverseInFlightRef.current = false;
     }

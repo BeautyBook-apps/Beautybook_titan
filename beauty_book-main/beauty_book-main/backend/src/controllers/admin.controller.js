@@ -47,15 +47,15 @@ export const approvePro = async (req, res) => {
       let profilId;
       if (existingRows.length > 0) {
         const { rows } = await pgClient.query(
-          `UPDATE "ProfilPro" SET salon_name=$1, bio=$2, avatar_url=$3, cover_url=$4, phone=$5, specialites=$6, abonnement=$7, status=$8, galerie_urls=$9, ouverture=$10, address=$11, city=$12, latitude=$13, longitude=$14 WHERE id=$15 RETURNING id`,
-          [demande.salon_name, demande.bio, demande.salon_photo||'', demande.salon_photo||'', demande.phone||'', specialites, 'free', 'actif', galerieUrls, ouverture, demande.address||'', demande.city||'', latitude, longitude, existingRows[0].id]
+          `UPDATE "ProfilPro" SET salon_name=$1, bio=$2, avatar_url=$3, cover_url=$4, phone=$5, specialites=$6, categorie=$7, abonnement=$8, status=$9, galerie_urls=$10, ouverture=$11, address=$12, city=$13, latitude=$14, longitude=$15 WHERE id=$16 RETURNING id`,
+          [demande.salon_name, demande.bio, demande.salon_photo||'', demande.salon_photo||'', demande.phone||'', specialites, demande.categorie||'', 'free', 'actif', galerieUrls, ouverture, demande.address||'', demande.city||'', latitude, longitude, existingRows[0].id]
         );
         profilId = rows[0].id;
       } else {
         const { rows } = await pgClient.query(
-          `INSERT INTO "ProfilPro" (user_email, salon_name, bio, avatar_url, cover_url, phone, specialites, abonnement, status, galerie_urls, ouverture, address, city, latitude, longitude)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
-          [demande.user_email, demande.salon_name, demande.bio, demande.salon_photo||'', demande.salon_photo||'', demande.phone||'', specialites, 'free', 'actif', galerieUrls, ouverture, demande.address||'', demande.city||'', latitude, longitude]
+          `INSERT INTO "ProfilPro" (user_email, salon_name, bio, avatar_url, cover_url, phone, specialites, categorie, abonnement, status, galerie_urls, ouverture, address, city, latitude, longitude)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+          [demande.user_email, demande.salon_name, demande.bio, demande.salon_photo||'', demande.salon_photo||'', demande.phone||'', specialites, demande.categorie||'', 'free', 'actif', galerieUrls, ouverture, demande.address||'', demande.city||'', latitude, longitude]
         );
         profilId = rows[0].id;
       }

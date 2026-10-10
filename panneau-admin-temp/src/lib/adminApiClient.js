@@ -97,6 +97,7 @@ export const adminApi = {
 
   // Annonces
   listAnnonces: () => entities.Annonce.list("-created_at", 200),
+  listSubscriptions: () => entities.UserSubscription.list("-created_at", 1000),
   createAnnonce: (data) => entities.Annonce.create(data),
   toggleAnnonceStatus: async (id) => {
     const annonce = await entities.Annonce.get(id);

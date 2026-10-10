@@ -8,6 +8,7 @@ import { writeIsProCache } from "@/hooks/useIsPro";
 import { entities, uploadFile } from "@/api/entities";
 import { apiClient } from "@/lib/apiClient";
 import { supabase } from '@/api/supabaseClient';
+import { SALON_CATEGORIES } from "@/lib/categories";
 
 const TOTAL_STEPS = 5;
 const DRAFT_KEY = "bb_devenir_pro_draft";
@@ -220,7 +221,7 @@ function Step1({ data, setData, errors }) {
         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Type d'activité *</p>
         <div className="grid grid-cols-2 gap-2">
           {[["Salon professionnel", "Salon"], ["Particulier", "Particulier"]].map(([label, val]) => (
-            <button key={val} onClick={() => setData(d => ({ ...d, type: val }))}
+            <button key={val} onClick={() => setData(d => ({ ...d, type: val, ...(val !== "Salon" ? { salon_category: "" } : {}) }))}
               className={`flex items-center gap-2 p-3 rounded-2xl border text-[13px] font-medium transition-all ${data.type === val ? "border-primary bg-orange-50" : "border-gray-200 bg-white"}`}>
               <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${data.type === val ? "border-primary" : "border-gray-300"}`}>
                 {data.type === val && <div className="w-2 h-2 rounded-full bg-primary" />}
@@ -231,6 +232,29 @@ function Step1({ data, setData, errors }) {
         </div>
         {errors.type && <p className="text-[11px] text-red-500 font-medium mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.type}</p>}
       </div>
+
+      {data.type === "Salon" && (
+        <div>
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Catégorie du salon *</p>
+          <p className="text-[11px] text-gray-400 font-medium mb-3">Cette catégorie sera synchronisée avec les filtres de l'onglet Salons.</p>
+          <div className="flex flex-wrap gap-2">
+            {SALON_CATEGORIES.map(category => {
+              const selected = data.salon_category === category;
+              return (
+                <button
+                  key={category}
+                  type="button"
+                  onClick={() => setData(d => ({ ...d, salon_category: category }))}
+                  className={`px-4 py-2.5 rounded-full border text-[13px] font-bold transition-all ${selected ? "bg-primary text-white border-primary" : "bg-white text-gray-700 border-gray-200"}`}
+                >
+                  {category}
+                </button>
+              );
+            })}
+          </div>
+          {errors.salon_category && <p className="text-[11px] text-red-500 font-medium mt-2 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.salon_category}</p>}
+        </div>
+      )}
 
       {/* Années d'expérience */}
       <div>
@@ -1518,6 +1542,7 @@ function validateStep(step, data) {
     if (!data.services?.length) errs.services = "Sélectionnez au moins un service";
     if (!data.bio?.trim() || data.bio.trim().length < 20) errs.bio = "La bio doit faire au moins 20 caractères";
     if (!data.type) errs.type = "Choisissez un type d'activité";
+    if (data.type === "Salon" && !data.salon_category) errs.salon_category = "Choisissez une catégorie de salon";
   }
   if (step === 3) {
     if (!data.username?.trim() || data.username.length < 3) errs.username = "Minimum 3 caractères";
@@ -1618,6 +1643,7 @@ export default function DevenirPro() {
           salon_name: data.salon_name || "",
           bio: data.bio || "",
           type_activite: data.type || "Salon",
+          categorie: data.salon_category || "",
           years_experience: data.years || 0,
           services: data.services || [],
           categories: data.categories || [],
@@ -1673,6 +1699,7 @@ export default function DevenirPro() {
             cover_url: data.cover_url || "",
             status: "actif",
             type_activite: data.type || "Salon",
+            categorie: data.salon_category || "",
             travail_nuit: data.nuit || false,
             galerie_urls: data.gallery || [],
             updated_at: new Date().toISOString(),

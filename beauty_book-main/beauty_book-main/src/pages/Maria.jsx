@@ -5,7 +5,7 @@ import apiClient from '@/lib/apiClient';
 import { useState, useRef, useEffect } from "react";
 import {
   X, Plus, Sparkles, Search,
-  Wand2, History, Bot, Send, Mic,
+  Wand2, ArrowLeft, Bot, Send, Mic,
   Scissors, Lightbulb, Heart, Clock, Star, Paperclip,
   FileText, Volume2, CheckCircle, MessageSquare, Calendar, ExternalLink,
   Instagram, Facebook, Globe, TrendingUp, Megaphone
@@ -1257,8 +1257,8 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setDrawerOpen(true)} className={`w-9 h-9 rounded-xl flex items-center justify-center active:scale-95 transition-all border ${isDark ? "bg-gray-800 border-gray-700" : "bg-gray-50 border-gray-100"}`}>
-              <History className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-500"}`} />
+            <button onClick={() => navigate(-1)} aria-label="Retour" className={`w-9 h-9 rounded-xl flex items-center justify-center active:scale-95 transition-all border ${isDark ? "bg-gray-800 border-gray-700" : "bg-gray-50 border-gray-100"}`}>
+              <ArrowLeft className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-500"}`} />
             </button>
           </div>
         </div>
@@ -1483,8 +1483,8 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
             <Sparkles className="w-3.5 h-3.5 text-primary" />
             <p className="text-[9px] font-black text-primary uppercase tracking-wider leading-none">Abonnement</p>
           </button>
-          <button onClick={() => setDrawerOpen(true)} className={`w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition-all ${isDark ? "bg-gray-800" : "bg-gray-100"}`}>
-            <History className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`} />
+          <button onClick={() => navigate(-1)} aria-label="Retour" className={`w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition-all ${isDark ? "bg-gray-800" : "bg-gray-100"}`}>
+            <ArrowLeft className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-600"}`} />
           </button>
         </div>
       </div>

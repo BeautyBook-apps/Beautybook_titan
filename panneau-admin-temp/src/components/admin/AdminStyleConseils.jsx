@@ -17,6 +17,18 @@
 
  const normaliseText = (value) => String(value || "").trim().toLowerCase();
 
+ const normaliseMapping = (value) => {
+   const next = {};
+   const claimed = new Set();
+   Object.entries(value && typeof value === "object" ? value : {}).forEach(([styleId, ids]) => {
+     next[String(styleId)] = (Array.isArray(ids) ? ids : [])
+       .map(item => String(item?.id || item))
+       .filter(id => id && !claimed.has(id));
+     next[String(styleId)].forEach(id => claimed.add(id));
+   });
+   return next;
+ };
+
  export default function AdminStyleConseils({ styles = [] }) {
    const [reels, setReels] = useState([]);
    const [mapping, setMapping] = useState({});
@@ -26,6 +38,7 @@
    const [search, setSearch] = useState("");
    const [styleSearch, setStyleSearch] = useState("");
    const [title, setTitle] = useState("");
+   const [previewMedia, setPreviewMedia] = useState(null);
    const [loading, setLoading] = useState(true);
    const [saving, setSaving] = useState(false);
    const [uploading, setUploading] = useState(false);
@@ -48,7 +61,14 @@
 
    const visibleReels = useMemo(() => {
      const query = normaliseText(search);
+     const ownerByReel = new Map(
+       Object.entries(mapping).flatMap(([styleId, ids]) =>
+         (Array.isArray(ids) ? ids : []).map(id => [String(id?.id || id), String(styleId)])
+       )
+     );
      return reels.filter(reel => {
+       const ownerStyleId = ownerByReel.get(String(reel.id));
+       if (ownerStyleId && ownerStyleId !== String(selectedStyleId)) return false;
        if (!query) return true;
        return [
          reel.title,
@@ -57,7 +77,7 @@
          reel.category,
        ].some(value => normaliseText(value).includes(query));
      });
-   }, [reels, search]);
+   }, [mapping, reels, search, selectedStyleId]);
 
    useEffect(() => {
      if (!selectedStyleId && availableStyles[0]?.id) {
@@ -83,7 +103,7 @@
        const stored = config?.value?.styles || {};
        setReels(rows);
        setConfigRow(config);
-       setMapping(stored && typeof stored === "object" ? stored : {});
+       setMapping(normaliseMapping(stored));
      }).catch(err => {
        if (!cancelled) setError(err.message || "Impossible de charger les conseils.");
      }).finally(() => {
@@ -94,7 +114,14 @@
 
    const persistSelection = async (styleId, ids) => {
      if (!styleId) return;
-     const nextMapping = { ...mapping, [String(styleId)]: ids.map(String) };
+     const currentStyleId = String(styleId);
+     const claimedByOtherStyle = new Set(
+       Object.entries(mapping)
+         .filter(([mappedStyleId]) => String(mappedStyleId) !== currentStyleId)
+         .flatMap(([, mappedIds]) => (Array.isArray(mappedIds) ? mappedIds : []).map(id => String(id?.id || id)))
+     );
+     const uniqueIds = [...new Set(ids.map(String))].filter(id => !claimedByOtherStyle.has(id));
+     const nextMapping = { ...mapping, [currentStyleId]: uniqueIds };
      setSaving(true);
      setError("");
      try {
@@ -114,6 +141,10 @@
 
    const toggleReel = (reelId) => {
      const id = String(reelId);
+     const ownerStyleId = Object.entries(mapping).find(([, ids]) =>
+       (Array.isArray(ids) ? ids : []).some(item => String(item?.id || item) === id)
+     )?.[0];
+     if (ownerStyleId && String(ownerStyleId) !== String(selectedStyleId)) return;
      const nextIds = selectedReelIds.includes(id)
        ? selectedReelIds.filter(item => item !== id)
        : [...selectedReelIds, id];
@@ -148,12 +179,12 @@
          author_email: "admin@beautybook.fr",
          author_name: "BeautyBook",
          category: "Conseils",
-         pub_type: "conseil",
          status: "publie",
        });
        const created = createdResult?.data?.reel || createdResult?.result || createdResult;
        if (!created?.id) throw new Error("La vidéo n'a pas pu être publiée.");
        setReels(previous => [created, ...previous]);
+       setPreviewMedia({ type: "video", url: file_url, title: created.title || title || file.name });
        const nextIds = [...new Set([...selectedReelIds, String(created.id)])];
        await persistSelection(selectedStyleId, nextIds);
        setTitle("");
@@ -282,16 +313,24 @@
                  {visibleReels.map(reel => {
                    const selected = selectedReelIds.includes(String(reel.id));
                    const thumb = reel.thumbnail_url || reel.image_url || reel.images?.[0];
+                   const preview = () => setPreviewMedia({
+                     type: reel.video_url ? "video" : "image",
+                     url: reel.video_url || thumb,
+                     title: reel.title || "Publication Conseil",
+                   });
                    return (
-                     <button
+                     <div
                        key={reel.id}
-                       type="button"
                        onClick={() => toggleReel(reel.id)}
+                       role="button"
+                       tabIndex={0}
+                       onKeyDown={event => { if (event.key === "Enter" || event.key === " ") toggleReel(reel.id); }}
                        className={`flex items-center gap-3 text-left rounded-xl border p-2.5 transition-all ${selected ? "border-primary bg-orange-50" : "border-gray-200 bg-white"}`}
                      >
-                       <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-900 shrink-0 flex items-center justify-center">
+                       <button type="button" onClick={event => { event.stopPropagation(); preview(); }} className="relative w-14 h-14 rounded-lg overflow-hidden bg-gray-900 shrink-0 flex items-center justify-center cursor-zoom-in" aria-label={`Prévisualiser ${reel.title || "la publication"}`}>
                          {thumb ? <img src={thumb} alt="" className="w-full h-full object-cover" /> : reel.video_url ? <Video className="w-5 h-5 text-white" /> : <FileVideo className="w-5 h-5 text-gray-400" />}
-                       </div>
+                         {reel.video_url && <span className="absolute inset-0 flex items-center justify-center bg-black/20"><Video className="w-4 h-4 text-white" /></span>}
+                       </button>
                        <div className="flex-1 min-w-0">
                          <p className="text-[12px] font-black text-gray-900 truncate">{reel.title || "Publication sans titre"}</p>
                          <p className="text-[10px] text-gray-500 truncate">{reel.author_name || "Auteur inconnu"} · {reel.pub_type || reel.category}</p>
@@ -299,7 +338,7 @@
                        <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${selected ? "bg-primary text-white" : "bg-gray-100 text-gray-400"}`}>
                          <Check className="w-3.5 h-3.5" />
                        </span>
-                     </button>
+                     </div>
                    );
                  })}
                </div>
@@ -307,7 +346,18 @@
            </div>
          </>
        )}
+      {previewMedia && (
+        <div className="fixed inset-0 z-[100] bg-black/75 flex items-center justify-center p-5" onClick={() => setPreviewMedia(null)}>
+          <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center" onClick={event => event.stopPropagation()}>
+            <button type="button" onClick={() => setPreviewMedia(null)} className="absolute -top-3 -right-3 z-10 w-9 h-9 rounded-full bg-white text-gray-700 flex items-center justify-center shadow-lg" aria-label="Fermer l'aperçu">×</button>
+            {previewMedia.type === "video" ? (
+              <video src={previewMedia.url} controls autoPlay playsInline className="max-h-[85vh] max-w-full rounded-2xl bg-black" />
+            ) : (
+              <img src={previewMedia.url} alt={previewMedia.title} className="max-h-[85vh] max-w-full object-contain rounded-2xl" />
+            )}
+          </div>
+        </div>
+      )}
      </div>
    );
  }
-

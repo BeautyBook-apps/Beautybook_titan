@@ -5,6 +5,7 @@ import { ArrowLeft, Share2, Heart, Clock, Star, MapPin, Sparkles, MessageSquare,
 import VueClient from "@/pages/pro/VueClient";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import { entities } from '@/api/entities';
+import { likesApi } from '@/api/likes';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from "@/lib/AuthContext";
 import { readPageCache, mergePageCache } from "@/hooks/usePageCache";

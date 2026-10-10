@@ -11,16 +11,32 @@ export function apiUrl(endpoint, baseUrl = '') {
   return base + path;
 }
 
-export async function requestApi(endpoint, options = {}, { baseUrl = '', getSession, fetchImpl = fetch } = {}) {
-  const session = await getSession?.();
+export async function requestApi(endpoint, options = {}, { baseUrl = '', getSession, refreshSession, fetchImpl = fetch } = {}) {
+  let session = await getSession?.();
   const headers = new Headers(options.headers);
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
+  const requestOptions = { ...options, headers, signal: options.signal || AbortSignal.timeout(60000) };
   let response;
   try {
-    response = await fetchImpl(apiUrl(endpoint, baseUrl), { ...options, headers, signal: options.signal || AbortSignal.timeout(60000) });
+    response = await fetchImpl(apiUrl(endpoint, baseUrl), requestOptions);
   } catch (error) {
     throw new ApiError(error.name === 'TimeoutError' ? 'Le serveur met trop de temps à répondre.' : 'Connexion au serveur impossible. Vérifiez votre connexion.', 0, 'NETWORK_ERROR');
+  }
+  // Supabase can return a cached access token just as it expires. Refresh it
+  // once before exposing a false "session expired" error to the user.
+  if (response.status === 401 && session?.refresh_token && refreshSession && !(options.body instanceof FormData)) {
+    try {
+      const refreshed = await refreshSession();
+      if (refreshed?.access_token) {
+        session = refreshed;
+        requestOptions.headers.set('Authorization', `Bearer ${refreshed.access_token}`);
+        response = await fetchImpl(apiUrl(endpoint, baseUrl), requestOptions);
+      }
+    } catch {
+      // The normal 401 response below remains the source of truth when the
+      // refresh token is no longer valid.
+    }
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

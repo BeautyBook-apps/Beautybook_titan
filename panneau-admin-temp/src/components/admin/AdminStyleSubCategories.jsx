@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { entities } from "@/api/entities";
+import { entities, ensureDefaultStyleTaxonomy } from "@/api/entities";
 import { Plus, Pencil, Trash2, Eye, EyeOff, Loader2, X, Check, ChevronDown, ChevronUp, Tag } from "lucide-react";
 
 const generateSlug = (str) =>
@@ -21,6 +21,9 @@ export default function AdminStyleSubCategories() {
   const loadData = async () => {
     setLoading(true);
     try {
+      await ensureDefaultStyleTaxonomy().catch((error) => {
+        console.warn("[AdminStyleSubCategories] taxonomy bootstrap deferred:", error);
+      });
       const [subs, cats] = await Promise.all([
         entities.StyleSubCategory.filter({}, "-created_at", 1000),
         entities.StyleCategory.filter({}, "-created_at", 500),
@@ -81,7 +84,6 @@ export default function AdminStyleSubCategories() {
         category_id: form.category_id,
         description: form.description.trim(),
         is_active: form.is_active,
-        styles_count: form.styles_count || 0,
       };
       if (editingId) {
         await entities.StyleSubCategory.update(editingId, payload);

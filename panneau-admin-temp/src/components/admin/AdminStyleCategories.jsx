@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { entities } from "@/api/entities";
+import { entities, ensureDefaultStyleTaxonomy } from "@/api/entities";
 import { Plus, Pencil, Trash2, Eye, EyeOff, Loader2, X, Check, ChevronDown, ChevronUp, Palette } from "lucide-react";
 
 const COLOR_PRESETS = ["#E8732A", "#6366F1", "#EC4899", "#10B981", "#F59E0B", "#3B82F6", "#8B5CF6", "#EF4444", "#14B8A6", "#F97316"];
@@ -33,6 +33,9 @@ export default function AdminStyleCategories() {
   const loadCategories = async () => {
     setLoading(true);
     try {
+      await ensureDefaultStyleTaxonomy().catch((error) => {
+        console.warn("[AdminStyleCategories] taxonomy bootstrap deferred:", error);
+      });
       const data = await entities.StyleCategory.list("-created_at", 500);
       setCategories(data);
     } catch (err) {
@@ -93,7 +96,7 @@ export default function AdminStyleCategories() {
       if (editingId) {
         await entities.StyleCategory.update(editingId, payload);
       } else {
-        await entities.StyleCategory.create({ ...payload, styles_count: 0, subcategories_count: 0 });
+        await entities.StyleCategory.create(payload);
       }
 
       closeForm();
