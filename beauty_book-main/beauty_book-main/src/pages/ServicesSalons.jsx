@@ -677,13 +677,25 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
 
     const byId = new Map(items.map(item => [String(item.id), item]));
     const availableIds = [...byId.keys()];
+    // Preserve the exact feed order that was visible before opening a detail
+    // page. This keeps the selected publication at the same place on return.
+    const restoredIds = Array.isArray(returnContext?.styleOrder)
+      ? returnContext.styleOrder.map(String).filter(id => byId.has(id))
+      : [];
+    if (restoredIds.length > 0) {
+      const remainingIds = availableIds.filter(id => !restoredIds.includes(id));
+      const orderedIds = [...restoredIds, ...remainingIds];
+      stylesOrderRef.current = orderedIds;
+      return orderedIds.map(id => byId.get(id)).filter(Boolean);
+    }
+
     const knownIds = stylesOrderRef.current.filter(id => byId.has(id));
     const newIds = availableIds.filter(id => !knownIds.includes(id));
     const orderedIds = [...knownIds, ...shuffleStyleIds(newIds)];
     stylesOrderRef.current = orderedIds;
 
     return orderedIds.map(id => byId.get(id)).filter(Boolean);
-  }, []);
+  }, [returnContext?.styleOrder]);
 
   // ── Charger les follows ──
   useEffect(() => {
@@ -872,6 +884,21 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
     if (styleFilters.niveau_difficulte) result = result.filter(s => s.niveau_difficulte === styleFilters.niveau_difficulte);
     if (styleFilters.priceMin !== "") result = result.filter(s => Number(s.price) >= Number(styleFilters.priceMin));
     if (styleFilters.priceMax !== "") result = result.filter(s => Number(s.price) <= Number(styleFilters.priceMax));
+
+    const hasActiveFilter = Boolean(
+      styleFilters.category || styleFilters.subcategory || styleFilters.type_cheveux ||
+      styleFilters.type_peau || styleFilters.niveau_difficulte ||
+      styleFilters.priceMin !== "" || styleFilters.priceMax !== ""
+    );
+    // Only the unfiltered « Tous » feed is randomized. Every category and
+    // filtered result follows the publication date, newest first.
+    if (activeCategory !== "Tous" || hasActiveFilter) {
+      result.sort((a, b) => {
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
+        return dateB - dateA;
+      });
+    }
     if (styleFilters.sortBy === "price_asc") result.sort((a, b) => Number(a.price || 0) - Number(b.price || 0));
     if (styleFilters.sortBy === "price_desc") result.sort((a, b) => Number(b.price || 0) - Number(a.price || 0));
     return result;
@@ -881,6 +908,7 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
     const restoreStylesContext = saveStylesReturnContext({
       styleId: style.id,
       scrollTop: scrollRef.current?.scrollTop || 0,
+      styleOrder: styles.map(item => String(item.id)),
       activeCategory,
       quickFilter,
       filters: styleFilters,

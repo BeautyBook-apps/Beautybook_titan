@@ -1257,7 +1257,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => navigate(-1)} aria-label="Retour" className={`w-9 h-9 rounded-xl flex items-center justify-center active:scale-95 transition-all border ${isDark ? "bg-gray-800 border-gray-700" : "bg-gray-50 border-gray-100"}`}>
+            <button onClick={() => setView("home")} aria-label="Retour à Maria AI" className={`w-9 h-9 rounded-xl flex items-center justify-center active:scale-95 transition-all border ${isDark ? "bg-gray-800 border-gray-700" : "bg-gray-50 border-gray-100"}`}>
               <ArrowLeft className={`w-4 h-4 ${isDark ? "text-gray-400" : "text-gray-500"}`} />
             </button>
           </div>
