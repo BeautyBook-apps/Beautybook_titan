@@ -7,6 +7,7 @@ import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import { entities } from '@/api/entities';
 import { likesApi } from '@/api/likes';
 import { supabase } from '@/api/supabaseClient';
+import apiClient from '@/lib/apiClient';
 import { useAuth } from "@/lib/AuthContext";
 import { readPageCache, mergePageCache } from "@/hooks/usePageCache";
 
@@ -255,11 +256,15 @@ function ShareSheet({ title, styleId, onClose }) {
     { label: "Message", color: "bg-blue-500", emoji: "✉️", href: `sms:?body=${encodeURIComponent(title + ' ' + url)}` },
   ];
   const handle = (opt) => {
+    const recordShare = () => {
+      if (styleId) apiClient.post('/content/styles/engagement', { styleId: String(styleId), kind: 'shares' }).catch(() => {});
+    };
     if (opt.label === "Copier lien") {
       navigator.clipboard.writeText(url).catch(() => {});
+      recordShare();
       setCopied(true);
       setTimeout(() => { setCopied(false); onClose(); }, 1200);
-    } else if (opt.href) { window.open(opt.href, "_blank"); onClose(); }
+    } else if (opt.href) { recordShare(); window.open(opt.href, "_blank"); onClose(); }
     else { onClose(); }
   };
   return (
@@ -484,6 +489,20 @@ export default function StyleDetail() {
   const { state } = useLocation();
   const { id: paramId } = useParams();
   const s = state || {};
+  const handleBack = () => {
+    if (s.returnTo) {
+      navigate(s.returnTo, {
+        replace: true,
+        state: s.restoreStylesContext ? { restoreStylesContext: s.restoreStylesContext } : undefined,
+      });
+      return;
+    }
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/services-salons?tab=STYLES", { replace: true });
+  };
 
   // ── Cache de page par style : affichage direct depuis le cache, jamais d'écran
   // vide — le rafraîchissement réseau se fait en arrière-plan (cf. ProduitDetail).
@@ -505,9 +524,16 @@ export default function StyleDetail() {
   const [showShare, setShowShare] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const trackedViewRef = useRef("");
   const produitsRef = useRef(null);
   const profilsRef = useRef(null);
   const aiRef = useRef(null);
+
+  useEffect(() => {
+    if (!styleId || trackedViewRef.current === String(styleId)) return;
+    trackedViewRef.current = String(styleId);
+    apiClient.post('/content/styles/engagement', { styleId: String(styleId), kind: 'views' }).catch(() => {});
+  }, [styleId]);
 
   // 1. Charger le style réel depuis la DB si pas dans state
   // Quand l'id change : afficher le cache du nouveau style (ou les données de
@@ -690,7 +716,7 @@ export default function StyleDetail() {
       <div className="flex items-center justify-center min-h-screen bg-white">
         <div className="text-center px-8">
           <p className="text-[16px] font-black text-gray-700 mb-2">Style introuvable</p>
-          <button onClick={() => navigate(-1)} className="text-primary font-black text-[13px]">← Retour</button>
+          <button onClick={handleBack} className="text-primary font-black text-[13px]">← Retour</button>
         </div>
       </div>
     );
@@ -708,7 +734,7 @@ export default function StyleDetail() {
 
       {/* ── Sticky top bar ── */}
       <div className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-100 px-4 py-3 flex items-center justify-between shadow-sm">
-        <button onClick={() => navigate(-1)} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 active:scale-95 transition-all hover:bg-gray-200">
+        <button onClick={handleBack} aria-label="Retour à la publication" className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 active:scale-95 transition-all hover:bg-gray-200">
           <ArrowLeft className="w-5 h-5 text-gray-700" />
         </button>
         <span className="text-[15px] font-black text-gray-900">Détail du Style</span>

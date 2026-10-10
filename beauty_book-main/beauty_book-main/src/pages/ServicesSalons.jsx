@@ -1,7 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
+import { useLocation as useRouterLocation, useNavigate } from "react-router-dom";
 import { useThemeBg } from "@/hooks/useTheme";
 import { useAuth } from "@/lib/AuthContext";
 import { Search, Heart, Clock, MapPin, Share2, MessageSquare, Star, X, SlidersHorizontal, Play, Tag, Volume2, VolumeX, Sparkles, Palette, Scissors, Store, User, Zap, Users, LayoutGrid, Droplets, Calendar, Building2, UserCheck, Package, Paintbrush, Gem, Hand, Leaf, Crown, Waves, Eye, Footprints, PenTool, Circle, ArrowUpRight, ArrowRight, Map as MapIcon, Camera, Image as ImageIcon, Loader2 } from "lucide-react";
@@ -258,12 +258,14 @@ function readStylesReturnContext() {
 }
 
 function saveStylesReturnContext(context) {
+  const savedContext = {
+    ...context,
+    createdAt: Date.now(),
+  };
   try {
-    sessionStorage.setItem(STYLES_RETURN_STORAGE_KEY, JSON.stringify({
-      ...context,
-      createdAt: Date.now(),
-    }));
+    sessionStorage.setItem(STYLES_RETURN_STORAGE_KEY, JSON.stringify(savedContext));
   } catch {}
+  return savedContext;
 }
 
 // ── Offre Sheet (thème-aware) ─────────────────────────────────────────────────
@@ -354,11 +356,15 @@ function StyleShareSheet({ style, onClose }) {
   const [copied, setCopied] = useState(false);
   const url = window.location.origin + `/style/${style.id}`;
   const text = `${style.title} — BeautyBook`;
+  const recordShare = () => {
+    if (style?.id) apiClient.post('/content/styles/engagement', { styleId: String(style.id), kind: 'shares' }).catch(() => {});
+  };
 
   const handleNativeShare = async () => {
     if (navigator.share) {
       try {
         await navigator.share({ title: text, text, url });
+        recordShare();
         onClose();
       } catch {}
     }
@@ -373,15 +379,15 @@ function StyleShareSheet({ style, onClose }) {
   const options = [
     {
       label: "WhatsApp", bg: "bg-green-500", emoji: "💬",
-      action: () => { window.open(`https://wa.me/?text=${encodeURIComponent(text + "\n" + url)}`, "_blank"); onClose(); }
+      action: () => { recordShare(); window.open(`https://wa.me/?text=${encodeURIComponent(text + "\n" + url)}`, "_blank"); onClose(); }
     },
     {
       label: copied ? "Copié !" : "Copier lien", bg: copied ? "bg-green-600" : "bg-gray-700", emoji: copied ? "✅" : "🔗",
-      action: handleCopy
+    action: () => { recordShare(); handleCopy(); }
     },
     {
       label: "SMS", bg: "bg-blue-500", emoji: "✉️",
-      action: () => { window.open(`sms:?body=${encodeURIComponent(text + "\n" + url)}`); onClose(); }
+      action: () => { recordShare(); window.open(`sms:?body=${encodeURIComponent(text + "\n" + url)}`); onClose(); }
     },
     {
       label: "Partager", bg: "bg-indigo-500", emoji: "📤",
@@ -769,7 +775,15 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
       setStyles(orderedEnriched);
       mergePageCache("services_salons", { styles: orderedEnriched });
 
-      const counts = await likesApi.getLikeCounts(styleIds, 'style');
+      // The public Supabase policy may hide user_like rows from the browser.
+      // Read the aggregate through the server-side content endpoint instead.
+      let counts = {};
+      try {
+        const engagement = await apiClient.post('/content/styles/engagement-stats', { styleIds });
+        counts = Object.fromEntries(styleIds.map(id => [id, Number(engagement?.stats?.[id]?.likes || 0)]));
+      } catch {
+        counts = await likesApi.getLikeCounts(styleIds, 'style');
+      }
       setLikeCounts(counts);
       mergePageCache("services_salons", { likeCounts: counts });
     } catch {}
@@ -799,45 +813,54 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
   useEffect(() => {
     if (restoredReturnRef.current || !returnContext?.styleId || loading || styles.length === 0) return undefined;
 
-    const timer = window.setTimeout(() => {
+    let attempts = 0;
+    let frameId;
+    const restore = () => {
       const container = scrollRef.current;
       if (!container) return;
 
       const target = [...container.querySelectorAll("[data-style-id]")]
         .find(element => element.dataset.styleId === String(returnContext.styleId));
-      const top = target ? target.offsetTop : Number(returnContext.scrollTop || 0);
+      if (!target && attempts < 5) {
+        attempts += 1;
+        frameId = window.requestAnimationFrame(restore);
+        return;
+      }
+
+      const top = target
+        ? target.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+        : Number(returnContext.scrollTop || 0);
       container.scrollTo({ top: Math.max(0, top), behavior: "auto" });
+      container.parentElement?.scrollTo({ top: 0, behavior: "auto" });
       restoredReturnRef.current = true;
       try { sessionStorage.removeItem(STYLES_RETURN_STORAGE_KEY); } catch {}
+    };
+    const timer = window.setTimeout(() => {
+      frameId = window.requestAnimationFrame(restore);
     }, 0);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      if (frameId) window.cancelAnimationFrame(frameId);
+    };
   }, [loading, returnContext, styles.length]);
 
   const handleLike = async (e, styleId) => {
     e.stopPropagation();
     const alreadyLiked = liked.includes(styleId);
-    const userEmail = user?.email;
+    const userEmail = user?.email || user?.user_metadata?.email || "";
     if (!userEmail) return;
 
-    if (alreadyLiked) {
-      setLiked(prev => prev.filter(id => id !== styleId));
-      try {
-        await supabase.from('user_like').delete().eq('user_email', userEmail).eq('target_id', styleId).eq('target_type', 'style');
-      } catch (e) { console.error('[like] remove error:', e); }
-    } else {
-      setLiked(prev => [...prev, styleId]);
-      try {
-        await supabase.from('user_like').insert({ user_email: userEmail, target_id: styleId, target_type: 'style', user_name: user?.full_name || '', user_avatar: user?.avatar_url || '' });
-      } catch (e) { console.error('[like] insert error:', e); }
-    }
-
-    // Recharger le compteur
     try {
-      const { data } = await supabase.from('user_like').select('id').eq('target_id', styleId).eq('target_type', 'style');
-      const count = data ? data.length : 0;
-      setLikeCounts(prev => ({ ...prev, [styleId]: count }));
-    } catch (e) { console.error('[like] count error:', e); }
+      const result = await apiClient.post('/content/styles/like', {
+        styleId: String(styleId),
+        liked: !alreadyLiked,
+      });
+      setLiked(prev => alreadyLiked ? prev.filter(id => id !== styleId) : [...prev, styleId]);
+      setLikeCounts(prev => ({ ...prev, [styleId]: Number(result?.count || 0) }));
+    } catch (error) {
+      console.error('[like] save error:', error);
+    }
   };
 
   const filteredStyles = useMemo(() => {
@@ -855,7 +878,7 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
   }, [activeCategory, styles, styleFilters]);
 
   const goToDetail = (style) => {
-    saveStylesReturnContext({
+    const restoreStylesContext = saveStylesReturnContext({
       styleId: style.id,
       scrollTop: scrollRef.current?.scrollTop || 0,
       activeCategory,
@@ -864,7 +887,7 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
       activeTab: "STYLES",
     });
     navigate(`/style/${style.id}`, {
-      state: { id: style.id, title: style.title, cover: style.img, images: style.images, video_url: style.video_url, badge: style.subcategory || style.category || "STYLE", category: style.category, subcategory: style.subcategory, description: style.description, likes: likeCounts[style.id] || style.likes, comments: style.comments }
+      state: { id: style.id, title: style.title, cover: style.img, images: style.images, video_url: style.video_url, badge: style.subcategory || style.category || "STYLE", category: style.category, subcategory: style.subcategory, description: style.description, likes: likeCounts[style.id] || style.likes, comments: style.comments, returnTo: "/services-salons?tab=STYLES", restoreStylesContext }
     });
   };
 
@@ -2860,8 +2883,9 @@ function SearchResults({ query, onClose }) {
 
 export default function ServicesSalons() {
   const navigate = useNavigate();
+  const routerLocation = useRouterLocation();
   const urlParams = new URLSearchParams(window.location.search);
-  const restoredStylesContext = readStylesReturnContext();
+  const restoredStylesContext = routerLocation.state?.restoreStylesContext || readStylesReturnContext();
   const initialTab = urlParams.get("tab") || restoredStylesContext?.activeTab || "STYLES";
 
   // Mapping catégorie id (depuis Home GLOBAL_CATEGORIES) → tab + sous-catégorie

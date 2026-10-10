@@ -2,6 +2,7 @@ import { fetchShopifyProducts } from "@/api/shopifyClient";
 import { useState, useEffect, useRef } from "react";
 import { adminApi } from "@/lib/adminApiClient";
 import { entities } from "@/api/entities";
+import apiClient from "@/lib/apiClient";
 import { uploadFile } from '@/api/entities';
 import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3, Palette, Tag, Tags, Zap, Clock, Wrench, Lightbulb, Check, CheckSquare2, MonitorPlay, Heart, MessageSquare, Share2 } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -22,6 +23,45 @@ const DIFFICULTY_LEVELS = ["Débutant", "Intermédiaire", "Avancé", "Expert"];
 
 const HAIR_TYPES = ["Afro", "Européenne", "Asiatique", "Crépus", "Bouclés", "Ondulés", "Lisses", "Tresses", "Locks"];
 const SKIN_TYPES = ["Normale", "Sèche", "Grasse", "Mixte", "Sensible", "Mature"];
+
+function countStyleImages(style) {
+  const media = [
+    ...(Array.isArray(style?.images) ? style.images : []),
+    style?.image_url,
+  ].filter(Boolean);
+  return new Set(media).size;
+}
+
+const metricValue = (style, keys) => {
+  for (const key of keys) {
+    const value = Number(style?.[key]);
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+  return 0;
+};
+
+const formatMetric = (value) => Number(value || 0).toLocaleString("fr-FR");
+
+async function hydrateStyleEngagement(rows) {
+  if (!rows.length) return rows;
+  const styleIds = rows.map(style => String(style.id)).filter(Boolean);
+  let stats = {};
+  try {
+    const response = await apiClient.post("/content/styles/engagement-stats", { styleIds });
+    stats = response?.stats || {};
+  } catch {}
+
+  return rows.map(style => {
+    const id = String(style.id);
+    const current = stats[id] || {};
+    return {
+      ...style,
+      likes: stats[id] ? metricValue(current, ["likes"]) : metricValue(style, ["likes"]),
+      views: stats[id] ? metricValue(current, ["views"]) : metricValue(style, ["views", "view_count", "views_count"]),
+      shares: stats[id] ? metricValue(current, ["shares"]) : metricValue(style, ["shares", "share_count", "shares_count", "partages"]),
+    };
+  });
+}
 
 function StylePreviewModal({ style, onClose }) {
   if (!style) return null;
@@ -132,10 +172,12 @@ export default function AdminStyles() {
     });
   };
 
-  const refreshList = () => {
-    adminApi.listStyles()
-      .then(res => setStyles(Array.isArray(res) ? res : res?.data?.results || res?.data || []))
-      .catch(() => {});
+  const refreshList = async () => {
+    try {
+      const res = await adminApi.listStyles();
+      const rows = Array.isArray(res) ? res : res?.data?.results || res?.data || [];
+      setStyles(await hydrateStyleEngagement(rows));
+    } catch {}
   };
 
   const loadCategories = () => {
@@ -671,6 +713,7 @@ export default function AdminStyles() {
                     <div className="space-y-3">
                       {items.map(style => {
                         const selected = selectedStyleIds.includes(style.id);
+                        const imageCount = countStyleImages(style);
                         return (
                           <div key={style.id} className={`rounded-2xl border bg-white p-4 shadow-sm transition ${selected ? "border-primary ring-2 ring-primary/10" : "border-gray-200"}`}>
                             <div className="flex items-center gap-3">
@@ -686,8 +729,18 @@ export default function AdminStyles() {
                                 <p className="truncate text-[13px] font-black text-gray-900">{style.title}</p>
                                 <p className="text-[11px] text-gray-500">{style.category || "Sans catégorie"}{style.subcategory ? ` › ${style.subcategory}` : ""} · {style.pro_email}</p>
                                 <div className="mt-1 flex flex-wrap items-center gap-2">
-                                  <span className="text-[10px] text-gray-400">❤️ {style.likes || 0}</span>
-                                  <span className="text-[10px] text-gray-400">👁 {style.views || 0}</span>
+                                  <span className="flex items-center gap-0.5 text-[10px] text-gray-400" title="Likes réels">
+                                    <Heart className="h-2.5 w-2.5 fill-pink-400 text-pink-400" /> {formatMetric(style.likes)}
+                                  </span>
+                                  <span className="flex items-center gap-0.5 text-[10px] text-gray-400" title="Vues réelles">
+                                    <Eye className="h-2.5 w-2.5" /> {formatMetric(style.views)}
+                                  </span>
+                                  <span className="flex items-center gap-0.5 text-[10px] text-gray-400" title="Partages enregistrés">
+                                    <Share2 className="h-2.5 w-2.5" /> {formatMetric(style.shares)}
+                                  </span>
+                                  <span className="flex items-center gap-0.5 text-[10px] text-gray-400" title={`${imageCount} image${imageCount > 1 ? "s" : ""}`}>
+                                    <Image className="h-2.5 w-2.5" /> {imageCount} image{imageCount > 1 ? "s" : ""}
+                                  </span>
                                   {style.temps_moyen && <span className="flex items-center gap-0.5 text-[10px] text-gray-400"><Clock className="h-2.5 w-2.5" />{style.temps_moyen}</span>}
                                   {style.niveau_difficulte && <span className="text-[10px] text-gray-400">{style.niveau_difficulte}</span>}
                                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${style.status === "publie" ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-500"}`}>

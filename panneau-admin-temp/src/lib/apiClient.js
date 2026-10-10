@@ -3,7 +3,7 @@ export const localAdminEnabled = import.meta.env.DEV && typeof __LOCAL_ADMIN_TOK
 export const apiClient = {
   async request(endpoint, options={}) {
     const path=endpoint.startsWith('/api/') ? endpoint : '/api'+endpoint;
-    const localPath = localAdminEnabled && ({ '/api/admin/entities': '/__local-admin/entities', '/api/admin/stats': '/__local-admin/stats', '/api/admin/upload': '/__local-admin/upload' })[path];
+    const localPath = localAdminEnabled && ({ '/api/admin/entities': '/__local-admin/entities', '/api/admin/stats': '/__local-admin/stats', '/api/admin/upload': '/__local-admin/upload', '/api/content/styles/engagement-stats': '/__local-admin/style-engagement' })[path];
     const session = localPath ? null : (await supabase.auth.getSession()).data.session;
     if (!localPath && (!session || session.user?.is_anonymous)) {
       const error = new Error('Connectez-vous avec votre compte administrateur pour continuer.');

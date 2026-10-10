@@ -206,7 +206,10 @@ function ReelsAd({ annonce, onClose }) {
         <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
 
         {/* Header */}
-        <div className="absolute top-0 inset-x-0 flex items-center justify-between px-4 pt-4 pb-2 bg-gradient-to-b from-black/50 to-transparent" style={{ paddingTop: "calc(16px + env(safe-area-inset-top, 0px))" }}>
+        {/* La page Réels possède déjà sa propre barre supérieure superposée.
+            Décaler l'en-tête publicitaire évite que le sponsor, le volume et
+            Ignorer soient masqués derrière Réels / Conseils / Tutos. */}
+        <div className="absolute inset-x-0 z-20 flex items-center justify-between px-4 pb-2 bg-gradient-to-b from-black/50 to-transparent" style={{ top: "calc(64px + env(safe-area-inset-top, 0px))", paddingTop: "8px" }}>
           <div className="flex items-center gap-3 flex-1 min-w-0">
             {annonce.sponsor_logo ? (
               <BeautyImage src={annonce.sponsor_logo} alt={annonce.sponsor_name} className="w-10 h-10 rounded-full object-cover border-2 border-white/30 shrink-0" />
@@ -247,10 +250,10 @@ function ReelsAd({ annonce, onClose }) {
         </div>
 
         {/* Bottom — collé tout en bas de la carte */}
-        <div className="absolute bottom-0 inset-x-0 px-4" style={{ paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
+        <div className="absolute bottom-0 inset-x-0 z-30 px-4" style={{ paddingBottom: "calc(108px + env(safe-area-inset-bottom, 0px))" }}>
           <h3 className="text-white text-[18px] font-black mb-1 drop-shadow-lg">{annonce.title}</h3>
           {annonce.description && (
-            <div className="text-white/70 text-[13px] leading-snug mb-3 drop-shadow">
+            <div className="max-h-20 overflow-y-auto overscroll-contain text-white/70 text-[13px] leading-snug mb-3 drop-shadow">
               <span>{descExpanded || !descHasMore ? annonce.description : descPreview}</span>
               {descHasMore && (
                 <button
@@ -342,12 +345,12 @@ function StylesAd({ annonce, onClose }) {
       </div>
 
       {/* Bas : titre + description + CTA — remonté au-dessus de la barre de navigation */}
-      <div className="absolute bottom-0 inset-x-0 px-4" style={{ paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}>
+      <div className="absolute bottom-0 inset-x-0 z-30 px-4" style={{ paddingBottom: "calc(108px + env(safe-area-inset-bottom, 0px))" }}>
         {annonce.title && (
           <h3 className="text-white text-[18px] font-black mb-1 drop-shadow-lg">{annonce.title}</h3>
         )}
         {annonce.description && (
-          <div className="text-white/70 text-[13px] leading-snug mb-3 drop-shadow">
+          <div className="max-h-20 overflow-y-auto overscroll-contain text-white/70 text-[13px] leading-snug mb-3 drop-shadow">
             <span>{descExpanded || !descHasMore ? annonce.description : descPreview}</span>
             {descHasMore && (
               <button

@@ -401,19 +401,21 @@ export default function Home() {
       {/* ── Catégories — fond nude ── */}
       <div data-tour="categories" className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
         <SectionTitle title="Catégories" />
-        <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-1">
+        <div className="flex gap-3.5 overflow-x-auto hide-scrollbar pb-1">
           {GLOBAL_CATEGORIES.map((cat) => {
             const Icon = cat.Icon;
             return (
               <button
                 key={cat.id}
                 onClick={() => navigate(`/services-salons?cat=${encodeURIComponent(cat.id)}`)}
-                className="flex flex-col items-center gap-2 shrink-0 active:scale-95 transition-all"
+                aria-label={`Découvrir ${cat.label}`}
+                className="group flex min-w-[72px] flex-col items-center gap-2.5 shrink-0 rounded-2xl px-1 py-1 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-transform duration-200"
               >
-                <div className="w-[60px] h-[60px] flex items-center justify-center">
-                  <Icon className={`w-7 h-7 ${cat.color}`} strokeWidth={1.6} />
+                <div className={`relative flex h-[58px] w-[58px] items-center justify-center rounded-[20px] border ${cat.border} ${cat.bg} shadow-[0_8px_18px_rgba(30,41,59,0.06)] transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_10px_24px_rgba(30,41,59,0.1)] group-active:scale-95`}>
+                  <div className="absolute inset-1 rounded-[16px] border border-white/75" />
+                  <Icon aria-hidden="true" className={`relative h-7 w-7 ${cat.color}`} strokeWidth={2} />
                 </div>
-                <span className="text-[10px] font-bold text-gray-600 tracking-tight text-center">{cat.label}</span>
+                <span className="text-[10px] font-extrabold text-slate-600 tracking-tight text-center transition-colors group-hover:text-slate-900">{cat.label}</span>
               </button>
             );
           })}

@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS public."Repub" (id UUID PRIMARY KEY DEFAULT gen_rando
 CREATE TABLE IF NOT EXISTS public."Panier" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_email TEXT DEFAULT '', items JSONB DEFAULT '[]'::jsonb, total NUMERIC DEFAULT 0, status TEXT DEFAULT 'actif', created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), created_by_id UUID);
 
 ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS tags jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS shares INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS author_email TEXT DEFAULT '';
 ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS author_name TEXT DEFAULT '';
 ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS author_avatar TEXT DEFAULT '';

@@ -106,6 +106,27 @@ export function createLocalDataApi(client, { columns } = {}) {
         return [key, result.count];
       })));
     },
+    async styleEngagement({ styleIds = [] }) {
+      const ids = [...new Set((Array.isArray(styleIds) ? styleIds : []).map(id => String(id).trim()).filter(Boolean))].slice(0, 500);
+      if (!ids.length) return { stats: {} };
+      let styleResult = await client.from('Style').select('id,views,shares').in('id', ids);
+      if (styleResult.error && /shares|views|column|schema cache|does not exist/i.test(styleResult.error.message || '')) {
+        styleResult = await client.from('Style').select('id,views').in('id', ids);
+      }
+      if (styleResult.error && /views|column|schema cache|does not exist/i.test(styleResult.error.message || '')) {
+        styleResult = await client.from('Style').select('id').in('id', ids);
+      }
+      const styles = styleResult.error ? [] : (styleResult.data || []);
+      const likesResult = await client.from('user_like').select('target_id').eq('target_type', 'style').in('target_id', ids);
+      const likes = likesResult.error ? [] : (likesResult.data || []);
+      const stats = Object.fromEntries(ids.map(id => [id, { likes: 0, views: 0, shares: 0 }]));
+      styles.forEach(style => {
+        const id = String(style.id);
+        if (stats[id]) { stats[id].views = Number(style.views || 0); stats[id].shares = Number(style.shares || 0); }
+      });
+      likes.forEach(row => { const id = String(row.target_id); if (stats[id]) stats[id].likes += 1; });
+      return { stats };
+    },
     async upload({ name, contentType, base64 }) {
       if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'].includes(contentType)) fail(400, 'Format de média non pris en charge.');
       if (typeof base64 !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) fail(400, 'Média invalide.');
@@ -151,7 +172,7 @@ export function localAdminPlugin({ url, serviceKey, origin = 'http://localhost:5
           if (pathname === '/__local-admin/stats' && req.method === 'GET') {
             res.end(JSON.stringify(await api.stats())); return;
           }
-          if (!['/__local-admin/entities', '/__local-admin/upload'].includes(pathname) || req.method !== 'POST') fail(404, 'Opération locale indisponible.');
+          if (!['/__local-admin/entities', '/__local-admin/upload', '/__local-admin/style-engagement'].includes(pathname) || req.method !== 'POST') fail(404, 'Opération locale indisponible.');
           const chunks = [];
           let length = 0;
           for await (const chunk of req) {
@@ -163,6 +184,7 @@ export function localAdminPlugin({ url, serviceKey, origin = 'http://localhost:5
           let body; try { body = JSON.parse(raw); } catch { fail(400, 'JSON invalide.'); }
           if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, 'Données invalides.');
           if (pathname === '/__local-admin/upload') { res.end(JSON.stringify(await api.upload(body))); return; }
+          if (pathname === '/__local-admin/style-engagement') { res.end(JSON.stringify(await api.styleEngagement(body))); return; }
           const writing = ['create', 'update', 'delete'].includes(body.operation);
           if (writing && auditPath) await appendFile(auditPath, JSON.stringify({ time: new Date().toISOString(), operation: body.operation, table: body.table, id: body.id, fields: Object.keys(body.data || {}) }) + '\n');
           res.end(JSON.stringify({ result: await api.entities(body) }));

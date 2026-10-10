@@ -240,6 +240,7 @@ CREATE TABLE IF NOT EXISTS public."Style" (
   status TEXT DEFAULT 'publie',
   likes INTEGER DEFAULT 0,
   views INTEGER DEFAULT 0,
+  shares INTEGER DEFAULT 0,
   author_email TEXT,
   author_name TEXT,
   author_avatar TEXT,
