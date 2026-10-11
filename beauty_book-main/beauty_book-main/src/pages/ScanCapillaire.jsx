@@ -1,4 +1,5 @@
 import BeautyImage from '@/components/ui/BeautyImage';
+import BrandLogo from '@/components/ui/BrandLogo';
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -54,7 +55,7 @@ const SCAN_GUIDE_STEPS = [
     title: "Bonne luminosité",
     desc: "Placez-vous face à une fenêtre ou sous une lumière directe. Évitez les contre-jours et les ombres sur vos cheveux.",
     tip: "La lumière naturelle donne les meilleurs résultats.",
-    img: "",
+    img: "/scan-capillaire/bonne-luminosite.png",
     imgAlt: "Cheveux éclairés en salon de coiffure",
   },
   {
@@ -64,7 +65,7 @@ const SCAN_GUIDE_STEPS = [
     title: "Positionnez vos cheveux",
     desc: "Dégagez cou et épaules. Tenez la caméra à 40–60 cm. Incluez toute la longueur de vos cheveux dans le cadre.",
     tip: "Vue de dos ou de côté recommandée pour analyser la texture.",
-    img: "",
+    img: "/scan-capillaire/position-cheveux.png",
     imgAlt: "Coiffeur travaillant sur des cheveux en gros plan",
   },
   {
@@ -74,7 +75,7 @@ const SCAN_GUIDE_STEPS = [
     title: "Restez immobile",
     desc: "Maintenez la caméra stable pour éviter le flou. Vos cheveux doivent être clairement visibles et bien éclairés.",
     tip: "Photo de profil ou de dos : idéal pour l'analyse IA.",
-    img: "",
+    img: "/scan-capillaire/restez-immobile.png",
     imgAlt: "Cheveux bouclés vus de dos pour scan capillaire",
   },
 ];
@@ -100,8 +101,8 @@ function ScanGuide({ onStart, onBack }) {
         <button onClick={onBack} className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 shrink-0">
           <ArrowLeft className="w-4 h-4 text-primary" />
         </button>
-        <div className="w-10 h-10 bg-gradient-to-br from-primary/10 to-orange-100 rounded-2xl flex items-center justify-center shrink-0">
-          <Scissors className="w-5 h-5 text-primary" strokeWidth={1.5} />
+        <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 overflow-hidden shadow-sm ring-1 ring-orange-100 bg-white">
+          <BrandLogo size={40} alt="Logo BeautyBook" />
         </div>
         <div>
           <p className="text-[10px] font-black text-primary uppercase tracking-widest">Scan Capillaire IA</p>
@@ -147,16 +148,10 @@ function ScanGuide({ onStart, onBack }) {
 
         <div className="mt-auto flex flex-col gap-3">
           {idx === SCAN_GUIDE_STEPS.length - 1 ? (
-            <>
-              <button onClick={next}
-                className="w-full bg-primary text-white font-black text-[15px] uppercase tracking-widest py-4 rounded-3xl shadow-xl shadow-primary/30 flex items-center justify-center gap-2 active:scale-95 transition-all">
-                <Camera className="w-5 h-5" /> Lancer le scan caméra
-              </button>
-              <button onClick={() => onStart("upload")}
-                className="w-full bg-gray-100 text-gray-700 font-black text-[13px] uppercase tracking-widest py-3.5 rounded-3xl flex items-center justify-center gap-2 active:scale-95 transition-all">
-                <ImagePlus className="w-4 h-4" /> Importer une photo
-              </button>
-            </>
+            <button onClick={next}
+              className="w-full bg-primary text-white font-black text-[15px] uppercase tracking-widest py-4 rounded-3xl shadow-xl shadow-primary/30 flex items-center justify-center gap-2 active:scale-95 transition-all">
+              <Camera className="w-5 h-5" /> Lancer le scan caméra
+            </button>
           ) : (
             <div className="flex gap-3">
               {idx > 0 && (

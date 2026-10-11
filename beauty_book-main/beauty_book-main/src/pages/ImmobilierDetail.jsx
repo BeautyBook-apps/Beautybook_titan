@@ -239,9 +239,9 @@ export default function ImmobilierDetail() {
     }
   };
   const phone = data.contact_phone || ADMIN_PHONE;
-  const turnover = Number(data.estimated_turnover || 0);
-  const netRevenue = Number(data.estimated_net_revenue || 0);
-  const addressLabel = [data.location || data.address, data.postal_code, data.city].filter(Boolean).join(", ");
+  const turnover = Number(data.estimated_turnover ?? data.estimated_ca ?? data.ca_estime ?? 0);
+  const netRevenue = Number(data.estimated_net_revenue ?? data.ebe_estime ?? data.net_revenue ?? 0);
+  const addressLabel = [data.address || data.location || data.city, data.postal_code, data.city && data.city !== data.location ? data.city : null].filter(Boolean).join(", ");
   const mapItem = [{ id: data.id || id || "listing", title: data.title, address: data.location || data.address, postal_code: data.postal_code, city: data.city, latitude: data.latitude ?? data._lat, longitude: data.longitude ?? data._lng, price: data.price }];
   const appleMapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(addressLabel || data.title || "Emplacement du local")}`;
 
@@ -386,7 +386,7 @@ export default function ImmobilierDetail() {
             </div>
             <div>
               <p className="text-[14px] font-black text-gray-900">{data.location || "Paris"}</p>
-              <p className="text-[11px] text-gray-500 font-medium">{data.area || "Zone premium"}</p>
+              <p className="text-[11px] text-gray-500 font-medium">{data.city || data.postal_code || "Localisation à préciser"}</p>
             </div>
           </div>
           {[
@@ -449,7 +449,7 @@ export default function ImmobilierDetail() {
             <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center">
               <Users className="w-5 h-5 text-primary" />
             </div>
-            <p className="text-[22px] font-black text-gray-900 leading-none">{data.seats_count || data.seats || 1}</p>
+            <p className="text-[22px] font-black text-gray-900 leading-none">{data.seats_count ?? data.seats ?? 1}</p>
             <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">Sièges</p>
           </div>
           <div className="bg-white rounded-3xl p-4 shadow-sm flex flex-col items-center text-center gap-2">

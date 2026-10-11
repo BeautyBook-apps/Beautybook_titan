@@ -173,6 +173,72 @@ function HotspotEditor({ visite, sceneIdx: initialSceneIdx, theme = "dark", onSa
   );
 }
 
+// ── Fiche immobilière avant la création de la visite ───────────────────────────
+function PropertySetupModal({ theme = "light", listings = [], form, setForm, onClose, onSubmit, saving }) {
+  const isLight = theme === "light";
+  const input = `w-full rounded-xl border px-3 py-2.5 text-[12px] outline-none focus:border-primary ${isLight ? "bg-gray-50 border-gray-200 text-gray-800" : "bg-[#1a1a1a] border-gray-700 text-white"}`;
+  const label = `text-[9px] font-black uppercase tracking-widest ${isLight ? "text-gray-500" : "text-gray-400"}`;
+  const set = (key, value) => setForm(previous => ({ ...previous, [key]: value }));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <form onSubmit={onSubmit} className={`relative z-10 w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-5 ${isLight ? "bg-white" : "bg-black"}`}>
+        <div className={`w-10 h-1 rounded-full mx-auto mb-4 ${isLight ? "bg-gray-200" : "bg-gray-700"}`} />
+        <div className="flex items-center justify-between mb-1">
+          <div>
+            <h2 className={`text-[18px] font-black ${isLight ? "text-gray-900" : "text-white"}`}>Créer une visite virtuelle</h2>
+            <p className={`text-[11px] mt-1 ${isLight ? "text-gray-500" : "text-gray-400"}`}>Commencez par créer la fiche du bien, comme pour une annonce immobilière.</p>
+          </div>
+          <button type="button" onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"><X className="w-4 h-4 text-gray-500" /></button>
+        </div>
+
+        {listings.length > 0 && (
+          <label className="block mt-4">
+            <span className={label}>Fiche existante à associer (optionnel)</span>
+            <select value={form.listing_id} onChange={e => set("listing_id", e.target.value)} className={`${input} mt-1`}>
+              <option value="">Créer une nouvelle fiche immobilière</option>
+              {listings.map(listing => <option key={listing.id} value={listing.id}>{listing.title || "Annonce sans titre"}</option>)}
+            </select>
+          </label>
+        )}
+
+        {!form.listing_id && (
+          <>
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <label><span className={label}>Titre *</span><input required value={form.title} onChange={e => set("title", e.target.value)} placeholder="Ex : Studio bb" className={`${input} mt-1`} /></label>
+              <label><span className={label}>Type</span><select value={form.type} onChange={e => set("type", e.target.value)} className={`${input} mt-1`}><option value="location">Location</option><option value="vente">Vente</option></select></label>
+            </div>
+            <label className="block mt-3"><span className={label}>Description</span><textarea value={form.description} onChange={e => set("description", e.target.value)} rows={2} className={`${input} mt-1 resize-none`} placeholder="Présentez le bien et son activité" /></label>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <label><span className={label}>Prix (€) *</span><input required type="number" min="0" value={form.price} onChange={e => set("price", e.target.value)} placeholder="500" className={`${input} mt-1`} /></label>
+              <label><span className={label}>Unité</span><input value={form.unit} onChange={e => set("unit", e.target.value)} placeholder="/MOIS" className={`${input} mt-1`} /></label>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <label><span className={label}>Adresse complète</span><input value={form.address} onChange={e => set("address", e.target.value)} placeholder="Adresse" className={`${input} mt-1`} /></label>
+              <label><span className={label}>Ville</span><input value={form.city} onChange={e => set("city", e.target.value)} placeholder="Évry-Courcouronnes" className={`${input} mt-1`} /></label>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mt-3">
+              <label><span className={label}>Code postal</span><input value={form.postal_code} onChange={e => set("postal_code", e.target.value)} placeholder="91000" className={`${input} mt-1`} /></label>
+              <label><span className={label}>Surface (m²)</span><input type="number" min="0" value={form.surface} onChange={e => set("surface", e.target.value)} placeholder="80" className={`${input} mt-1`} /></label>
+              <label><span className={label}>Nombre de sièges</span><input type="number" min="1" value={form.seats_count} onChange={e => set("seats_count", e.target.value)} placeholder="3" className={`${input} mt-1`} /></label>
+            </div>
+            <label className="block mt-3"><span className={label}>Équipements</span><input value={form.equip} onChange={e => set("equip", e.target.value)} placeholder="Fauteuils, miroirs..." className={`${input} mt-1`} /></label>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <label><span className={label}>CA estimé / mois (€)</span><input type="number" min="0" value={form.estimated_turnover} onChange={e => set("estimated_turnover", e.target.value)} placeholder="5500" className={`${input} mt-1`} /></label>
+              <label><span className={label}>Revenu net / mois (€)</span><input type="number" min="0" value={form.estimated_net_revenue} onChange={e => set("estimated_net_revenue", e.target.value)} placeholder="3200" className={`${input} mt-1`} /></label>
+            </div>
+          </>
+        )}
+
+        <button type="submit" disabled={saving} className="w-full mt-5 bg-primary text-white rounded-2xl py-3.5 text-[12px] font-black uppercase tracking-widest disabled:opacity-60 flex items-center justify-center gap-2">
+          {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Création...</> : "Créer la fiche et continuer"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 // ── Viewer 360° utilisant Three.js ──────────────────────────────────────────────
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
@@ -184,6 +250,14 @@ export default function Visite3D() {
   const [proInfo, setProInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [propertyFormOpen, setPropertyFormOpen] = useState(false);
+  const [propertySaving, setPropertySaving] = useState(false);
+  const [propertyListings, setPropertyListings] = useState([]);
+  const [propertyForm, setPropertyForm] = useState({
+    listing_id: "", title: "", description: "", type: "location", price: "", unit: "/MOIS",
+    address: "", city: "", postal_code: "", surface: "", seats_count: "", equip: "",
+    estimated_turnover: "", estimated_net_revenue: "",
+  });
 
   const isLight = theme === "light";
 
@@ -201,9 +275,11 @@ export default function Visite3D() {
     Promise.all([
       entities.ProfilPro.filter({ user_email: user.email }, "-created_at", 1).catch(() => []),
       entities.VisiteVirtuelle.filter({ pro_email: user.email }, "-created_at", 5).catch(() => []),
-    ]).then(([profils, v]) => {
+      entities.ImmobilierListing.filter({ pro_email: user.email }, "-created_at", 50).catch(() => []),
+    ]).then(([profils, v, listings]) => {
       if (profils.length > 0) setProInfo(profils[0]);
       setVisites(v);
+      setPropertyListings(listings);
       setLoading(false);
     });
   }, [user?.email]);
@@ -221,26 +297,69 @@ export default function Visite3D() {
 
   const hasVisite = visites.length > 0;
 
-  const createVisite = async () => {
+  const createVisite = async (event) => {
     if (!user?.email) return;
     setCreating(true);
+    setPropertySaving(true);
     try {
-      const salonName = proInfo?.salon_name || "Mon établissement";
+      const selected = event.listing_id ? propertyListings.find(item => item.id === event.listing_id) : null;
+      let listing = selected;
+      if (!listing) {
+        listing = await entities.ImmobilierListing.create({
+          title: event.title || proInfo?.salon_name || "Mon établissement",
+          description: event.description || "",
+          type: event.type || "location",
+          price: Number(event.price) || 0,
+          unit: event.unit || "/MOIS",
+          address: event.address || "",
+          location: event.city || "",
+          city: event.city || "",
+          postal_code: event.postal_code || "",
+          surface: event.surface === "" ? null : Number(event.surface) || 0,
+          seats_count: event.seats_count === "" ? null : parseInt(event.seats_count, 10) || 0,
+          equip: event.equip || "",
+          estimated_turnover: event.estimated_turnover === "" ? null : Number(event.estimated_turnover) || 0,
+          estimated_net_revenue: event.estimated_net_revenue === "" ? null : Number(event.estimated_net_revenue) || 0,
+          images: [],
+          status: "brouillon",
+          created_by_id: user.id,
+        });
+      }
+      const propertyTitle = listing.title || proInfo?.salon_name || "Mon établissement";
       const payload = {
-        title: salonName,
+        title: propertyTitle,
+        name: propertyTitle,
         scenes: [],
-        status: "actif",
+        status: "brouillon",
         pro_email: user.email,
+        created_by_id: user.id,
       };
-      const v = await entities.VisiteVirtuelle.create(payload);
+      let v;
+      try {
+        v = await entities.VisiteVirtuelle.create(payload);
+      } catch (firstError) {
+        // Compatibilité avec les anciennes bases qui utilisent `name` sans `title`,
+        // ou les nouvelles qui utilisent uniquement `title`.
+        const message = String(firstError?.message || firstError || "").toLowerCase();
+        if (!message.includes("column") && !message.includes("schema cache") && !message.includes("not-null")) throw firstError;
+        const fallbackPayload = { ...payload };
+        if (message.includes("title")) delete fallbackPayload.title;
+        if (message.includes("name")) delete fallbackPayload.name;
+        v = await entities.VisiteVirtuelle.create(fallbackPayload);
+      }
       if (!v) throw new Error("La création a retourné null — vérifiez que la table VisiteVirtuelle existe dans Supabase et que les RLS policies autorisent l'insertion.");
+      await entities.ImmobilierListing.update(listing.id, { virtual_tour_id: v.id });
+      const linkedListing = { ...listing, virtual_tour_id: v.id };
+      setPropertyListings(prev => prev.map(item => item.id === linkedListing.id ? linkedListing : item));
       setVisites(prev => [v, ...prev]);
       setEditingVisite(v);
+      setPropertyFormOpen(false);
     } catch (err) {
       console.error('[Visite3D] createVisite error:', err);
       alert("Erreur lors de la création : " + (err.message || err));
     } finally {
       setCreating(false);
+      setPropertySaving(false);
     }
   };
 
@@ -282,7 +401,7 @@ export default function Visite3D() {
         </div>
         {!hasVisite && (
           <button
-            onClick={createVisite}
+            onClick={() => setPropertyFormOpen(true)}
             disabled={creating}
             className={`w-9 h-9 rounded-full flex items-center justify-center border active:scale-95 ${isLight ? "bg-gray-100 border-gray-200" : "bg-[#1a1a1a] border-gray-800"}`}
           >
@@ -354,7 +473,7 @@ export default function Visite3D() {
               {proInfo?.salon_name ? <>Créez une visite pour <span className={isLight ? "text-gray-900" : "text-white"}>{proInfo.salon_name}</span></> : "Créez votre première expérience 3D"}
             </p>
             <button
-              onClick={createVisite}
+              onClick={() => setPropertyFormOpen(true)}
               disabled={creating}
               className="w-full bg-primary text-white text-[13px] font-black uppercase tracking-widest py-4 rounded-2xl shadow-lg shadow-primary/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
@@ -395,7 +514,7 @@ export default function Visite3D() {
 
                   <div className="p-4">
                     <h3 className={`text-[16px] font-black flex items-center gap-2 ${isLight ? "text-gray-900" : "text-white"}`}>
-                      {v.title || "Visite sans nom"}
+                      {v.title || v.name || "Visite sans nom"}
                       <button onClick={() => setEditingVisite(v)} className={`w-6 h-6 rounded-lg flex items-center justify-center ${isLight ? "bg-gray-100" : "bg-gray-800"}`}>
                         <Pencil className={`w-3 h-3 ${isLight ? "text-gray-500" : "text-gray-400"}`} />
                       </button>
@@ -467,6 +586,18 @@ export default function Visite3D() {
             setHotspotVisite(updated);
           }}
           onClose={() => setHotspotVisite(null)}
+        />
+      )}
+
+      {propertyFormOpen && (
+        <PropertySetupModal
+          theme={theme}
+          listings={propertyListings}
+          form={propertyForm}
+          setForm={setPropertyForm}
+          saving={propertySaving}
+          onClose={() => setPropertyFormOpen(false)}
+          onSubmit={e => { e.preventDefault(); createVisite(propertyForm); }}
         />
       )}
 

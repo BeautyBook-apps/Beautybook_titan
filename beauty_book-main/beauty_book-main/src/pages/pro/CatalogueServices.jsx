@@ -62,6 +62,7 @@ export default function CatalogueServices() {
   // le rafraîchissement réseau se fait en arrière-plan sans vider l'affichage.
   const [activeFilter, setActiveFilter] = useState("Tous");
   const [services, setServices] = useCachedState(cacheKey, [], (c) => c?.services || []);
+  const [styles, setStyles] = useCachedState(cacheKey, [], (c) => c?.styles || []);
   const [bundles, setBundles] = useCachedState(cacheKey, [], (c) => c?.bundles || []);
   const [loading, setLoading] = useState(() => !readPageCache(cacheKey));
   const [proName, setProName] = useCachedState(cacheKey, "", (c) => c?.proName ?? "");
@@ -103,6 +104,18 @@ export default function CatalogueServices() {
           mergePageCache(cacheKey, { bundles: data || [] });
         }
       });
+
+    // Les styles associés sont proposés dans le formulaire de bundle.
+    Promise.all([
+      supabase.from("Style").select("*").eq("pro_email", user.email).order("created_at", { ascending: false }).limit(100),
+      supabase.from("Style").select("*").eq("author_email", user.email).order("created_at", { ascending: false }).limit(100),
+    ]).then(([byPro, byAuthor]) => {
+      if (cancelled) return;
+      const merged = [...(byPro.data || []), ...(byAuthor.data || [])]
+        .filter((item, index, list) => item?.id && list.findIndex((candidate) => candidate.id === item.id) === index);
+      setStyles(merged);
+      mergePageCache(cacheKey, { styles: merged });
+    });
 
     return () => { cancelled = true; };
   }, [user?.email]);
@@ -528,6 +541,7 @@ export default function CatalogueServices() {
         open={bundleModal.open}
         editBundle={bundleModal.editBundle}
         services={services}
+        styles={styles}
         onClose={() => setBundleModal({ open: false, editBundle: null })}
         onSaved={(updatedBundles) => {
           setBundles(updatedBundles);

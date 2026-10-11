@@ -10,6 +10,7 @@ import AdminStyleConseils from "./AdminStyleConseils";
 
 
 const CATEGORIES = ["Coiffure", "Maquillage", "Ongles", "Soin", "Barbe", "Massage"];
+const STYLE_DRAFT_KEY = "bb_admin_style_draft";
 
 export default function AdminStyles() {
   const [styles, setStyles] = useState([]);
@@ -36,10 +37,11 @@ export default function AdminStyles() {
   const updateForm = (updater) => {
     setForm(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
+      try { localStorage.setItem(STYLE_DRAFT_KEY, JSON.stringify(next)); } catch {}
       // Auto-save en base avec debounce 1.5s si titre renseigné
       if (next.title) {
         clearTimeout(autoSaveTimer.current);
-        autoSaveTimer.current = setTimeout(() => autoSaveDraft(next), 1500);
+        autoSaveTimer.current = setTimeout(() => autoSaveDraft(next), 700);
       }
       return next;
     });
@@ -52,7 +54,8 @@ export default function AdminStyles() {
         await entities.Style.update(draftId, { ...styleData, status: "brouillon" });
       } else {
         const res = await entities.Style.create({ ...styleData, status: "brouillon" });
-        if (res.data?.style?.id) setDraftId(res.data.style.id);
+        const id = res?.id || res?.data?.style?.id || res?.result?.id;
+        if (id) setDraftId(id);
       }
     } catch {}
   };
@@ -108,6 +111,7 @@ export default function AdminStyles() {
        setDraftId(null);
      }
      setForm(EMPTY_FORM);
+     try { localStorage.removeItem(STYLE_DRAFT_KEY); } catch {}
    };
 
   const refreshList = () => {
@@ -228,6 +232,7 @@ export default function AdminStyles() {
         setEditingId(null);
         setCreating(false);
         setForm(EMPTY_FORM);
+        try { localStorage.removeItem(STYLE_DRAFT_KEY); } catch {}
         refreshList();
       } catch (err) {
         alert("Erreur : " + err.message);

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node ./node_modules/vite/bin/vite.js",
+    "dev:api": "npm --prefix backend run dev",
+    "dev:full": "concurrently -k -n api,app -c magenta,cyan \"npm run dev:api\" \"npm run dev\"",
     "dev:admin": "node ./node_modules/vite/bin/vite.js --config vite.admin.config.js",
     "dev:seller": "node ./node_modules/vite/bin/vite.js --config vite.seller.config.js",
     "dev:all": "concurrently -n app,admin,seller -c cyan,magenta,yellow \"npm run dev\" \"npm run dev:admin\" \"npm run dev:seller\"",

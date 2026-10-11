@@ -1649,7 +1649,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
               { icon: Star, label: "Avis clients", to: "/pro/avis-clients" },
               { icon: Megaphone, label: "Booster un service", to: "/pro/catalogue-services" },
               { icon: Lightbulb, label: "Idée de post", q: "Propose-moi 3 idées de publications pour les réseaux sociaux de mon salon cette semaine : pour chacune, la légende prête à poster et les hashtags." },
-              { icon: Scissors, label: "Créer un service", q: "Je veux créer un nouveau service dans mon catalogue.", highlight: true },
+              { icon: Scissors, label: "Créer un service", to: "/pro/catalogue-services", highlight: true },
             ] : [
               { icon: Scissors, label: "Conseil coiffure", q: "Quelle coupe de cheveux me conseillerais-tu ?" },
               { icon: Star, label: "Tendances 2026", q: "Quelles sont les tendances beauté 2026 ?" },
@@ -1682,7 +1682,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
           {/* Bandeau pro exclusif — créer un service */}
           {isPro && (
             <button
-              onClick={() => sendMessage("Je veux créer un nouveau service dans mon catalogue.")}
+              onClick={() => navigate("/pro/catalogue-services")}
               className="w-full mb-4 flex items-center gap-3 bg-gradient-to-r from-primary to-orange-400 rounded-2xl px-4 py-3.5 active:scale-[0.98] transition-all shadow-md shadow-primary/20"
             >
               <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center shrink-0">

@@ -7,11 +7,14 @@ const inputCls = "w-full bg-gray-50 border border-gray-200 text-gray-800 rounded
 
 const EMPTY_FORM = {
   title: "", description: "", type: "location", price: "",
-  unit: "/MOIS", surface: "", location: "", area: "",
+  unit: "/MOIS", surface: "", address: "", city: "", postal_code: "",
+  location: "", seats_count: "",
   equip: "", extra: "", images: [], video_url: "",
   estimated_turnover: "", estimated_net_revenue: "", virtual_tour_id: "",
   status: "actif",
 };
+
+const DRAFT_KEY = "bb_admin_immobilier_draft";
 
 export default function AdminImmobilier() {
   const [listings, setListings] = useState([]);
@@ -21,6 +24,8 @@ export default function AdminImmobilier() {
   const [uploading, setUploading] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [editingId, setEditingId] = useState(null);
+  const [draftId, setDraftId] = useState(null);
+  const draftTimer = useRef(null);
   const imgRef = useRef(null);
   const videoRef = useRef(null);
 
@@ -28,6 +33,56 @@ export default function AdminImmobilier() {
     adminApi.listImmobilier()
       .then(res => setListings(Array.isArray(res) ? res : res?.data?.results || [])).catch(() => {}).finally(() => setLoading(false));
   }, []);
+
+  const hasDraftContent = (value) => Boolean(
+    value.title || value.description || value.price || value.address || value.city ||
+    value.postal_code || value.surface || value.seats_count || value.images?.length ||
+    value.video_url || value.estimated_turnover || value.estimated_net_revenue
+  );
+
+  const saveDraft = async (value) => {
+    if (editingId || !hasDraftContent(value)) return;
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(value));
+      const payload = {
+        ...value,
+        title: value.title || "Brouillon d'annonce immobilière",
+        price: value.price === "" ? 0 : Number(value.price) || 0,
+        seats_count: value.seats_count === "" ? null : parseInt(value.seats_count, 10) || 0,
+        estimated_turnover: value.estimated_turnover === "" ? null : Number(value.estimated_turnover) || 0,
+        estimated_net_revenue: value.estimated_net_revenue === "" ? null : Number(value.estimated_net_revenue) || 0,
+        location: value.city || value.location || "",
+        status: "brouillon",
+        virtual_tour_id: value.virtual_tour_id || null,
+      };
+      if (draftId) await adminApi.updateImmobilier(draftId, payload);
+      else {
+        const created = await adminApi.createImmobilier(payload);
+        const item = created?.data?.result || created?.result || created?.data || created;
+        if (item?.id) setDraftId(item.id);
+      }
+    } catch (error) {
+      console.warn("[AdminImmobilier] brouillon non synchronisé", error);
+    }
+  };
+
+  const updateForm = (updater) => {
+    setForm(previous => {
+      const next = typeof updater === "function" ? updater(previous) : updater;
+      if (!editingId && hasDraftContent(next)) {
+        clearTimeout(draftTimer.current);
+        draftTimer.current = setTimeout(() => saveDraft(next), 700);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!creating || editingId || !hasDraftContent(form)) return;
+    clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => saveDraft(form), 700);
+    return () => clearTimeout(draftTimer.current);
+  }, [form, creating, editingId, draftId]);
 
   const handleFileUpload = async (e, isVideo = false) => {
     const file = e.target.files[0];
@@ -53,21 +108,32 @@ export default function AdminImmobilier() {
       const payload = {
         ...form,
         price: parseFloat(form.price) || 0,
-        estimated_turnover: parseFloat(form.estimated_turnover) || 0,
-        estimated_net_revenue: parseFloat(form.estimated_net_revenue) || 0,
+        seats_count: form.seats_count === "" ? null : parseInt(form.seats_count, 10) || 0,
+        estimated_turnover: form.estimated_turnover === "" ? null : parseFloat(form.estimated_turnover) || 0,
+        estimated_net_revenue: form.estimated_net_revenue === "" ? null : parseFloat(form.estimated_net_revenue) || 0,
+        address: form.address || form.location || "",
+        city: form.city || form.location || "",
+        location: form.city || form.location || "",
         virtual_tour_id: form.virtual_tour_id || null,
+        status: "actif",
       };
       delete payload.badge;
       const res = editingId
         ? await adminApi.updateImmobilier(editingId, payload)
-        : await adminApi.createImmobilier(payload);
+        : draftId
+          ? await adminApi.updateImmobilier(draftId, payload)
+          : await adminApi.createImmobilier(payload);
       const item = res?.data?.result || res?.result || res?.data || res;
-      setListings(prev => editingId
-        ? prev.map(listing => listing.id === editingId ? { ...listing, ...item } : listing)
+      const savedId = editingId || draftId;
+      setListings(prev => savedId
+        ? prev.map(listing => listing.id === savedId ? { ...listing, ...item } : listing)
         : [item, ...prev]);
       setCreating(false);
       setEditingId(null);
+      setDraftId(null);
       setForm({ ...EMPTY_FORM });
+      clearTimeout(draftTimer.current);
+      localStorage.removeItem(DRAFT_KEY);
     } catch (err) {
       console.error("Erreur création immobilier:", err);
       alert("Erreur lors de la création. Réessayez.");
@@ -84,10 +150,15 @@ export default function AdminImmobilier() {
 
   const editListing = (listing) => {
     setEditingId(listing.id);
+    setDraftId(null);
     setForm({
       ...EMPTY_FORM,
       ...listing,
       price: listing.price ?? "",
+      address: listing.address || listing.location || "",
+      city: listing.city || listing.location || "",
+      postal_code: listing.postal_code || "",
+      seats_count: listing.seats_count ?? listing.seats ?? "",
       images: Array.isArray(listing.images) ? listing.images : [],
       video_url: listing.video_url || "",
     });
@@ -143,21 +214,25 @@ export default function AdminImmobilier() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="Ville / Arrondissement" className={inputCls} />
-            <input value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))} placeholder="Quartier / Zone" className={inputCls} />
+            <input value={form.address} onChange={e => updateForm(f => ({ ...f, address: e.target.value }))} placeholder="Adresse complète" className={inputCls} />
+            <input value={form.city} onChange={e => updateForm(f => ({ ...f, city: e.target.value, location: e.target.value }))} placeholder="Ville" className={inputCls} />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <input value={form.postal_code} onChange={e => updateForm(f => ({ ...f, postal_code: e.target.value }))} placeholder="Code postal" className={inputCls} />
+            <input type="number" min="1" value={form.seats_count} onChange={e => updateForm(f => ({ ...f, seats_count: e.target.value }))} placeholder="Nombre de sièges" className={inputCls} />
+            <input value={form.surface} onChange={e => updateForm(f => ({ ...f, surface: e.target.value }))} placeholder="Surface (m²)" className={inputCls} />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <input value={form.surface} onChange={e => setForm(f => ({ ...f, surface: e.target.value }))} placeholder="Surface (ex: 18m²)" className={inputCls} />
-            <input value={form.equip} onChange={e => setForm(f => ({ ...f, equip: e.target.value }))} placeholder="Équipement (ex: 1 fauteuil)" className={inputCls} />
-            <input value={form.extra} onChange={e => setForm(f => ({ ...f, extra: e.target.value }))} placeholder="Extra (ex: Parking)" className={inputCls} />
+          <div className="grid grid-cols-2 gap-3">
+            <input value={form.equip} onChange={e => updateForm(f => ({ ...f, equip: e.target.value }))} placeholder="Équipement (ex: fauteuils, miroir)" className={inputCls} />
+            <input value={form.extra} onChange={e => updateForm(f => ({ ...f, extra: e.target.value }))} placeholder="Extra (ex: Parking)" className={inputCls} />
           </div>
 
           <div className="bg-emerald-50 rounded-2xl p-4 space-y-3 border border-emerald-100">
             <p className="text-[11px] font-black text-emerald-700 uppercase tracking-widest">Performance estimative</p>
             <div className="grid grid-cols-2 gap-3">
-              <input type="number" min="0" value={form.estimated_turnover} onChange={e => setForm(f => ({ ...f, estimated_turnover: e.target.value }))} placeholder="CA estimé / mois (€)" className={inputCls} />
-              <input type="number" min="0" value={form.estimated_net_revenue} onChange={e => setForm(f => ({ ...f, estimated_net_revenue: e.target.value }))} placeholder="Revenu net / mois (€)" className={inputCls} />
+              <input type="number" min="0" value={form.estimated_turnover} onChange={e => updateForm(f => ({ ...f, estimated_turnover: e.target.value }))} placeholder="CA estimé / mois (€)" className={inputCls} />
+              <input type="number" min="0" value={form.estimated_net_revenue} onChange={e => updateForm(f => ({ ...f, estimated_net_revenue: e.target.value }))} placeholder="Revenu net / mois (€)" className={inputCls} />
             </div>
           </div>
 
@@ -217,7 +292,7 @@ export default function AdminImmobilier() {
               className="flex-1 bg-primary text-white py-3 rounded-xl text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-2">
               {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> {editingId ? "Enregistrement..." : "Création..."}</> : editingId ? "Enregistrer les modifications" : "Créer →"}
             </button>
-            <button type="button" onClick={() => { setCreating(false); setEditingId(null); setForm({ ...EMPTY_FORM }); }}
+            <button type="button" onClick={() => { clearTimeout(draftTimer.current); setCreating(false); setEditingId(null); setDraftId(null); setForm({ ...EMPTY_FORM }); localStorage.removeItem(DRAFT_KEY); }}
               className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl text-[13px] font-black">Annuler</button>
           </div>
         </form>
@@ -239,7 +314,7 @@ export default function AdminImmobilier() {
               <p className="text-gray-500 text-[11px]">{l.location} · {l.price}€{l.unit} · {l.type}</p>
               <div className="flex items-center gap-2 mt-1">
                 <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${l.status === "actif" ? "bg-green-100 text-green-600" : "bg-amber-100 text-amber-600"}`}>
-                  {l.status === "actif" ? "Disponible" : l.status === "loue" ? "Loué" : "Vendu"}
+                  {l.status === "actif" ? "Disponible" : l.status === "brouillon" ? "Brouillon" : l.status === "loue" ? "Loué" : "Vendu"}
                 </span>
                 {l.images?.length > 1 && <span className="text-[10px] text-gray-400">{l.images.length} photos</span>}
                 {l.video_url && <span className="text-[10px] text-blue-500">▶ Vidéo</span>}

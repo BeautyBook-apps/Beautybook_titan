@@ -1,9 +1,22 @@
 import db from '../config/pg.js';
 import {assert,HttpError} from '../lib/errors.js';
 import {generateText,extractText,checkedImage} from './openai.js';
-export function createImageSearch(database=db,generate=generateText){return async({image_url})=>{
- const response=await generate({input:[{role:'user',content:[{type:'input_image',image_url:checkedImage(image_url)},{type:'input_text',text:'Décris uniquement les vêtements et accessoires visibles, sans caractéristique personnelle ni score. Réponds en JSON {"detected_items":[{"type":"nom court en français","color":"couleur"}]}, maximum 5 éléments.'}]}],max_output_tokens:450});
- let parsed;try{parsed=JSON.parse(extractText(response).replace(/^```(?:json)?\s*|\s*```$/g,''));}catch{throw new HttpError(502,'INVALID_AI_RESULT','La recherche visuelle n’a pas pu identifier des articles.');}
+import {generateVisionText,isXaiConfigured} from './xai.js';
+const VISION_PROMPT='Analyse uniquement les éléments beauté visibles sur cette image. Priorise la coiffure ou le style de cheveux (coupe, tresses, twists, locks, perruque, texture, couleur), puis le maquillage, les ongles et les soins si visibles. Ne déduis aucune caractéristique personnelle et ne donne aucun score. Réponds uniquement en JSON {"detected_items":[{"type":"nom court en français","color":"couleur"}]}, avec 5 éléments maximum.';
+export function createImageSearch(database=db,generate=null){return async({image_url})=>{
+ const safeImage=checkedImage(image_url);
+ const useGrok=String(process.env.AI_IMAGE_PROVIDER||'').toLowerCase()==='grok' || (!process.env.OPENAI_API_KEY && isXaiConfigured());
+ let responseText;
+ if(generate){
+  const response=await generate({input:[{role:'user',content:[{type:'input_image',image_url:safeImage},{type:'input_text',text:VISION_PROMPT}]}],max_output_tokens:450});
+  responseText=extractText(response);
+ }else if(useGrok){
+  responseText=await generateVisionText({image_url:safeImage,prompt:VISION_PROMPT});
+ }else{
+  const response=await generateText({input:[{role:'user',content:[{type:'input_image',image_url:safeImage},{type:'input_text',text:VISION_PROMPT}]}],max_output_tokens:450});
+  responseText=extractText(response);
+ }
+ let parsed;try{parsed=JSON.parse(String(responseText).replace(/^```(?:json)?\s*|\s*```$/g,''));}catch{throw new HttpError(502,'INVALID_AI_RESULT','La recherche visuelle n’a pas pu identifier des articles.');}
  assert(Array.isArray(parsed.detected_items)&&parsed.detected_items.length<=5&&parsed.detected_items.every(i=>i&&typeof i.type==='string'&&i.type.length<=60&&typeof i.color==='string'&&i.color.length<=40),502,'INVALID_AI_RESULT','Résultat visuel inexploitable.');
  const patterns=parsed.detected_items.map(i=>i.type.replace(/[%_\\]/g,'').trim()).filter(Boolean).map(s=>'%'+s+'%');
  if(!patterns.length)return {detected_items:[],products:[]};

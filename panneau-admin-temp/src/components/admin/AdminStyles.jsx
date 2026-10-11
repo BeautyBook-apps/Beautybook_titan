@@ -4,7 +4,7 @@ import { adminApi } from "@/lib/adminApiClient";
 import { entities } from "@/api/entities";
 import apiClient from "@/lib/apiClient";
 import { uploadFile } from '@/api/entities';
-import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3, Palette, Tag, Tags, Zap, Clock, Wrench, Lightbulb, Check, CheckSquare2, MonitorPlay, Heart, MessageSquare, Share2 } from "lucide-react";
+import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3, Palette, Tag, Tags, Zap, Clock, Wrench, Lightbulb, Check, CheckSquare2, MonitorPlay, Heart, MessageSquare, Share2, List, Grid2X2, ArrowDownUp } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import AdminStyleCategories from "./AdminStyleCategories";
 import AdminStyleSubCategories from "./AdminStyleSubCategories";
@@ -122,6 +122,12 @@ export default function AdminStyles() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterSubCategory, setFilterSubCategory] = useState("");
+  const [displayMode, setDisplayMode] = useState(() => {
+    try { return sessionStorage.getItem("bb_admin_styles_display") || "list"; } catch { return "list"; }
+  });
+  const [sortBy, setSortBy] = useState(() => {
+    try { return sessionStorage.getItem("bb_admin_styles_sort") || "recent"; } catch { return "recent"; }
+  });
   const [uploadingImg, setUploadingImg] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const imgInputRef = useRef(null);
@@ -355,7 +361,18 @@ export default function AdminStyles() {
     return matchSearch && matchCat && matchSub;
   });
 
-  const groupedStyles = filtered.reduce((groups, style) => {
+  const sortedFiltered = [...filtered].sort((a, b) => {
+    if (sortBy === "oldest") return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+    if (sortBy === "title-asc") return String(a.title || "").localeCompare(String(b.title || ""), "fr", { sensitivity: "base" });
+    if (sortBy === "title-desc") return String(b.title || "").localeCompare(String(a.title || ""), "fr", { sensitivity: "base" });
+    if (sortBy === "likes") return metricValue(b, ["likes"]) - metricValue(a, ["likes"]);
+    if (sortBy === "views") return metricValue(b, ["views", "view_count", "views_count"]) - metricValue(a, ["views", "view_count", "views_count"]);
+    if (sortBy === "shares") return metricValue(b, ["shares", "share_count", "shares_count", "partages"]) - metricValue(a, ["shares", "share_count", "shares_count", "partages"]);
+    if (sortBy === "published") return Number(b.status === "publie") - Number(a.status === "publie");
+    return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+  });
+
+  const groupedStyles = sortedFiltered.reduce((groups, style) => {
     const category = style.category || "Sans catégorie";
     const subcategory = style.subcategory || "Sans sous-catégorie";
     if (!groups[category]) groups[category] = {};
@@ -363,13 +380,21 @@ export default function AdminStyles() {
     groups[category][subcategory].push(style);
     return groups;
   }, {});
-  const visibleStyleIds = filtered.map(style => style.id);
+  const visibleStyleIds = sortedFiltered.map(style => style.id);
   const allVisibleSelected = visibleStyleIds.length > 0 && visibleStyleIds.every(id => selectedStyleIds.includes(id));
   const toggleStyleSelection = (id) => setSelectedStyleIds(previous => previous.includes(id) ? previous.filter(selectedId => selectedId !== id) : [...previous, id]);
   const toggleAllVisible = () => setSelectedStyleIds(previous => {
     if (allVisibleSelected) return previous.filter(id => !visibleStyleIds.includes(id));
     return [...new Set([...previous, ...visibleStyleIds])];
   });
+  const changeDisplayMode = (mode) => {
+    setDisplayMode(mode);
+    try { sessionStorage.setItem("bb_admin_styles_display", mode); } catch {}
+  };
+  const changeSortBy = (value) => {
+    setSortBy(value);
+    try { sessionStorage.setItem("bb_admin_styles_sort", value); } catch {}
+  };
 
   if (loading) return <div className="flex justify-center py-16"><div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
 
@@ -406,6 +431,20 @@ export default function AdminStyles() {
                 <option key={s.id} value={s.name}>{s.name}</option>
               ))}
             </select>
+            <label className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm text-[12px] font-black text-gray-500">
+              <ArrowDownUp className="w-4 h-4 text-gray-400" />
+              <span className="sr-only">Trier par</span>
+              <select value={sortBy} onChange={e => changeSortBy(e.target.value)} className="bg-transparent outline-none text-gray-700">
+                <option value="recent">Plus récents</option>
+                <option value="oldest">Plus anciens</option>
+                <option value="title-asc">Titre A → Z</option>
+                <option value="title-desc">Titre Z → A</option>
+                <option value="likes">Plus de likes</option>
+                <option value="views">Plus de vues</option>
+                <option value="shares">Plus de partages</option>
+                <option value="published">Publié en premier</option>
+              </select>
+            </label>
             <button onClick={() => setCreating(v => !v)}
               className="relative flex items-center gap-2 bg-primary text-white px-4 py-3 rounded-xl text-[13px] font-black active:scale-95 transition-all shadow-md shadow-primary/20">
               <Plus className="w-4 h-4" /> Nouveau style
@@ -695,6 +734,20 @@ export default function AdminStyles() {
               </span>
             </div>
           )}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">Mode d’affichage</p>
+              <p className="text-[11px] text-gray-400">Adaptez la densité de votre bibliothèque de styles.</p>
+            </div>
+            <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1" role="group" aria-label="Mode d'affichage">
+              <button type="button" onClick={() => changeDisplayMode("list")} aria-pressed={displayMode === "list"} className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-[12px] font-black transition ${displayMode === "list" ? "bg-white text-primary shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+                <List className="h-4 w-4" /> Liste
+              </button>
+              <button type="button" onClick={() => changeDisplayMode("grid")} aria-pressed={displayMode === "grid"} className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-[12px] font-black transition ${displayMode === "grid" ? "bg-white text-primary shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+                <Grid2X2 className="h-4 w-4" /> Grille
+              </button>
+            </div>
+          </div>
           <div className="space-y-5">
             {Object.entries(groupedStyles).map(([category, subgroups]) => (
               <section key={category} className="space-y-3" aria-labelledby={`style-category-${category}`}>
@@ -710,22 +763,22 @@ export default function AdminStyles() {
                       <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">{subcategory}</span>
                       <span className="text-[10px] text-gray-400">({items.length})</span>
                     </div>
-                    <div className="space-y-3">
+                    <div className={displayMode === "grid" ? "grid grid-cols-1 xl:grid-cols-2 gap-3" : "space-y-3"}>
                       {items.map(style => {
                         const selected = selectedStyleIds.includes(style.id);
                         const imageCount = countStyleImages(style);
                         return (
                           <div key={style.id} className={`rounded-2xl border bg-white p-4 shadow-sm transition ${selected ? "border-primary ring-2 ring-primary/10" : "border-gray-200"}`}>
-                            <div className="flex items-center gap-3">
+                            <div className={displayMode === "grid" ? "flex flex-col gap-3" : "flex items-center gap-3"}>
                               <button type="button" onClick={() => toggleStyleSelection(style.id)} aria-label={`${selected ? "Désélectionner" : "Sélectionner"} ${style.title}`} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition ${selected ? "border-primary bg-primary text-white" : "border-gray-200 bg-gray-50 text-gray-400 hover:border-primary hover:text-primary"}`}>
                                 {selected ? <Check className="h-5 w-5" /> : <span className="h-4 w-4 rounded border border-current" />}
                               </button>
-                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-gray-100">
+                              <div className={`${displayMode === "grid" ? "h-40 w-full" : "h-14 w-14"} shrink-0 overflow-hidden rounded-xl bg-gray-100`}>
                                 {style.image_url
                                   ? <img src={style.image_url} alt={style.title} className="h-full w-full object-cover" />
                                   : <div className="flex h-full w-full items-center justify-center"><Image className="h-5 w-5 text-gray-400" /></div>}
                               </div>
-                              <div className="min-w-0 flex-1">
+                              <div className={displayMode === "grid" ? "min-w-0" : "min-w-0 flex-1"}>
                                 <p className="truncate text-[13px] font-black text-gray-900">{style.title}</p>
                                 <p className="text-[11px] text-gray-500">{style.category || "Sans catégorie"}{style.subcategory ? ` › ${style.subcategory}` : ""} · {style.pro_email}</p>
                                 <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -749,7 +802,7 @@ export default function AdminStyles() {
                                   {style.featured && <Star className="h-3 w-3 fill-yellow-400 text-yellow-500" />}
                                 </div>
                               </div>
-                              <div className="flex shrink-0 items-center gap-2">
+                              <div className="flex shrink-0 flex-wrap items-center gap-2">
                                 <button type="button" onClick={() => setPreviewStyle(style)} aria-label={`Prévisualiser ${style.title}`} title="Prévisualiser" className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-50 transition hover:bg-purple-100 active:scale-95">
                                   <MonitorPlay className="h-4 w-4 text-purple-500" />
                                 </button>

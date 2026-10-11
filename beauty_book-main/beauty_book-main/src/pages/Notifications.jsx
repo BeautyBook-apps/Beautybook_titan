@@ -6,14 +6,15 @@ import {
   ArrowLeft, Bell, Check, X, Settings,
   MessageCircle, CalendarCheck, Tag, Star, ShoppingBag,
   ShieldCheck, Scissors, User, Megaphone, Clock, MapPin,
-  ChevronRight, ExternalLink, CheckCircle2, AlertCircle
+  ChevronRight, ExternalLink, CheckCircle2, AlertCircle, Trash2,
+  CheckSquare, Square, ListChecks
 } from "lucide-react";
 import { supabase } from '@/api/supabaseClient';
-import { entities } from '@/api/entities';
 import {
   loadNotifications,
   markAsRead,
   markAllAsRead as markAllAsReadService,
+  deleteNotification,
 } from '@/lib/notificationService';
 
 function getNotifVisual(notif) {
@@ -54,7 +55,7 @@ function SenderBadge({ notif }) {
   );
 }
 
-function NotifItem({ notif, onRead, onClick, onDelete }) {
+function NotifItem({ notif, onRead, onClick, onDelete, selectionMode, selected, onToggleSelect }) {
   const { Icon, bg, iconColor, border } = getNotifVisual(notif);
   const date = new Date(notif.created_at);
   const now = new Date();
@@ -66,12 +67,26 @@ function NotifItem({ notif, onRead, onClick, onDelete }) {
   else timeLabel = date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 
   const handleClick = () => {
+    if (selectionMode) {
+      onToggleSelect(notif.id);
+      return;
+    }
     onRead(notif.id);
     onClick(notif);
   };
 
   return (
-    <div className={`flex items-start gap-3 px-4 py-4 border-b border-gray-50 transition-all ${!notif.read && !notif.is_read ? "bg-primary/[0.03]" : ""}`}>
+    <div className={`flex items-start gap-3 px-4 py-4 border-b border-gray-50 transition-all ${selected ? "bg-primary/[0.08]" : !notif.read && !notif.is_read ? "bg-primary/[0.03]" : ""}`}>
+      {selectionMode && (
+        <button
+          type="button"
+          aria-label={selected ? "Désélectionner la notification" : "Sélectionner la notification"}
+          onClick={() => onToggleSelect(notif.id)}
+          className="mt-3 shrink-0 text-primary active:scale-90 transition-transform"
+        >
+          {selected ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5 text-gray-300" />}
+        </button>
+      )}
       <button onClick={handleClick} className="flex items-start gap-3 flex-1 text-left active:scale-[0.99] transition-all min-w-0">
         <div className={`w-11 h-11 ${bg} ${border} border rounded-2xl flex items-center justify-center shrink-0`}>
           <Icon className={`w-5 h-5 ${iconColor}`} />
@@ -90,12 +105,12 @@ function NotifItem({ notif, onRead, onClick, onDelete }) {
           <div className="w-2 h-2 bg-primary rounded-full shrink-0 mt-1.5" />
         )}
       </button>
-      <button
+      {!selectionMode && <button
         onClick={() => onDelete(notif.id)}
         className="w-8 h-8 flex items-center justify-center rounded-full bg-red-50 text-red-400 active:scale-95 transition-all shrink-0 mt-1"
       >
         <X className="w-3.5 h-3.5" />
-      </button>
+      </button>}
     </div>
   );
 }
@@ -275,6 +290,9 @@ export default function Notifications() {
   const [notifications, setNotifications] = useCachedState(cacheKey, [], c => c?.notifications || []);
   const [loading, setLoading] = useState(() => !readPageCache(cacheKey)?.notifications?.length);
   const [selectedNotif, setSelectedNotif] = useState(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const userEmailRef = useRef(null);
 
   useEffect(() => {
@@ -333,12 +351,52 @@ export default function Notifications() {
   };
 
   const deleteNotif = async (id) => {
+    const previous = notifications;
     setNotifications(prev => prev.filter(n => n.id !== id));
     try {
-      await entities.Notification.delete(id);
-    } catch {
-      await supabase.from("Notification").delete().eq("id", id);
+      await deleteNotification(id, user?.email);
+    } catch (error) {
+      setNotifications(previous);
+      console.error("[Notifications] Delete error:", error);
     }
+  };
+
+  const toggleSelected = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      const key = String(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => {
+      if (prev.size === notifications.length) return new Set();
+      return new Set(notifications.map(notif => String(notif.id)));
+    });
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const deleteSelected = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length || bulkDeleting) return;
+    const previous = notifications;
+    setBulkDeleting(true);
+    setNotifications(prev => prev.filter(notif => !selectedIds.has(String(notif.id))));
+    try {
+      await Promise.all(ids.map(id => deleteNotification(id, user?.email)));
+    } catch (error) {
+      setNotifications(previous);
+      console.error("[Notifications] Bulk delete error:", error);
+    }
+    setBulkDeleting(false);
+    exitSelectionMode();
   };
 
   const unreadCount = notifications.filter(n => !n.read && !n.is_read).length;
@@ -356,18 +414,41 @@ export default function Notifications() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {unreadCount > 0 && (
+          {selectionMode ? (
+            <>
+              <button onClick={toggleSelectAll} className="flex items-center gap-1.5 text-[11px] font-black text-gray-600 active:scale-95 transition-all">
+                <ListChecks className="w-4 h-4" />
+                {selectedIds.size === notifications.length ? "Tout désélectionner" : "Tout sélectionner"}
+              </button>
+              <button
+                onClick={deleteSelected}
+                disabled={!selectedIds.size || bulkDeleting}
+                className="w-9 h-9 rounded-full flex items-center justify-center bg-red-50 text-red-500 disabled:opacity-40 active:scale-95 transition-all"
+                aria-label="Supprimer les notifications sélectionnées"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+              <button onClick={exitSelectionMode} className="text-[11px] font-black text-gray-500 active:scale-95 transition-all">
+                Annuler
+              </button>
+            </>
+          ) : unreadCount > 0 ? (
             <button onClick={markAllRead} className="flex items-center gap-1.5 text-[11px] font-black text-primary active:scale-95 transition-all">
               <Check className="w-3.5 h-3.5" />
               Tout lire
             </button>
+          ) : null}
+          {!selectionMode && notifications.length > 0 && (
+            <button onClick={() => setSelectionMode(true)} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 transition-all" aria-label="Sélectionner des notifications">
+              <CheckSquare className="w-4 h-4 text-gray-500" />
+            </button>
           )}
-          <button
+          {!selectionMode && <button
             onClick={() => navigate("/parametres/notifications")}
             className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 transition-all"
           >
             <Settings className="w-4 h-4 text-gray-500" />
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -398,6 +479,9 @@ export default function Notifications() {
               onRead={markRead}
               onClick={setSelectedNotif}
               onDelete={deleteNotif}
+              selectionMode={selectionMode}
+              selected={selectedIds.has(String(notif.id))}
+              onToggleSelect={toggleSelected}
             />
           ))}
         </div>

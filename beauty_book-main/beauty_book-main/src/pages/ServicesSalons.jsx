@@ -15,6 +15,8 @@ import { getPublicAds } from "@/lib/publicAds";
 import MapWithPricePins from "@/components/map/MapWithPricePins";
 import AdvancedFilterSheet from "@/components/filters/AdvancedFilterSheet";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
+import AuthModal from "@/components/ui/AuthModal";
+import { useAuthGate } from "@/hooks/useAuthGate";
 import { useLocation } from '@/contexts/LocationContext';
 import { isOpenNow } from "@/lib/hours";
 import { isProfilParticulier, isProfilSalon } from "@/lib/annonces";
@@ -35,6 +37,10 @@ const STYLE_IMG1 = "";
 const STYLE_IMG2 = "";
 const STYLE_IMG3 = "";
 const SARAH_IMG = "";
+
+// A temporary backend outage must not create a request storm while the feed
+// remains visible. It is reset automatically after two minutes.
+let engagementStatsRetryAt = 0;
 
 const salonsData = [
   { id: 1, images: [SALON_IMG2, SALON_IMG, STYLE_IMG1], title: "Studio Lumière", location: "Paris 16e", rating: 4.9, price: 55, tag: "Prestige", category: "Coiffure" },
@@ -266,6 +272,38 @@ function saveStylesReturnContext(context) {
     sessionStorage.setItem(STYLES_RETURN_STORAGE_KEY, JSON.stringify(savedContext));
   } catch {}
   return savedContext;
+}
+
+function stylePublicationTimestamp(style) {
+  const rawDate = style?.created_at
+    || style?.published_at
+    || style?.publishedAt
+    || style?.date_publication
+    || style?.createdAt
+    || style?.updated_at
+    || style?.updatedAt;
+  if (typeof rawDate === "number" && Number.isFinite(rawDate)) {
+    return rawDate < 1e12 ? rawDate * 1000 : rawDate;
+  }
+  const timestamp = rawDate ? Date.parse(String(rawDate)) : NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function sortStylesByPublication(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((style, index) => ({ style, index }))
+    .sort((a, b) => {
+      const dateA = stylePublicationTimestamp(a.style);
+      const dateB = stylePublicationTimestamp(b.style);
+      if (dateA !== null && dateB !== null && dateA !== dateB) return dateB - dateA;
+      if (dateA !== null && dateB === null) return -1;
+      if (dateA === null && dateB !== null) return 1;
+      // The API already returns rows newest-first. Keep that order as a
+      // deterministic fallback for legacy rows without a usable timestamp.
+      return (Number(a.style?.publication_rank ?? a.index) || 0)
+        - (Number(b.style?.publication_rank ?? b.index) || 0);
+    })
+    .map(({ style }) => style);
 }
 
 // ── Offre Sheet (thème-aware) ─────────────────────────────────────────────────
@@ -602,6 +640,7 @@ function StyleAdvancedFilterBar({ styles = [], value, onChange, activeCategory =
 function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnContext }) {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { showAuthModal, authMessage, requireAuth, closeAuthModal } = useAuthGate();
   // Affichage direct depuis le cache : pas d'écran « chargement » intermédiaire,
   // le rafraîchissement réseau se fait en arrière-plan sans vider l'affichage.
   const [liked, setLiked] = useCachedState("bb_liked_styles", []);
@@ -730,10 +769,17 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
     if (!user?.email) return;
     likesApi.getUserLikesAll(user.email, 'style')
       .then(data => {
-        if (data) {
-          const ids = data.map(l => l.target_id);
+        if (Array.isArray(data)) {
+          const ids = data.map(l => String(l.target_id)).filter(Boolean);
           setLiked(ids);
           localStorage.setItem("bb_liked_styles", JSON.stringify(ids));
+          // Even when an aggregate count endpoint is temporarily unavailable,
+          // the current user's persisted like is real and must never display 0.
+          setLikeCounts(previous => {
+            const next = { ...previous };
+            ids.forEach(id => { next[id] = Math.max(Number(next[id] || 0), 1); });
+            return next;
+          });
         }
       })
       .catch(() => {});
@@ -745,7 +791,7 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
       if (!items || items.length === 0) {
         items = await entities.Style.filter({}, "-created_at", 200).then(r => (r || []).filter(s => s.status !== "brouillon")).catch(() => []);
       }
-      const mapped = (items || []).map(r => ({
+      const mapped = (items || []).map((r, publication_rank) => ({
         id: r.id, img: r.image_url || (r.images && r.images[0]) || STYLE_IMG1,
         images: r.images && r.images.length > 0 ? r.images : [r.image_url || STYLE_IMG1],
         video_url: r.video_url || null,
@@ -753,11 +799,13 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
         author_name: r.author_name || r.pro_email?.split("@")[0] || "Pro",
         author_email: r.author_email || r.pro_email || "",
         authorImg: SARAH_IMG,
-        title: r.title, likes: r.likes || 0, comments: r.comments || 0,
+        title: r.title, likes: r.likes || 0, views: r.views || 0, shares: r.shares || 0, comments: r.comments || 0,
         category: r.category, subcategory: r.subcategory, description: r.description,
         type_cheveux: r.type_cheveux || "", type_peau: r.type_peau || "",
         niveau_difficulte: r.niveau_difficulte || "", price: r.price ?? r.prix ?? "",
-        created_at: r.created_at,
+        created_at: r.created_at || r.published_at || r.publishedAt || r.date_publication || r.createdAt,
+        published_at: r.published_at || r.publishedAt || null,
+        publication_rank,
       }));
       const orderedMapped = orderStylesForCurrentSession(mapped);
       setStyles(orderedMapped);
@@ -789,12 +837,26 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
 
       // The public Supabase policy may hide user_like rows from the browser.
       // Read the aggregate through the server-side content endpoint instead.
-      let counts = {};
-      try {
-        const engagement = await apiClient.post('/content/styles/engagement-stats', { styleIds });
-        counts = Object.fromEntries(styleIds.map(id => [id, Number(engagement?.stats?.[id]?.likes || 0)]));
-      } catch {
-        counts = await likesApi.getLikeCounts(styleIds, 'style');
+      // Keep the values returned with the Style rows as the immediate source
+      // of truth, then enrich likes from the server when available. This also
+      // keeps the feed usable when the optional aggregate endpoint is down.
+      let counts = Object.fromEntries(styleIds.map(id => [id, Number(mapped.find(style => String(style.id) === id)?.likes || 0)]));
+      if (Date.now() >= engagementStatsRetryAt) {
+        try {
+          const engagement = await apiClient.post('/content/styles/engagement-stats', { styleIds });
+          counts = Object.fromEntries(styleIds.map(id => {
+            const serverCount = Number(engagement?.stats?.[id]?.likes ?? 0);
+            const rowCount = Number(counts[id] ?? 0);
+            return [id, engagement?.partial ? Math.max(serverCount, rowCount) : serverCount];
+          }));
+          engagementStatsRetryAt = 0;
+        } catch {
+          engagementStatsRetryAt = Date.now() + 120000;
+          try {
+            const fallback = await likesApi.getLikeCounts(styleIds, 'style');
+            counts = Object.fromEntries(styleIds.map(id => [id, Number(fallback?.[id] ?? counts[id] ?? 0)]));
+          } catch {}
+        }
       }
       setLikeCounts(counts);
       mergePageCache("services_salons", { likeCounts: counts });
@@ -813,12 +875,10 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
 
     const onFocus = () => fetchStyles();
     document.addEventListener('visibilitychange', onFocus);
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') fetchStyles();
-    }, 30000);
+    // The feed is refreshed on first display and when the tab becomes visible.
+    // Avoid polling a read-only aggregate endpoint every 30 seconds.
     return () => {
       document.removeEventListener('visibilitychange', onFocus);
-      clearInterval(interval);
     };
   }, [fetchStyles]);
 
@@ -859,17 +919,63 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
 
   const handleLike = async (e, styleId) => {
     e.stopPropagation();
-    const alreadyLiked = liked.includes(styleId);
+    const normalizedStyleId = String(styleId);
+    const alreadyLiked = liked.some(id => String(id) === normalizedStyleId);
     const userEmail = user?.email || user?.user_metadata?.email || "";
-    if (!userEmail) return;
+    if (!userEmail) {
+      requireAuth("Connectez-vous pour aimer un style et retrouver vos likes sur tous vos appareils.");
+      return;
+    }
 
+    // AuthContext can briefly contain the previous user while Supabase is
+    // restoring the persisted session. Check the actual session before
+    // calling the protected backend route, so an expired/absent token does
+    // not produce a noisy 401 in the browser console.
+    const { data: { session } = {} } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      requireAuth("Votre session a expiré. Connectez-vous pour aimer ce style.");
+      return;
+    }
+
+    // A persisted Supabase session can remain in local storage after its
+    // refresh token has become invalid. Validate it once before the protected
+    // request and clear only an actually rejected session.
+    const { data: { user: authUser } = {}, error: authError } = await supabase.auth.getUser();
+    const authRequestFailed = authError && typeof authError.status === "number";
+    if (!authUser && (authRequestFailed || authError?.name === "AuthSessionMissingError")) {
+      await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      requireAuth("Votre session a expiré. Reconnectez-vous pour aimer ce style.");
+      return;
+    }
+
+    const effectiveEmail = authUser?.email || userEmail;
     try {
-      const result = await apiClient.post('/content/styles/like', {
-        styleId: String(styleId),
-        liked: !alreadyLiked,
-      });
-      setLiked(prev => alreadyLiked ? prev.filter(id => id !== styleId) : [...prev, styleId]);
-      setLikeCounts(prev => ({ ...prev, [styleId]: Number(result?.count || 0) }));
+      // Likes are persisted through the authenticated Supabase client. This
+      // keeps the action tied to the current session and avoids losing a
+      // valid user like behind a misconfigured local API proxy.
+      if (alreadyLiked) {
+        await likesApi.removeLike(effectiveEmail, normalizedStyleId, 'style');
+      } else {
+        await likesApi.addLike(
+          effectiveEmail,
+          normalizedStyleId,
+          'style',
+          authUser?.user_metadata?.full_name || user?.full_name || '',
+          authUser?.user_metadata?.avatar_url || user?.avatar_url || '',
+        );
+      }
+      setLiked(prev => alreadyLiked
+        ? prev.filter(id => String(id) !== normalizedStyleId)
+        : [...prev, normalizedStyleId]);
+      const currentStyle = styles.find(item => String(item.id) === normalizedStyleId);
+      const currentCount = Number(likeCounts[normalizedStyleId] ?? currentStyle?.likes ?? 0);
+      const nextCount = Math.max(0, currentCount + (alreadyLiked ? -1 : 1));
+      const nextLikeCounts = { ...likeCounts, [normalizedStyleId]: nextCount };
+      setLikeCounts(nextLikeCounts);
+      setStyles(previous => previous.map(item => String(item.id) === normalizedStyleId
+        ? { ...item, likes: nextCount }
+        : item));
+      mergePageCache("services_salons", { likeCounts: nextLikeCounts });
     } catch (error) {
       console.error('[like] save error:', error);
     }
@@ -890,14 +996,11 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
       styleFilters.type_peau || styleFilters.niveau_difficulte ||
       styleFilters.priceMin !== "" || styleFilters.priceMax !== ""
     );
-    // Only the unfiltered « Tous » feed is randomized. Every category and
-    // filtered result follows the publication date, newest first.
+    // Only the unfiltered « Tous » feed is randomized. Every other category
+    // follows the publication date, newest first, independently of the random
+    // order used by the global discovery feed.
     if (activeCategory !== "Tous" || hasActiveFilter) {
-      result.sort((a, b) => {
-        const dateA = new Date(a.created_at || 0).getTime();
-        const dateB = new Date(b.created_at || 0).getTime();
-        return dateB - dateA;
-      });
+      result = sortStylesByPublication(result);
     }
     if (styleFilters.sortBy === "price_asc") result.sort((a, b) => Number(a.price || 0) - Number(b.price || 0));
     if (styleFilters.sortBy === "price_desc") result.sort((a, b) => Number(b.price || 0) - Number(a.price || 0));
@@ -908,7 +1011,10 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
     const restoreStylesContext = saveStylesReturnContext({
       styleId: style.id,
       scrollTop: scrollRef.current?.scrollTop || 0,
-      styleOrder: styles.map(item => String(item.id)),
+      // Save the exact visible order for the current category. This is
+      // important because « Tous » is intentionally random while categories
+      // are chronological.
+      styleOrder: filteredStyles.map(item => String(item.id)),
       activeCategory,
       quickFilter,
       filters: styleFilters,
@@ -945,6 +1051,7 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
           onView={() => { setShowImmobilier(false); navigate("/immobilier"); }}
         />
       )}
+      <AuthModal open={showAuthModal} onClose={closeAuthModal} message={authMessage} />
       <div className="h-full flex flex-col">
         <StyleAdvancedFilterBar styles={styles} value={styleFilters} activeCategory={activeCategory} quickFilter={quickFilter} onQuickFilterConsumed={onQuickFilterConsumed} onChange={setStyleFilters} />
         <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-scroll hide-scrollbar" style={{ scrollSnapType: "y mandatory", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
@@ -989,7 +1096,7 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
 function StyleCard({ style, styleId, liked, likeCount, followed, onFollow, onLike, onComment, onShare, onDetail, onBook, isVideo }) {
   const { user } = useAuth();
   const [imgIdx, setImgIdx] = useState(0);
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
   const [progress, setProgress] = useState(0);
   const [descExpanded, setDescExpanded] = useState(false);
@@ -1014,6 +1121,22 @@ function StyleCard({ style, styleId, liked, likeCount, followed, onFollow, onLik
     if (!videoRef.current) return;
     if (playing) { videoRef.current.pause(); setPlaying(false); }
     else { videoRef.current.play(); setPlaying(true); }
+  };
+
+  // Les publications vidéo se lancent uniquement pendant un appui maintenu.
+  // Cela évite les lectures automatiques dans le fil et fonctionne avec la
+  // souris comme avec le tactile grâce aux Pointer Events.
+  const startVideoOnPress = (e) => {
+    e.stopPropagation();
+    if (!currentIsVideo || !videoRef.current) return;
+    videoRef.current.play().then(() => setPlaying(true)).catch(() => {});
+  };
+
+  const stopVideoOnRelease = (e) => {
+    e?.stopPropagation?.();
+    if (!currentIsVideo || !videoRef.current) return;
+    videoRef.current.pause();
+    setPlaying(false);
   };
 
   const toggleMute = (e) => {
@@ -1047,8 +1170,14 @@ function StyleCard({ style, styleId, liked, likeCount, followed, onFollow, onLik
       {allMedia.map((url, i) => (
       <div key={i} className="absolute inset-0 w-full h-full transition-transform duration-300 ease-in-out" style={{ transform: `translateX(${(i - imgIdx) * 100}%)` }}>
         {isVideo(url) ? (
-          <video ref={i === imgIdx ? videoRef : null} src={url} autoPlay={i === imgIdx} loop muted={muted} playsInline
-            className="w-full h-full object-cover object-[center_55%]" onTimeUpdate={i === imgIdx ? handleTimeUpdate : undefined} onClick={togglePlay} />
+          <video ref={i === imgIdx ? videoRef : null} src={url} autoPlay={false} loop muted={muted} playsInline
+            className="w-full h-full object-cover object-[center_55%]"
+            onTimeUpdate={i === imgIdx ? handleTimeUpdate : undefined}
+            onPointerDown={i === imgIdx ? startVideoOnPress : undefined}
+            onPointerUp={i === imgIdx ? stopVideoOnRelease : undefined}
+            onPointerCancel={i === imgIdx ? stopVideoOnRelease : undefined}
+            onPointerLeave={i === imgIdx ? stopVideoOnRelease : undefined}
+            onContextMenu={event => event.preventDefault()} />
         ) : (
           <BeautyImage src={url} alt={style.title} className="w-full h-full object-cover object-[center_55%]" onClick={onDetail} />
         )}
@@ -2780,133 +2909,172 @@ function QuickPublishModal({ onClose }) {
 }
 
 // ── Search Results ────────────────────────────────────────────────────────────
-function VisualSearchResults({ result, onClose }) {
-  const products = result?.products || [];
+const searchText = value => normalizeStyleTaxonomyValue(value);
+
+function searchItemText(item) {
+  return searchText([
+    item.title, item.name, item.description, item.category, item.subcategory,
+    item.type_cheveux, item.type_peau, item.brand, item.salon_name, item.city,
+    item.specialite, item.role,
+  ].filter(Boolean).join(" "));
+}
+
+function mapSearchItem(item, kind) {
+  const images = Array.isArray(item.images) ? item.images.filter(Boolean) : [];
+  const gallery = Array.isArray(item.galerie_urls) ? item.galerie_urls.filter(Boolean) : [];
+  return {
+    ...item,
+    kind,
+    title: item.title || item.name || item.salon_name || item.nom || item.role || "Résultat BeautyBook",
+    image: item.image_url || item.cover_url || item.banner_url || item.avatar_url || images[0] || gallery[0] || "",
+    images: images.length > 0 ? images : gallery,
+    video_url: item.video_url || item.presentation_video_url || "",
+  };
+}
+
+async function loadSearchItems(tab) {
+  if (tab === "STYLES") {
+    const rows = await entities.Style.filter({ status: ["publie", "actif"] }, "-created_at", 120).catch(() => []);
+    return rows.map(row => mapSearchItem(row, "style"));
+  }
+  if (tab === "SERVICES") {
+    const rows = await entities.Service.filter({ status: "actif" }, "-created_at", 120).catch(() => []);
+    return rows.map(row => mapSearchItem(row, "service"));
+  }
+  if (tab === "BUNDLES") {
+    const rows = await entities.ServiceBundle.filter({ is_active: true }, "-created_at", 120).catch(() => []);
+    return rows.map(row => mapSearchItem(row, "bundle"));
+  }
+  const rows = await entities.ProfilPro.filter({ status: "actif" }, "-created_at", 120).catch(() => []);
+  return rows
+    .filter(row => tab !== "PARTICULIERS" || isProfilParticulier(row))
+    .filter(row => tab !== "SALONS" || isProfilSalon(row))
+    .map(row => mapSearchItem(row, tab === "PARTICULIERS" ? "particulier" : "salon"));
+}
+
+function matchesSearchCategory(item, activeCategory) {
+  const category = searchText(activeCategory);
+  return !category || category === "tous" || searchItemText(item).includes(category);
+}
+
+function SearchResultCard({ item, onOpen }) {
+  const videoRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const media = item.video_url || item.image;
+  const startVideo = event => {
+    event.stopPropagation();
+    if (!item.video_url || !videoRef.current) return;
+    videoRef.current.play().catch(() => {});
+    setPlaying(true);
+  };
+  const stopVideo = event => {
+    event?.stopPropagation?.();
+    if (!item.video_url || !videoRef.current) return;
+    videoRef.current.pause();
+    setPlaying(false);
+  };
+
+  return (
+    <article className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-gray-100 shadow-sm">
+      {item.video_url ? (
+        <video ref={videoRef} src={item.video_url} muted playsInline preload="metadata" className="h-full w-full object-cover"
+          onPointerDown={startVideo} onPointerUp={stopVideo} onPointerCancel={stopVideo} onPointerLeave={stopVideo} />
+      ) : media ? (
+        <BeautyImage src={media} alt={item.title} className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full items-center justify-center text-3xl">{item.kind === "service" ? "💆" : item.kind === "bundle" ? "🎁" : "✨"}</div>
+      )}
+      <button type="button" onClick={onOpen} onPointerDown={startVideo} onPointerUp={stopVideo} onPointerCancel={stopVideo} onPointerLeave={stopVideo} className="absolute inset-0 text-left">
+        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent px-3 pb-3 pt-10">
+          <span className="block truncate text-[13px] font-black text-white">{item.title}</span>
+          <span className="mt-0.5 block truncate text-[10px] font-bold text-white/75">{item.category || item.salon_name || item.city || "BeautyBook"}</span>
+        </span>
+      </button>
+      {item.video_url && <span className={`pointer-events-none absolute right-2 top-2 rounded-full bg-black/55 px-2 py-1 text-[9px] font-black text-white ${playing ? "opacity-100" : "opacity-70"}`}>VIDEO</span>}
+    </article>
+  );
+}
+
+function navigateToSearchItem(navigate, item) {
+  if (item.kind === "style") {
+    navigate(`/style/${item.id}`, { state: { id: item.id, title: item.title, cover: item.image, images: item.images, video_url: item.video_url, category: item.category, subcategory: item.subcategory, description: item.description, likes: item.likes } });
+  } else if (item.kind === "service") {
+    navigate(`/service/${item.id}`, { state: { id: item.id, title: item.title, price: item.price, duration: item.duration_min, cover: item.image } });
+  } else if (item.kind === "bundle") {
+    navigate(item.is_group ? `/bundle-groupe/${item.id}` : `/bundle/${item.id}`, { state: { bundle: item } });
+  } else {
+    navigate("/pro/vue-client", { state: { proEmail: item.user_email } });
+  }
+}
+
+function SearchResultGrid({ items, navigate, onClose }) {
+  return (
+    <div className="grid grid-cols-2 gap-2.5">
+      {items.map(item => <SearchResultCard key={`${item.kind}-${item.id}`} item={item} onOpen={() => { onClose(); navigateToSearchItem(navigate, item); }} />)}
+    </div>
+  );
+}
+
+function VisualSearchResults({ result, onClose, activeTab = "STYLES", activeCategory = "Tous" }) {
+  const navigate = useNavigate();
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
   const detectedItems = result?.detected_items || [];
+  const terms = detectedItems.flatMap(item => [item?.type, item?.color]).filter(Boolean).map(searchText);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    loadSearchItems(activeTab).then(catalog => {
+      if (cancelled) return;
+      const categoryItems = catalog.filter(item => matchesSearchCategory(item, activeCategory));
+      const scored = categoryItems.map(item => ({ item, score: terms.reduce((total, term) => total + (term && searchItemText(item).includes(term) ? 1 : 0), 0) }));
+      const relevant = terms.length > 0 ? scored.filter(entry => entry.score > 0).sort((a, b) => b.score - a.score).map(entry => entry.item) : categoryItems;
+      setItems((relevant.length > 0 ? relevant : categoryItems).slice(0, 24));
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, activeCategory, result, terms.join("|")]);
 
   return (
     <div className="border-t border-gray-100 bg-white px-4 pb-4 pt-3">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-black uppercase tracking-widest text-primary">Recherche visuelle</p>
-          <p className="mt-1 text-[12px] text-gray-500">Éléments détectés dans votre photo</p>
+          <p className="text-[11px] font-black uppercase tracking-widest text-primary">Recherche par image</p>
+          <p className="mt-1 text-[12px] text-gray-500">{TAB_META.find(tab => tab.id === activeTab)?.label || "Résultats"} · {activeCategory}</p>
         </div>
-        <button type="button" onClick={onClose} aria-label="Fermer la recherche visuelle" className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-500 transition hover:bg-gray-200">
-          <X size={17} />
-        </button>
+        <button type="button" onClick={onClose} aria-label="Fermer la recherche visuelle" className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-500 transition hover:bg-gray-200"><X size={17} /></button>
       </div>
-      {detectedItems.length > 0 && (
-        <div className="mb-4 flex flex-wrap gap-2">
-          {detectedItems.map((item, index) => <span key={`${item.type}-${index}`} className="rounded-full bg-orange-50 px-3 py-1.5 text-[11px] font-bold text-orange-700">{item.type}{item.color ? ` · ${item.color}` : ""}</span>)}
-        </div>
-      )}
-      {products.length > 0 ? (
-        <>
-          <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-400">Produits correspondants ({products.length})</p>
-          <div className="grid grid-cols-2 gap-3">
-            {products.slice(0, 6).map(product => (
-              <a key={product.id} href={product.url || `/produit/${product.id}`} className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                <div className="h-24 bg-gray-100">
-                  {product.img ? <BeautyImage src={product.img} alt={product.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-2xl">✨</div>}
-                </div>
-                <div className="p-2.5"><p className="truncate text-[12px] font-black text-gray-900">{product.name}</p>{product.price != null && <p className="mt-1 text-[11px] font-bold text-primary">{product.price}€</p>}</div>
-              </a>
-            ))}
-          </div>
-        </>
-      ) : (
-        <div className="rounded-2xl bg-gray-50 px-4 py-5 text-center"><p className="text-[13px] font-bold text-gray-600">Aucun produit correspondant pour le moment.</p><p className="mt-1 text-[11px] text-gray-400">Essayez une photo plus nette ou utilisez la recherche texte.</p></div>
-      )}
+      {detectedItems.length > 0 && <div className="mb-3 flex flex-wrap gap-2">{detectedItems.map((item, index) => <span key={`${item.type}-${index}`} className="rounded-full bg-orange-50 px-3 py-1.5 text-[11px] font-bold text-orange-700">{item.type}{item.color ? ` · ${item.color}` : ""}</span>)}</div>}
+      {loading ? <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+        : items.length > 0 ? <SearchResultGrid items={items} navigate={navigate} onClose={onClose} />
+        : <div className="rounded-2xl bg-gray-50 px-4 py-5 text-center"><p className="text-[13px] font-bold text-gray-600">Aucun résultat dans cette sélection.</p><p className="mt-1 text-[11px] text-gray-400">Essayez « Tous » ou une autre catégorie.</p></div>}
     </div>
   );
 }
 
-function SearchResults({ query, onClose }) {
+function SearchResults({ query, onClose, activeTab = "STYLES", activeCategory = "Tous" }) {
   const navigate = useNavigate();
-  const [results, setResults] = useState({ styles: [], services: [] });
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!query || query.trim().length < 2) { setResults({ styles: [], services: [] }); return; }
+    if (!query || query.trim().length < 2) { setItems([]); return; }
+    let cancelled = false;
     setLoading(true);
-    const q = query.toLowerCase();
-    Promise.all([
-      entities.Style.filter({ status: "publie" }, "-created_at", 100).then(items => (items || []).filter(s => s.title?.toLowerCase().includes(q) || s.category?.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q))).catch(() => []),
-      entities.Service.filter({ status: "actif" }, "-created_at", 100).catch(() => []),
-    ]).then(([styles, services]) => {
-      setResults({
-        styles,
-        services: services.filter(s => s.title?.toLowerCase().includes(q) || s.category?.toLowerCase().includes(q)).slice(0, 5),
-      });
-    }).finally(() => setLoading(false));
-  }, [query]);
-
-  const total = results.styles.length + results.services.length;
+    const needle = searchText(query);
+    loadSearchItems(activeTab).then(catalog => {
+      if (cancelled) return;
+      setItems(catalog.filter(item => matchesSearchCategory(item, activeCategory) && searchItemText(item).includes(needle)).slice(0, 24));
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [query, activeTab, activeCategory]);
 
   if (!query || query.trim().length < 2) return null;
-
-  return (
-    <div className="absolute top-full left-0 right-0 bg-white shadow-xl z-50 max-h-[70vh] overflow-y-auto border-t border-gray-100">
-      {loading ? (
-        <div className="flex justify-center py-8">
-          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : total === 0 ? (
-        <div className="flex flex-col items-center py-10 gap-2">
-          <span className="text-[32px]">🔍</span>
-          <p className="text-[14px] font-black text-gray-500">Aucun résultat pour "{query}"</p>
-        </div>
-      ) : (
-        <div className="pb-4">
-          {results.styles.length > 0 && (
-            <>
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-4 pt-4 pb-2">Styles ({results.styles.length})</p>
-              {results.styles.map(style => (
-                <button key={style.id}
-                  onClick={() => { onClose(); navigate(`/style/${style.id}`, { state: { id: style.id, title: style.title, cover: style.image_url || (style.images && style.images[0]), images: style.images || [], category: style.category, description: style.description, likes: style.likes } }); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 active:bg-gray-50 transition-colors text-left">
-                  <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-100 shrink-0">
-                    {(style.image_url || (style.images && style.images[0])) ? (
-                      <BeautyImage src={style.image_url || style.images[0]} alt={style.title} className="w-full h-full object-cover" />
-                    ) : <span className="w-full h-full flex items-center justify-center text-[20px]">✂️</span>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[14px] font-black text-gray-900 truncate">{style.title}</p>
-                    {style.category && <p className="text-[11px] text-primary font-bold">{style.category}</p>}
-                  </div>
-                  <span className="text-gray-300 text-lg shrink-0">›</span>
-                </button>
-              ))}
-            </>
-          )}
-          {results.services.length > 0 && (
-            <>
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-4 pt-4 pb-2">Services ({results.services.length})</p>
-              {results.services.map(service => (
-                <button key={service.id}
-                  onClick={() => { onClose(); navigate(`/service/${service.id}`, { state: { title: service.title, price: service.price, duration: service.duration_min, cover: service.image_url } }); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 active:bg-gray-50 transition-colors text-left">
-                  <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-100 shrink-0">
-                    {service.image_url ? (
-                      <BeautyImage src={service.image_url} alt={service.title} className="w-full h-full object-cover" />
-                    ) : <span className="w-full h-full flex items-center justify-center text-[20px]">💆</span>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[14px] font-black text-gray-900 truncate">{service.title}</p>
-                    <div className="flex items-center gap-2">
-                      {service.price && <p className="text-[12px] font-black text-primary">{service.price}€</p>}
-                      {service.category && <p className="text-[11px] text-gray-400 font-medium">{service.category}</p>}
-                    </div>
-                  </div>
-                  <span className="text-gray-300 text-lg shrink-0">›</span>
-                </button>
-              ))}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  return <div className="absolute left-0 right-0 top-full z-50 max-h-[70vh] overflow-y-auto border-t border-gray-100 bg-white p-3 shadow-xl">
+    {loading ? <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+      : items.length > 0 ? <SearchResultGrid items={items} navigate={navigate} onClose={onClose} />
+      : <div className="flex flex-col items-center gap-2 py-10"><span className="text-[32px]">🔍</span><p className="text-[14px] font-black text-gray-500">Aucun résultat pour « {query} »</p></div>}
+  </div>;
 }
 
 export default function ServicesSalons() {
@@ -2949,9 +3117,20 @@ export default function ServicesSalons() {
   const [activeCategoryMap, setActiveCategoryMap] = useState({
     STYLES: catMapped?.tab === "STYLES" ? catMapped.sub : (restoredStylesContext?.activeCategory || "Tous"),
     SERVICES: catMapped?.tab === "SERVICES" ? catMapped.sub : "Tous",
+    BUNDLES: "Tous",
     SALONS: "Tous",
     PARTICULIERS: "Tous",
   });
+
+  useEffect(() => {
+    if (!restoredStylesContext?.createdAt) return;
+    setActiveTab(restoredStylesContext.activeTab || "STYLES");
+    setStyleQuickFilter(restoredStylesContext.quickFilter || null);
+    setActiveCategoryMap(previous => ({
+      ...previous,
+      STYLES: restoredStylesContext.activeCategory || "Tous",
+    }));
+  }, [restoredStylesContext?.createdAt]);
 
   const loadAdminStyleCategories = useCallback(async () => {
     const remoteResult = await entities.StyleCategory
@@ -2994,7 +3173,11 @@ export default function ServicesSalons() {
     try {
       const { file_url } = await uploadFile({ file });
       const response = await apiClient.callFunction("shAiImageSearch", { image_url: file_url });
-      setVisualSearch(response?.data || response || { detected_items: [], products: [] });
+      const payload = response?.data || response || {};
+      if (!Array.isArray(payload.detected_items) && !Array.isArray(payload.products)) {
+        throw new Error("La recherche par image n'a retourné aucun résultat exploitable.");
+      }
+      setVisualSearch(payload);
     } catch (error) {
       setVisualSearchError(error?.message || "La recherche par image est momentanément indisponible.");
     } finally {
@@ -3042,10 +3225,10 @@ export default function ServicesSalons() {
               <span className="sr-only">Rechercher par image</span>
             </button>
           </div>
-          <p className="services-search-hint"><ImageIcon size={13} /> Importez une photo pour trouver des produits similaires.</p>
+          <p className="services-search-hint"><ImageIcon size={13} /> Importez une photo pour trouver des résultats similaires dans la sélection active.</p>
           {visualSearchError && <p role="alert" className="services-search-error">{visualSearchError}</p>}
-          {visualSearch && <VisualSearchResults result={visualSearch} onClose={() => setVisualSearch(null)} />}
-          {search.trim().length >= 2 && !visualSearch && <SearchResults query={search} onClose={closeSearch} />}
+          {visualSearch && <VisualSearchResults result={visualSearch} onClose={() => setVisualSearch(null)} activeTab={activeTab} activeCategory={activeCategoryMap[activeTab] || "Tous"} />}
+          {search.trim().length >= 2 && !visualSearch && <SearchResults query={search} onClose={closeSearch} activeTab={activeTab} activeCategory={activeCategoryMap[activeTab] || "Tous"} />}
         </div>}
 
         {/* Onglets principaux */}

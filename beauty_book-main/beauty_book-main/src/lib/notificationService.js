@@ -114,6 +114,15 @@ export async function markAllAsRead(userEmail) {
     .eq("read", false);
 }
 
+/** Supprime définitivement une notification appartenant à l'utilisateur. */
+export async function deleteNotification(notifId, userEmail) {
+  if (!notifId) return;
+  let query = supabase.from("Notification").delete().eq("id", notifId);
+  if (userEmail) query = query.eq("user_email", userEmail);
+  const { error } = await query;
+  if (error) throw error;
+}
+
 // ── Notifications pré-générées ──────────────────────────────────────────────
 
 /** Le pro confirme une réservation → notifie le client */

@@ -18,9 +18,26 @@ const POPULAR_CITIES = [
   { name: "Montréal", country: "Canada", lat: 45.5017, lng: -73.5673 },
 ];
 
+async function fallbackReverseGeocode(latitude, longitude) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`https://api-adresse.data.gouv.fr/reverse/?lon=${encodeURIComponent(longitude)}&lat=${encodeURIComponent(latitude)}`, {
+      headers: { "Accept-Language": "fr" },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Fallback geocoder returned ${response.status}`);
+    const properties = (await response.json())?.features?.[0]?.properties || {};
+    return properties.city || properties.municipality || "";
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export default function CityPickerModal({ currentCity, onSelect, onClose }) {
   const [input, setInput] = useState(currentCity || "");
   const [geoLoading, setGeoLoading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [selectedCity, setSelectedCity] = useState(null);
 
   useEffect(() => {
@@ -37,9 +54,26 @@ export default function CityPickerModal({ currentCity, onSelect, onClose }) {
     setSelectedCity(city);
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     const nextCity = input.trim();
-    if (!nextCity) return;
+    if (!nextCity || confirming) return;
+
+    setConfirming(true);
+    let coordinates = selectedCity && Number.isFinite(Number(selectedCity.lat)) && Number.isFinite(Number(selectedCity.lng))
+      ? { latitude: Number(selectedCity.lat), longitude: Number(selectedCity.lng) }
+      : null;
+
+    // A typed city is not necessarily in the shortcut list. Resolve it before
+    // saving so distance filters and maps follow the selected city as well.
+    if (!coordinates) {
+      try {
+        const response = await apiClient.post('/maps/geocode', { addresses: [nextCity] });
+        const result = response?.results?.[0];
+        if (Number.isFinite(Number(result?.lat)) && Number.isFinite(Number(result?.lng))) {
+          coordinates = { latitude: Number(result.lat), longitude: Number(result.lng) };
+        }
+      } catch {}
+    }
 
     // Update the parent first so the header changes immediately, even when
     // localStorage is unavailable (private browsing / embedded webview).
@@ -48,8 +82,11 @@ export default function CityPickerModal({ currentCity, onSelect, onClose }) {
     // Une ville saisie manuellement ne doit pas être remplacée immédiatement
     // par le prochain point GPS.
     try { localStorage.setItem("bb_location_tracking", "0"); } catch {}
-    window.dispatchEvent(new CustomEvent("bb-location-change", { detail: { city: nextCity } }));
+    window.dispatchEvent(new CustomEvent("bb-location-change", {
+      detail: { city: nextCity, source: "manual", ...(coordinates || {}) },
+    }));
     window.dispatchEvent(new CustomEvent("bb-location-tracking", { detail: { enabled: false } }));
+    setConfirming(false);
     onClose();
   };
 
@@ -58,11 +95,15 @@ export default function CityPickerModal({ currentCity, onSelect, onClose }) {
     setGeoLoading(true);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
+        const { latitude, longitude } = pos.coords;
         try {
-          const { latitude, longitude } = pos.coords;
-          const data = await apiClient.get(`/maps/reverse?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`);
-          const city = data.city || "Ma ville";
-          const country = data.country || "";
+          let data = null;
+          try {
+            data = await apiClient.get(`/maps/reverse?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`);
+          } catch {}
+          const fallbackCity = data?.city || await fallbackReverseGeocode(latitude, longitude).catch(() => "");
+          const city = fallbackCity || "Ma position";
+          const country = data?.country === "FR" ? "France" : (data?.country || (fallbackCity ? "France" : ""));
           const label = country ? `${city}, ${country}` : city;
           setInput(label);
           onSelect(label);
@@ -71,7 +112,16 @@ export default function CityPickerModal({ currentCity, onSelect, onClose }) {
           window.dispatchEvent(new CustomEvent("bb-location-change", { detail: { city: label, latitude, longitude } }));
           window.dispatchEvent(new CustomEvent("bb-location-tracking", { detail: { enabled: true } }));
           onClose();
-        } catch {}
+        } catch {
+          // Even if reverse-geocoding is unavailable, keep the real GPS point
+          // so the next distance-based query is no longer anchored to Paris.
+          const label = "Ma position";
+          onSelect(label);
+          try { localStorage.setItem("bb_user_city", label); } catch {}
+          window.dispatchEvent(new CustomEvent("bb-location-change", { detail: { city: label, latitude, longitude, source: "gps" } }));
+          window.dispatchEvent(new CustomEvent("bb-location-tracking", { detail: { enabled: true } }));
+          onClose();
+        }
         setGeoLoading(false);
       },
       () => setGeoLoading(false),
@@ -116,7 +166,7 @@ export default function CityPickerModal({ currentCity, onSelect, onClose }) {
           {/* GPS Button */}
           <button
             onClick={handleGeolocate}
-            disabled={geoLoading}
+            disabled={geoLoading || confirming}
             className="w-full flex items-center gap-3.5 px-4 py-3.5 bg-orange-50 border border-orange-200/60 rounded-2xl active:scale-[0.98] transition-all"
           >
             <div className="w-10 h-10 bg-primary rounded-2xl flex items-center justify-center shrink-0 shadow-md shadow-orange-500/20">
@@ -134,7 +184,7 @@ export default function CityPickerModal({ currentCity, onSelect, onClose }) {
             <Search className="w-5 h-5 text-gray-400 shrink-0" />
             <input
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={e => { setInput(e.target.value); setSelectedCity(null); }}
               placeholder="Rechercher une ville..."
               className="flex-1 bg-transparent text-[14px] text-gray-800 outline-none placeholder:text-gray-400 font-medium"
               autoFocus
@@ -152,9 +202,10 @@ export default function CityPickerModal({ currentCity, onSelect, onClose }) {
             <button
               type="button"
               onClick={handleConfirm}
+              disabled={confirming}
               className="w-full bg-primary hover:bg-orange-700 text-white font-black text-[14px] uppercase tracking-widest py-3.5 rounded-2xl shadow-lg shadow-orange-500/25 active:scale-95 transition-all flex items-center justify-center gap-2"
             >
-              <MapPin className="w-5 h-5" /> Confirmer cette ville
+              <MapPin className="w-5 h-5" /> {confirming ? "Localisation de la ville..." : "Confirmer cette ville"}
             </button>
           )}
 

@@ -118,6 +118,11 @@ export default function MapWithPricePins({ items = [], onSelectItem, height = "h
             mapInstanceRef.current.addAnnotations(annotations);
             if (annotations.length > 1) {
               mapInstanceRef.current.showItems(annotations, { animate: true, padding: new mapkit.Padding(40, 40, 40, 40) });
+            } else {
+              // When the city picker switches from Paris to one selected city,
+              // keep the existing MapKit instance but move its camera too.
+              mapInstanceRef.current.center = new mapkit.Coordinate(resolvedItems[0]._lat, resolvedItems[0]._lng);
+              mapInstanceRef.current.cameraDistance = 12000;
             }
           }
           setMapError(false);

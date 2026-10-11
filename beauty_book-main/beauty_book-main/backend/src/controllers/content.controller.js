@@ -21,33 +21,45 @@ export const getStyleEngagementStats = async (req, res) => {
     : [];
   if (!styleIds.length) return res.json({ stats: {} });
 
+  // Each read is isolated: a missing legacy table, column, or Supabase
+  // configuration must not turn a read-only feed request into HTTP 500.
+  let styles = [];
+  let styleError = null;
+  let likeRows = [];
+  let likesError = null;
   try {
-    const [{ data: styles, error: stylesError }, { data: likeRows, error: likesError }] = await Promise.all([
-      readStyleCounters(styleIds),
-      supabaseAdmin.from('user_like').select('target_id').eq('target_type', 'style').in('target_id', styleIds),
-    ]);
-    if (stylesError) console.warn('getStyleEngagementStats styles unavailable:', stylesError.message);
-    if (likesError) console.warn('getStyleEngagementStats likes unavailable:', likesError.message);
+    const result = await readStyleCounters(styleIds);
+    styles = result?.data || [];
+    styleError = result?.error || null;
+  } catch (error) {
+    styleError = error;
+  }
+  try {
+    const result = await supabaseAdmin.from('user_like')
+      .select('target_id').eq('target_type', 'style').in('target_id', styleIds);
+    likeRows = result?.data || [];
+    likesError = result?.error || null;
+  } catch (error) {
+    likesError = error;
+  }
+  if (styleError) console.warn('getStyleEngagementStats styles unavailable:', styleError.message || styleError);
+  if (likesError) console.warn('getStyleEngagementStats likes unavailable:', likesError.message || likesError);
 
-    const stats = Object.fromEntries(styleIds.map(id => [id, { likes: 0, views: 0, shares: 0 }]));
-    (styles || []).forEach(style => {
+  const stats = Object.fromEntries(styleIds.map(id => [id, { likes: 0, views: 0, shares: 0 }]));
+  (styles || []).forEach(style => {
       const id = String(style.id);
       if (stats[id]) {
         stats[id].views = Number(style.views || 0);
         stats[id].shares = Number(style.shares || 0);
       }
-    });
-    (likeRows || []).forEach(row => {
-      const id = String(row.target_id);
-      if (stats[id]) stats[id].likes += 1;
-    });
-    // Return a usable response even when one legacy table/column is missing;
-    // the admin panel can then display the counters that are available.
-    return res.json({ stats, partial: Boolean(stylesError || likesError) });
-  } catch (error) {
-    console.error('getStyleEngagementStats error:', error.message);
-    return res.status(500).json({ error: 'Les statistiques des styles sont indisponibles.' });
-  }
+  });
+  (likeRows || []).forEach(row => {
+    const id = String(row.target_id);
+    if (stats[id]) stats[id].likes += 1;
+  });
+  // Always return a usable response. The client can keep the counters already
+  // present on each Style row when a legacy source is unavailable.
+  return res.json({ stats, partial: Boolean(styleError || likesError) });
 };
 
 // Engagement counters are updated server-side so clients cannot overwrite
@@ -113,7 +125,17 @@ export const setStyleLike = async (req, res) => {
     const { data: likeRows, error: countError } = await supabaseAdmin
       .from('user_like').select('id').eq('target_id', styleId).eq('target_type', 'style');
     if (countError) throw countError;
-    return res.json({ liked, count: likeRows?.length || 0 });
+    const count = likeRows?.length || 0;
+    // Keep the denormalized Style counter synchronized as well. The feed can
+    // still render from user_like when the aggregate endpoint is unavailable,
+    // while older clients reading Style.likes continue to receive the real
+    // value after a like/unlike action.
+    const { error: counterError } = await supabaseAdmin
+      .from('Style').update({ likes: count }).eq('id', styleId);
+    if (counterError && !/likes|column|schema cache|does not exist/i.test(counterError.message || '')) {
+      throw counterError;
+    }
+    return res.json({ liked, count });
   } catch (error) {
     console.error('setStyleLike error:', error.message);
     return res.status(500).json({ error: 'Le like n’a pas pu être enregistré.' });

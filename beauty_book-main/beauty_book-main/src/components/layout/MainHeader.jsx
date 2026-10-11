@@ -24,7 +24,7 @@ export default function MainHeader() {
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [cartCount, setCartCount] = useState(0);
   const [userCity, setUserCity] = useState(() => {
-    try { return localStorage.getItem("bb_user_city") || "Paris, France"; } catch { return "Paris, France"; }
+    try { return localStorage.getItem("bb_user_city") || "Localisation en cours…"; } catch { return "Localisation en cours…"; }
   });
   const [geoLoading, setGeoLoading] = useState(false);
   const [showCityPicker, setShowCityPicker] = useState(false);

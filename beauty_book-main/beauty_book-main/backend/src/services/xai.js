@@ -55,6 +55,29 @@ export function isXaiConfigured() {
   return Boolean(apiKey());
 }
 
+// Vision is also used by the public catalogue search. Keep the provider call
+// server-side so neither the xAI key nor an AI request is exposed in the app.
+export async function generateVisionText({ image_url, prompt }) {
+  const body = await request('chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({
+      // grok-4.7 is the current xAI model with image understanding. Older
+      // fast slugs can be unavailable for newly created teams.
+      model: process.env.XAI_VISION_MODEL || 'grok-4.7',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: image_url, detail: 'high' } },
+          { type: 'text', text: prompt },
+        ],
+      }],
+      temperature: 0,
+      max_tokens: 450,
+    }),
+  });
+  return body?.choices?.[0]?.message?.content || '';
+}
+
 export async function xaiImageEdit({ images, prompt }) {
   let body = await request('images/edits', {
     method: 'POST',

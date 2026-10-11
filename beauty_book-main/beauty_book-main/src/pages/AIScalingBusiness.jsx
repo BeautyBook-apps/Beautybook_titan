@@ -7,7 +7,7 @@ import {
   Rocket, Bot, LayoutDashboard, Magnet, PhoneCall, MessageSquareText,
   Share2, Smartphone, Globe, Crown, Flame, Lightbulb, Star,
   ArrowUpRight, Wallet, Repeat, UserPlus, Scissors, Settings2, BadgeCheck,
-  CircleAlert, PartyPopper
+  CircleAlert, PartyPopper, Check, CalendarDays, ListChecks
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -61,6 +61,7 @@ const num = v => Number(v || 0).toLocaleString('fr-FR');
 
 const rdvDate = r => new Date(r.date || r.start_time || r.start || r.rdv_date || r.created_at);
 const rdvPrice = r => Number(r.total_price ?? r.price ?? r.montant ?? 0);
+const servicePrice = s => Number(s.price ?? s.tarif ?? s.amount ?? s.base_price ?? s.prix ?? 0);
 const isDone = r => ["confirme", "termine", "honore", "completed", "done"].includes((r.status || "").toLowerCase());
 const isCancelled = r => ["annule", "cancelled", "canceled"].includes((r.status || "").toLowerCase());
 
@@ -189,6 +190,8 @@ export default function AIScalingBusiness() {
   const [objectives, setObjectives] = useState({ ca: null, clients: null, confirmation: null, note: null });
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [goalDraft, setGoalDraft] = useState(null);
+  const [objectiveFocus, setObjectiveFocus] = useState("ca");
+  const [dailyTaskState, setDailyTaskState] = useState({});
   // Chat
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -216,12 +219,25 @@ export default function AIScalingBusiness() {
         setTeamMembers(members || []);
         try {
           const raw = localStorage.getItem(`bb_goals_${em}`);
-          if (raw) setObjectives(o => ({ ...o, ...JSON.parse(raw) }));
+          if (raw) {
+            const saved = JSON.parse(raw);
+            setObjectives(o => ({ ...o, ...saved }));
+            setObjectiveFocus(saved.focus || (saved.ca ? "ca" : "clients"));
+          }
         } catch {}
       } catch (e) { console.error(e); }
     };
     load();
   }, []);
+
+  useEffect(() => {
+    if (!email) return;
+    const dayKey = new Date().toISOString().slice(0, 10);
+    try {
+      const raw = localStorage.getItem(`bb_goal_tasks_${email}_${dayKey}`);
+      if (raw) setDailyTaskState(JSON.parse(raw));
+    } catch {}
+  }, [email]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, tab]);
 
@@ -524,6 +540,79 @@ export default function AIScalingBusiness() {
     return Object.values(firstRdvByClient).filter(d => d >= mStart && d <= now).length;
   }, [firstRdvByClient]);
 
+  /* ── Plan d'objectif calculé sur les vraies données du salon ── */
+  const objectivePlan = useMemo(() => {
+    const catalogPrices = services.map(servicePrice).filter(v => v > 0);
+    const catalogAverage = catalogPrices.length ? catalogPrices.reduce((s, v) => s + v, 0) / catalogPrices.length : 0;
+    const avgTicket = panierCur > 0 ? panierCur : catalogAverage;
+    const targetCA = Number(objectives.ca) || 0;
+    const targetClients = Number(objectives.clients) || (targetCA > 0 && avgTicket > 0 ? Math.ceil(targetCA / avgTicket) : 0);
+    const currentCapacity = forecast.projected > 0 ? forecast.projected : revenueCur;
+    const monthsAtCurrentPace = targetCA > 0 && currentCapacity > 0 ? Math.max(1, Math.ceil(targetCA / currentCapacity)) : null;
+    const remainingCA = Math.max(0, targetCA - forecast.mtd);
+    const remainingClients = Math.max(0, targetClients - mtdNewClients);
+    const daysRemaining = Math.max(1, forecast.daysInMonth - forecast.elapsed + 1);
+    const dailyRevenue = targetCA > 0 ? targetCA / forecast.daysInMonth : 0;
+    const dailyRemainingRevenue = remainingCA / daysRemaining;
+    const dailyClients = targetClients > 0 ? Math.ceil(remainingClients / daysRemaining) : 0;
+    const dormantCutoff = new Date(); dormantCutoff.setDate(dormantCutoff.getDate() - 60);
+    const dormantClients = Object.values(lastRdvByClient).filter(d => d < dormantCutoff).length;
+    const tasks = [];
+
+    if (targetCA > 0) {
+      tasks.push({
+        id: "revenue", icon: DollarSign, color: "#10B981",
+        title: `Générer ${money(Math.ceil(Math.max(dailyRemainingRevenue, dailyRevenue)))} de CA`,
+        detail: `Repère quotidien calculé sur ${money(targetCA)} et ${forecast.daysInMonth} jours.`,
+      });
+    }
+    if (targetClients > 0) {
+      tasks.push({
+        id: "clients", icon: UserPlus, color: "#8B5CF6",
+        title: `Obtenir ${dailyClients || Math.ceil(targetClients / forecast.daysInMonth)} nouveau${(dailyClients || 1) > 1 ? "x" : ""} client${(dailyClients || 1) > 1 ? "s" : ""}`,
+        detail: `${num(remainingClients)} restant${remainingClients > 1 ? "s" : ""} ce mois-ci, sur la base de vos RDV réels.`,
+      });
+    }
+    if (dormantClients > 0) {
+      tasks.push({
+        id: "reactivation", icon: Repeat, color: "#3B82F6",
+        title: `Relancer ${Math.min(dormantClients, 5)} client${dormantClients > 1 ? "s" : ""} inactif${dormantClients > 1 ? "s" : ""}`,
+        detail: `${dormantClients} client${dormantClients > 1 ? "s ne sont" : " n'est"} pas revenu${dormantClients > 1 ? "s" : ""} depuis plus de 60 jours.`,
+      });
+    }
+    if (objectives.confirmation > 0 && confRateCur < Number(objectives.confirmation)) {
+      tasks.push({
+        id: "confirmation", icon: CalendarCheck, color: "#EC4899",
+        title: `Confirmer les prochains RDV (${Math.round(confRateCur)}% actuellement)`,
+        detail: `Objectif de confirmation : ${objectives.confirmation}%. Activez les rappels et relances.`,
+      });
+    }
+    if (!tasks.length && (targetCA > 0 || targetClients > 0)) {
+      tasks.push({
+        id: "visibility", icon: ListChecks, color: "#FF6B00",
+        title: "Publier une offre ou un contenu aujourd'hui",
+        detail: "Une action de visibilité mesurable aide à alimenter votre prochain cycle de réservation.",
+      });
+    }
+
+    return {
+      avgTicket,
+      targetCA,
+      targetClients,
+      derivedClients: !Number(objectives.clients) && targetClients > 0,
+      currentCapacity,
+      monthsAtCurrentPace,
+      remainingCA,
+      remainingClients,
+      dailyRevenue,
+      dailyRemainingRevenue,
+      dailyClients,
+      dormantClients,
+      tasks,
+      dataPoints: doneCur.length,
+    };
+  }, [services, panierCur, objectives, forecast, revenueCur, mtdNewClients, lastRdvByClient, confRateCur, doneCur.length]);
+
   const allGoals = useMemo(() => [
     {
       id: "ca", label: "Chiffre d'affaires", unit: "€", icon: DollarSign,
@@ -532,8 +621,8 @@ export default function AIScalingBusiness() {
     },
     {
       id: "clients", label: "Nouveaux clients", unit: "", icon: UserPlus,
-      current: mtdNewClients, target: objectives.clients, display: num(mtdNewClients), targetDisplay: num(objectives.clients),
-      color: "#8B5CF6", hint: "Ce mois-ci",
+      current: mtdNewClients, target: objectivePlan.targetClients, display: num(mtdNewClients), targetDisplay: num(objectivePlan.targetClients),
+      color: "#8B5CF6", hint: objectivePlan.derivedClients ? `Déduit de votre CA et d'un panier moyen de ${money(objectivePlan.avgTicket)}` : "Ce mois-ci",
     },
     {
       id: "confirmation", label: "Taux de confirmation", unit: "%", icon: BadgeCheck,
@@ -546,7 +635,7 @@ export default function AIScalingBusiness() {
       display: proProfile?.rating ? `${Number(proProfile.rating).toFixed(1)}/5` : "—", targetDisplay: `${objectives.note}/5`,
       color: "#F59E0B", hint: `${num(proProfile?.reviews_count || 0)} avis clients`,
     },
-  ], [forecast, mtdNewClients, confRateCur, proProfile, objectives]);
+  ], [forecast, mtdNewClients, confRateCur, proProfile, objectives, objectivePlan]);
 
   // Seuls les objectifs réellement définis par la pro sont affichés.
   // Pas de valeurs fictives : un objectif non défini n'apparaît pas.
@@ -557,18 +646,51 @@ export default function AIScalingBusiness() {
   const objectivesLine = useMemo(() => {
     const parts = [];
     if (objectives.ca) parts.push(`CA ${money(objectives.ca)}/mois`);
-    if (objectives.clients) parts.push(`${objectives.clients} nouveaux clients/mois`);
+    if (objectivePlan.targetClients) parts.push(`${objectivePlan.targetClients} nouveaux clients/mois${objectivePlan.derivedClients ? " (calculés)" : ""}`);
     if (objectives.confirmation) parts.push(`confirmation ${objectives.confirmation}%`);
     if (objectives.note) parts.push(`note ${objectives.note}/5`);
     return parts.length ? parts.join(", ") : "non définis par la pro";
-  }, [objectives]);
+  }, [objectives, objectivePlan]);
 
   const saveObjectives = () => {
     if (!goalDraft) return;
-    const next = { ...objectives, ...goalDraft };
+    const clean = {};
+    ["ca", "clients", "confirmation", "note"].forEach(key => {
+      const value = goalDraft[key];
+      clean[key] = value === "" || value == null ? null : Number(value);
+    });
+    const next = { ...objectives, ...clean, focus: objectiveFocus };
+    // Un seul objectif directeur évite les incohérences : le second est
+    // recalculé à partir du panier moyen observé dans les vrais RDV.
+    if (objectiveFocus === "ca" && next.ca > 0 && objectivePlan.avgTicket > 0) {
+      next.clients = Math.ceil(next.ca / objectivePlan.avgTicket);
+    }
+    if (objectiveFocus === "clients" && next.clients > 0 && objectivePlan.avgTicket > 0) {
+      next.ca = Math.round(next.clients * objectivePlan.avgTicket);
+    }
     setObjectives(next);
     try { if (email) localStorage.setItem(`bb_goals_${email}`, JSON.stringify(next)); } catch {}
     setShowGoalModal(false);
+  };
+
+  const openGoalModal = (draft = objectives) => {
+    const focus = draft.focus || (draft.ca ? "ca" : "clients");
+    setObjectiveFocus(focus);
+    setGoalDraft({ ca: draft.ca ?? "", clients: draft.clients ?? "", confirmation: draft.confirmation ?? "", note: draft.note ?? "", focus });
+    setShowGoalModal(true);
+  };
+
+  const toggleDailyTask = id => {
+    setDailyTaskState(prev => {
+      const next = { ...prev, [id]: !prev[id] };
+      if (email) {
+        try {
+          const dayKey = new Date().toISOString().slice(0, 10);
+          localStorage.setItem(`bb_goal_tasks_${email}_${dayKey}`, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
   };
 
   /* ── Chat ── */
@@ -686,7 +808,7 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
                         <p className="text-[11px] text-white/50 font-medium mt-1">{Math.round(forecast.pctOfGoal)}% de l'objectif mensuel</p>
                       </>
                     ) : (
-                      <button onClick={() => { setGoalDraft({ ca: "", clients: "", confirmation: "", note: "" }); setShowGoalModal(true); }}
+                      <button onClick={() => openGoalModal({ ca: "", clients: "", confirmation: "", note: "" })}
                         className="text-[11px] text-white/70 font-bold mt-1 underline underline-offset-2 active:scale-95">
                         Définir mon objectif mensuel
                       </button>
@@ -813,7 +935,7 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
                   <h3 className="text-white text-[15px]">Vos objectifs du mois</h3>
                   <p className="text-[12px] text-white/60 font-medium">{hasGoals ? "Définis par vous, suivis en temps réel par l'IA." : "Définissez vos objectifs, l'IA les suivra en temps réel."}</p>
                 </div>
-                <button onClick={() => { setGoalDraft({ ...objectives }); setShowGoalModal(true); }}
+                <button onClick={() => openGoalModal(objectives)}
                   className="flex items-center gap-1.5 bg-white/10 border border-white/15 text-white text-[12px] font-bold px-3.5 py-2 rounded-xl active:scale-95">
                   <Settings2 size={14} /> Personnaliser
                 </button>
@@ -825,7 +947,7 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
                 <EmptyState icon={Target} title="Aucun objectif défini"
                   text="Définissez vos objectifs du mois : l'IA suivra votre progression en temps réel."
                   action="Définir mes objectifs"
-                  onAction={() => { setGoalDraft({ ca: "", clients: "", confirmation: "", note: "" }); setShowGoalModal(true); }} />
+                  onAction={() => openGoalModal({ ca: "", clients: "", confirmation: "", note: "" })} />
               </div>
             ) : (
             <div className="grid gap-2.5 mt-3 sm:grid-cols-2">
@@ -850,6 +972,68 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
                 );
               })}
             </div>
+            )}
+
+            {hasGoals && (
+              <div className="mt-4 space-y-3">
+                <div className="scaling-card" style={{ background: "linear-gradient(135deg,#FFF7ED,#FFFFFF)", borderColor: "#FED7AA" }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="scaling-eyebrow"><Sparkles size={13} /> Pilot automatique</p>
+                      <h3 className="mt-1 text-[16px]">Votre objectif transformé en plan</h3>
+                      <p className="sub mt-1">Calculé à partir de {num(objectivePlan.dataPoints)} RDV honorés et de votre panier moyen réel.</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center shrink-0 text-orange-600"><Target size={18} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-4 sm:grid-cols-4">
+                    <div className="rounded-2xl bg-white border border-orange-100 p-3">
+                      <p className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Panier réel</p>
+                      <p className="text-[16px] font-black mt-1">{objectivePlan.avgTicket ? money(objectivePlan.avgTicket) : "—"}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white border border-orange-100 p-3">
+                      <p className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Clients à viser</p>
+                      <p className="text-[16px] font-black mt-1">{objectivePlan.targetClients ? num(objectivePlan.targetClients) : "—"}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white border border-orange-100 p-3">
+                      <p className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">CA / jour</p>
+                      <p className="text-[16px] font-black mt-1">{objectivePlan.dailyRevenue ? money(objectivePlan.dailyRevenue) : "—"}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white border border-orange-100 p-3">
+                      <p className="text-[10px] uppercase tracking-wider font-extrabold text-gray-400">Au rythme actuel</p>
+                      <p className="text-[16px] font-black mt-1">{objectivePlan.monthsAtCurrentPace ? `${objectivePlan.monthsAtCurrentPace} mois` : "—"}</p>
+                    </div>
+                  </div>
+                  {!objectivePlan.avgTicket && (
+                    <p className="text-[11.5px] text-amber-700 font-semibold mt-3">Ajoutez au moins un RDV honoré ou un tarif de prestation pour que Maria calcule automatiquement les clients et l'échéance.</p>
+                  )}
+                </div>
+
+                <div className="scaling-card">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                      <p className="scaling-eyebrow"><ListChecks size={13} /> Aujourd'hui</p>
+                      <h3 className="mt-1 text-[16px]">Ma checklist de progression</h3>
+                    </div>
+                    <span className="scaling-chip on">{objectivePlan.tasks.filter(task => dailyTaskState[task.id]).length}/{objectivePlan.tasks.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {objectivePlan.tasks.map(task => {
+                      const done = Boolean(dailyTaskState[task.id]);
+                      return (
+                        <label key={task.id} className={`scaling-task ${done ? "is-done" : ""}`}>
+                          <input type="checkbox" checked={done} onChange={() => toggleDailyTask(task.id)} aria-label={task.title} />
+                          <span className="task-check">{done && <Check size={14} />}</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[13px] font-extrabold">{task.title}</span>
+                            <span className="block text-[11px] text-gray-500 font-medium mt-0.5">{task.detail}</span>
+                          </span>
+                          <task.icon size={17} style={{ color: task.color }} className="shrink-0" />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             )}
 
             {hasGoals && (
@@ -1168,39 +1352,49 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
       {/* ══ MODALE OBJECTIFS ══ */}
       {showGoalModal && (
         <div className="scaling-modal-backdrop" onClick={() => setShowGoalModal(false)}>
-          <div className="scaling-modal" onClick={e => e.stopPropagation()}>
+          <div className="scaling-modal" role="dialog" aria-modal="true" aria-labelledby="goal-modal-title" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-1">
-              <h3 className="text-[17px] font-black">Personnaliser mes objectifs</h3>
-              <button onClick={() => setShowGoalModal(false)} className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center text-gray-500 font-bold">✕</button>
+              <h3 id="goal-modal-title" className="text-[17px] font-black">Personnaliser mes objectifs</h3>
+              <button aria-label="Fermer" onClick={() => setShowGoalModal(false)} className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-500 font-bold">✕</button>
             </div>
             <p className="text-[12.5px] text-gray-500 font-medium mb-5">Des objectifs clairs et suivis chaque jour par l'IA.</p>
             <div className="space-y-4">
               <div className="scaling-field">
+                <label htmlFor="goal-focus">Objectif directeur</label>
+                <select id="goal-focus" value={objectiveFocus} onChange={e => { setObjectiveFocus(e.target.value); setGoalDraft(d => ({ ...d, focus: e.target.value })); }} className="scaling-field-control">
+                  <option value="ca">Je pilote par le chiffre d'affaires</option>
+                  <option value="clients">Je pilote par le nombre de clients</option>
+                </select>
+                <p className="text-[11px] text-gray-500 font-medium mt-1.5">L'autre objectif sera recalculé automatiquement selon votre panier moyen réel{objectivePlan.avgTicket ? ` (${money(objectivePlan.avgTicket)})` : ""}.</p>
+              </div>
+              <div className="scaling-field">
                 <label>CA mensuel visé (€)</label>
                 <input type="number" min="0" step="100" value={goalDraft?.ca ?? ""}
-                  onChange={e => setGoalDraft(d => ({ ...d, ca: Number(e.target.value) }))} />
+                  onChange={e => setGoalDraft(d => ({ ...d, ca: e.target.value === "" ? "" : Number(e.target.value) }))} />
               </div>
               <div className="scaling-field">
                 <label>Nouveaux clients / mois</label>
                 <input type="number" min="0" step="1" value={goalDraft?.clients ?? ""}
-                  onChange={e => setGoalDraft(d => ({ ...d, clients: Number(e.target.value) }))} />
+                  onChange={e => setGoalDraft(d => ({ ...d, clients: e.target.value === "" ? "" : Number(e.target.value) }))} />
               </div>
               <div className="scaling-field">
                 <label>Taux de confirmation visé (%)</label>
                 <input type="number" min="0" max="100" step="1" value={goalDraft?.confirmation ?? ""}
-                  onChange={e => setGoalDraft(d => ({ ...d, confirmation: Number(e.target.value) }))} />
+                  onChange={e => setGoalDraft(d => ({ ...d, confirmation: e.target.value === "" ? "" : Number(e.target.value) }))} />
               </div>
               <div className="scaling-field">
                 <label>Note moyenne visée (/5)</label>
                 <input type="number" min="0" max="5" step="0.1" value={goalDraft?.note ?? ""}
-                  onChange={e => setGoalDraft(d => ({ ...d, note: Number(e.target.value) }))} />
+                  onChange={e => setGoalDraft(d => ({ ...d, note: e.target.value === "" ? "" : Number(e.target.value) }))} />
               </div>
             </div>
-            <button onClick={saveObjectives}
-              className="w-full mt-6 text-white font-extrabold text-[14px] py-3.5 rounded-2xl active:scale-[.98]"
-              style={{ background: "linear-gradient(135deg,#FF6B00,#FFB25E)", boxShadow: "0 10px 24px rgba(255,107,0,.3)" }}>
-              Enregistrer mes objectifs
-            </button>
+            <div className="scaling-modal-action">
+              <button onClick={saveObjectives}
+                className="w-full text-white font-extrabold text-[14px] py-3.5 rounded-2xl active:scale-[.98]"
+                style={{ background: "linear-gradient(135deg,#FF6B00,#FFB25E)", boxShadow: "0 10px 24px rgba(255,107,0,.3)" }}>
+                Enregistrer mes objectifs
+              </button>
+            </div>
           </div>
         </div>
       )}

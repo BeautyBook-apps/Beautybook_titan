@@ -85,11 +85,13 @@ export default function CreerBundle() {
   const [showForm, setShowForm] = useState(false);
   const [editingBundle, setEditingBundle] = useState(null);
   const [services, setServices] = useState([]);
+  const [styles, setStyles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingImg, setUploadingImg] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [bundleServiceSearch, setBundleServiceSearch] = useState("");
+  const [bundleStyleSearch, setBundleStyleSearch] = useState("");
   const [deleteModal, setDeleteModal] = useState(null);
   const [draftSaved, setDraftSaved] = useState(false);
   const [validationError, setValidationError] = useState("");
@@ -106,6 +108,7 @@ export default function CreerBundle() {
   const [imageUrl, setImageUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
+  const [selectedStyleIds, setSelectedStyleIds] = useState([]);
   const [category, setCategory] = useState("Tous");
   const [svcCategoryFilter, setSvcCategoryFilter] = useState("Tous");
   const [isGroup, setIsGroup] = useState(false);
@@ -118,9 +121,11 @@ export default function CreerBundle() {
     let cancelled = false;
     const loadData = async () => {
       try {
-        const [bundleRes, svcRes] = await Promise.all([
+        const [bundleRes, svcRes, styleByProRes, styleByAuthorRes] = await Promise.all([
           supabase.from("ServiceBundle").select("*").eq("pro_email", user.email).order("created_at", { ascending: false }),
           supabase.from("Service").select("*").eq("pro_email", user.email).order("created_at", { ascending: false }),
+          supabase.from("Style").select("*").eq("pro_email", user.email).order("created_at", { ascending: false }).limit(100),
+          supabase.from("Style").select("*").eq("author_email", user.email).order("created_at", { ascending: false }).limit(100),
         ]);
         let fetchedSvcs = svcRes.data || [];
         if (fetchedSvcs.length === 0) {
@@ -130,6 +135,9 @@ export default function CreerBundle() {
         if (!cancelled) {
           setBundles(bundleRes.data || []);
           setServices(fetchedSvcs);
+          const fetchedStyles = [...(styleByProRes.data || []), ...(styleByAuthorRes.data || [])]
+            .filter((item, index, list) => item?.id && list.findIndex((candidate) => candidate.id === item.id) === index);
+          setStyles(fetchedStyles);
           setLoading(false);
         }
       } catch (e) {
@@ -151,6 +159,7 @@ export default function CreerBundle() {
       setImageUrl(edit.image_url || "");
       setCoverUrl(edit.cover_url || edit.banner_url || "");
       setSelectedIds(edit.service_ids || []);
+      setSelectedStyleIds(edit.style_ids || []);
       setCategory(edit.category || "Tous");
       setIsGroup(edit.is_group || false);
       setMinPersons(edit.min_persons || 2);
@@ -167,6 +176,7 @@ export default function CreerBundle() {
         setImageUrl(draft.imageUrl || "");
         setCoverUrl(draft.coverUrl || "");
         setSelectedIds(draft.selectedIds || []);
+        setSelectedStyleIds(draft.selectedStyleIds || []);
         setCategory(draft.category || "Tous");
         setIsGroup(draft.isGroup || false);
         setMinPersons(draft.minPersons || 2);
@@ -185,6 +195,7 @@ export default function CreerBundle() {
         setImageUrl(draft.imageUrl || "");
         setCoverUrl(draft.coverUrl || "");
         setSelectedIds(draft.selectedIds || []);
+        setSelectedStyleIds(draft.selectedStyleIds || []);
         setCategory(draft.category || "Tous");
         setIsGroup(draft.isGroup || false);
         setMinPersons(draft.minPersons || 2);
@@ -197,25 +208,29 @@ export default function CreerBundle() {
   // Auto-save draft on field changes
   useEffect(() => {
     if (!showForm || editingBundle) return;
-    if (!name && !description && !bundlePrice && selectedIds.length === 0) return;
+    if (!name && !description && !bundlePrice && selectedIds.length === 0 && selectedStyleIds.length === 0) return;
     const timer = setTimeout(() => {
-      saveDraft({ name, description, bundlePrice, imageUrl, coverUrl, selectedIds, category, isGroup, minPersons, maxPersons, bonus });
+      saveDraft({ name, description, bundlePrice, imageUrl, coverUrl, selectedIds, selectedStyleIds, category, isGroup, minPersons, maxPersons, bonus });
       setDraftSaved(true);
       setTimeout(() => setDraftSaved(false), 2000);
     }, 1500);
     return () => clearTimeout(timer);
-  }, [name, description, bundlePrice, imageUrl, coverUrl, selectedIds, category, isGroup, minPersons, maxPersons, bonus, showForm, editingBundle]);
+  }, [name, description, bundlePrice, imageUrl, coverUrl, selectedIds, selectedStyleIds, category, isGroup, minPersons, maxPersons, bonus, showForm, editingBundle]);
 
   const resetForm = () => {
     setName(""); setDescription(""); setBundlePrice(""); setImageUrl(""); setCoverUrl("");
-    setSelectedIds([]); setCategory("Tous"); setIsGroup(false);
+    setSelectedIds([]); setSelectedStyleIds([]); setCategory("Tous"); setIsGroup(false);
     setMinPersons(2); setMaxPersons(6); setBonus("");
-    setEditingBundle(null); setBundleServiceSearch(""); setValidationError("");
+    setEditingBundle(null); setBundleServiceSearch(""); setBundleStyleSearch(""); setValidationError("");
     clearDraft();
   };
 
   const toggleService = (id) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleStyle = (id) => {
+    setSelectedStyleIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
   const processUploadedFile = async (file) => {
@@ -256,6 +271,9 @@ export default function CreerBundle() {
   const searchedServices = bundleServiceSearch
     ? filteredServices.filter(s => (s.title || s.name || "").toLowerCase().includes(bundleServiceSearch.toLowerCase()))
     : filteredServices;
+  const searchedStyles = bundleStyleSearch
+    ? styles.filter(s => (s.title || "").toLowerCase().includes(bundleStyleSearch.toLowerCase()))
+    : styles;
   const selectedServices = services.filter(s => selectedIds.includes(s.id));
   const regularTotal = selectedServices.reduce((sum, s) => sum + (parseFloat(s.price) || 0), 0);
   const discount = regularTotal > 0 && bundlePrice ? Math.round(((regularTotal - parseFloat(bundlePrice)) / regularTotal) * 100) : 0;
@@ -285,6 +303,7 @@ export default function CreerBundle() {
       name: name.trim(),
       description: description.trim(),
       service_ids: selectedIds,
+      style_ids: selectedStyleIds,
       bundle_price: parseFloat(bundlePrice),
       discount_percent: discount > 0 ? discount : 0,
       image_url: finalImg,
@@ -319,7 +338,7 @@ export default function CreerBundle() {
   };
 
   const handleSaveDraft = () => {
-    saveDraft({ name, description, bundlePrice, imageUrl, coverUrl, selectedIds, category, isGroup, minPersons, maxPersons, bonus });
+    saveDraft({ name, description, bundlePrice, imageUrl, coverUrl, selectedIds, selectedStyleIds, category, isGroup, minPersons, maxPersons, bonus });
     setDraftSaved(true);
     setTimeout(() => setDraftSaved(false), 2000);
   };
@@ -338,6 +357,7 @@ export default function CreerBundle() {
     setImageUrl(b.image_url || "");
     setCoverUrl(b.cover_url || b.banner_url || "");
     setSelectedIds(b.service_ids || []);
+    setSelectedStyleIds(b.style_ids || []);
     setCategory(b.category || "Tous");
     setIsGroup(b.is_group || false);
     setMinPersons(b.min_persons || 2);
@@ -516,6 +536,43 @@ export default function CreerBundle() {
                         </div>
                         <span className="text-[14px] font-black text-primary shrink-0">{s.price}€</span>
                       </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-purple-50/60 rounded-2xl border border-purple-100 p-4">
+              <p className="text-[10px] font-black text-purple-700 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" /> Styles associés ({selectedStyleIds.length})
+              </p>
+              <p className="text-[11px] text-gray-500 mb-3">Associez plusieurs publications style à ce bundle pour inspirer vos clients.</p>
+              {styles.length > 0 && (
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input value={bundleStyleSearch} onChange={e => setBundleStyleSearch(e.target.value)} placeholder="Rechercher un style..."
+                    className="w-full bg-white border border-purple-100 rounded-xl pl-9 pr-3 py-2.5 text-[12px] outline-none focus:border-purple-400" />
+                </div>
+              )}
+              {searchedStyles.length === 0 ? (
+                <p className="text-[12px] text-gray-400 py-2">Aucun style disponible</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  {searchedStyles.map(style => {
+                    const selected = selectedStyleIds.includes(style.id);
+                    const cover = style.image_url || style.images?.[0];
+                    return (
+                      <button type="button" key={style.id} onClick={() => toggleStyle(style.id)}
+                        className={`flex items-center gap-2 p-2 rounded-xl text-left border transition-all ${selected ? "bg-purple-100 border-purple-300" : "bg-white border-purple-100"}`}>
+                        <span className="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 shrink-0">
+                          {cover ? <BeautyImage src={cover} alt="" className="w-full h-full object-cover" /> : <Image className="w-4 h-4 m-3 text-gray-300" />}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-black text-gray-800 truncate">{style.title || "Style sans titre"}</span>
+                          <span className="block text-[10px] text-gray-400 truncate">{style.category || "Style"}</span>
+                        </span>
+                        {selected && <Check className="w-4 h-4 text-purple-600 shrink-0" />}
+                      </button>
                     );
                   })}
                 </div>

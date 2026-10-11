@@ -20,9 +20,11 @@ function emailToName(email) {
 // Sonnerie d'appel
 let ringtoneInterval = null;
 let ringtoneAudio = null;
+let activeCallNotification = null;
 
 function playRingtone() {
   try {
+    stopRingtone();
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     
     const playTone = () => {
@@ -56,9 +58,14 @@ function stopRingtone() {
     ringtoneInterval = null;
   }
   if (ringtoneAudio) {
-    ringtoneAudio.close();
+    ringtoneAudio.close().catch(() => {});
     ringtoneAudio = null;
   }
+  if (activeCallNotification) {
+    activeCallNotification.close();
+    activeCallNotification = null;
+  }
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(0);
 }
 
 function vibratePhone(pattern = [1000, 500, 1000, 500, 1000]) {
@@ -69,7 +76,7 @@ function vibratePhone(pattern = [1000, 500, 1000, 500, 1000]) {
 
 function showCallNotification(title, body, callerName) {
   if ('Notification' in window && Notification.permission === 'granted') {
-    const notif = new Notification(title, {
+    activeCallNotification = new Notification(title, {
       body: body,
       icon: '/icon-192.png',
       badge: '/icon-192.png',
@@ -78,7 +85,7 @@ function showCallNotification(title, body, callerName) {
       requireInteraction: true,
       data: { callerName },
     });
-    return notif;
+    return activeCallNotification;
   }
   return null;
 }
@@ -186,7 +193,16 @@ export function CallManager({ children }) {
   };
 
   const cleanup = useCallback(() => {
+    // Couper immédiatement tous les sons avant les écritures réseau et le
+    // démontage de l'écran d'appel.
+    stopRingtone();
     if (localStreamRef.current) { localStreamRef.current.getTracks().forEach(t => t.stop()); localStreamRef.current = null; }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.pause();
+      remoteAudioRef.current.srcObject = null;
+      remoteAudioRef.current.removeAttribute("src");
+      remoteAudioRef.current.load();
+    }
     closePC();
     clearInterval(pollRef.current);
     clearInterval(endPollRef.current);
@@ -236,6 +252,7 @@ export function CallManager({ children }) {
     callIdRef.current = callId;
     currentCallRef.current = { callId, targetEmail, targetName, targetAvatar, isCaller: true };
     setCallState({ callId, mode: "calling", targetEmail, targetName, targetAvatar, isCaller: true });
+    playRingtone();
 
     let stream;
     try { stream = await getMic(); } catch { alert("Microphone inaccessible."); cleanup(); return; }
@@ -381,6 +398,7 @@ export function CallManager({ children }) {
 
   // ── Refuser ─────────────────────────────────────────────────────────────────
   const rejectCall = useCallback(async () => {
+    stopRingtone();
     const ci = currentCallRef.current;
     if (!ci.callId) return;
     try {
@@ -399,6 +417,7 @@ export function CallManager({ children }) {
   // ── Raccrocher ──────────────────────────────────────────────────────────────
   const hangup = useCallback(async () => {
     if (!callState) return;
+    stopRingtone();
     const endedAt = new Date().toISOString();
     const { callId, targetEmail, targetName, targetAvatar, isCaller } = currentCallRef.current;
     try {

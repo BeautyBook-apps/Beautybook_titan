@@ -1,6 +1,19 @@
 import { MapPin, MessageSquare, Bell, ShoppingCart } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export default function HomeHeader() {
+  const [city, setCity] = useState(() => {
+    try { return localStorage.getItem("bb_user_city") || "Localisation en cours…"; } catch { return "Localisation en cours…"; }
+  });
+
+  useEffect(() => {
+    const handleLocationChange = (event) => {
+      if (event.detail?.city) setCity(event.detail.city);
+    };
+    window.addEventListener("bb-location-change", handleLocationChange);
+    return () => window.removeEventListener("bb-location-change", handleLocationChange);
+  }, []);
+
   return (
     <header className="px-4 pt-4 pb-2 flex items-center justify-between">
       <div className="flex items-center gap-2">
@@ -9,7 +22,7 @@ export default function HomeHeader() {
         </div>
         <div>
           <p className="text-[10px] text-primary font-semibold uppercase tracking-wider">Ravi de te revoir</p>
-          <p className="text-sm font-bold text-foreground">Paris, France</p>
+          <p className="text-sm font-bold text-foreground">{city}</p>
         </div>
       </div>
       <div className="flex items-center gap-1">

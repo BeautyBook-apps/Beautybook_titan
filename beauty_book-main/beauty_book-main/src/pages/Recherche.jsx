@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
-  Search, SlidersHorizontal, MapPin, Star, X, ArrowUpRight, ArrowRight, Sparkles, 
+  Search, SlidersHorizontal, MapPin, Star, X, ArrowUpRight, ArrowRight, ChevronLeft, ChevronRight, Sparkles, Heart, BadgeCheck, UsersRound,
   Scissors, Waves, Gem, Footprints, Paintbrush, Droplets, Hand, LayoutGrid, Map as MapIcon, 
-  RotateCcw, Building2, UserCheck, Package, Palette, CheckCircle2, Car, Tag, Clock, Check
+  RotateCcw, Building2, UserCheck, Package, Palette, Car, Clock
 } from 'lucide-react';
 import MapWithPricePins from '@/components/map/MapWithPricePins';
 import BeautyImage from '@/components/ui/BeautyImage';
@@ -30,7 +30,148 @@ const categories = [
 ];
 
 const money = value => Number(value).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 });
+const bundleImage = item => item.image_url || item.cover_url || item.thumbnail_url || item.image || item.images?.[0] || '';
+const serviceImage = item => item.images?.[0] || item.image_url || item.cover_url || item.thumbnail_url || '';
+const profileImage = item => item.avatar_url || item.profile_image_url || item.profile_photo_url || item.logo_url || item.owner_avatar_url || item.image_url || '';
+const profileName = item => item.salon_name || item.business_name || item.pro_name || item.provider_name || item.name || 'Commerce BeautyBook';
+
+function CommerceAvatar({ item, label }) {
+  const src = profileImage(item);
+  const name = label || profileName(item);
+  return (
+    <span className="discovery-commerce-avatar" title={`Photo de profil de ${name}`}>
+      {src ? (
+        <BeautyImage src={src} alt={`Photo de profil de ${name}`} loading="lazy" />
+      ) : (
+        <span aria-hidden="true">{name.trim().charAt(0).toUpperCase()}</span>
+      )}
+    </span>
+  );
+}
+const bundleReviewCount = item => Number(item.review_count ?? item.reviews_count ?? item.reviews ?? 0);
+const bundleServiceCount = item => Array.isArray(item.services) ? item.services.length : Number(item.service_count ?? item.services_count ?? 0);
+const bundleDiscount = item => {
+  if (item.discount_percentage) return Math.round(Number(item.discount_percentage));
+  const original = Number(item.original_price);
+  const price = Number(item.price);
+  return original > price && price > 0 ? Math.round((1 - price / original) * 100) : 0;
+};
+const formatBundleDuration = value => {
+  const minutes = Number(value);
+  if (!minutes) return '2h';
+  if (minutes < 60) return `${minutes}min`;
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  return remaining ? `${hours}h${String(remaining).padStart(2, '0')}` : `${hours}h`;
+};
 const emptyFilters = { city: '', maxPrice: '', minRating: '', estDomicile: false, enSalon: false, promoOnly: false };
+
+const isParticulierProfile = profile => {
+  const type = normalizeSearch([
+    profile.type_pro,
+    profile.profile_type,
+    profile.account_type,
+    profile.business_type,
+  ].filter(Boolean).join(' '));
+  const identity = normalizeSearch([
+    profile.salon_name,
+    profile.business_name,
+    profile.name,
+    profile.user_email,
+  ].filter(Boolean).join(' '));
+
+  return ['particulier', 'domicile', 'freelance', 'independant', 'independent'].some(value => type.includes(value))
+    || Boolean(profile.est_domicile || profile.is_domicile || profile.is_particulier)
+    || identity.includes('studio bb');
+};
+
+const mediaUrl = value => {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return '';
+  return value.url || value.src || value.file_url || value.image_url || value.video_url || '';
+};
+
+const mediaIsVideo = value => {
+  if (value && typeof value === 'object' && (value.type === 'video' || value.media_type === 'video')) return true;
+  return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(mediaUrl(value));
+};
+
+function DiscoveryMediaSlider({ item, alt }) {
+  const media = useMemo(() => {
+    const candidates = [
+      ...(Array.isArray(item.media) ? item.media : []),
+      ...(Array.isArray(item.photos) ? item.photos : []),
+      ...(Array.isArray(item.images) ? item.images : []),
+      ...(Array.isArray(item.videos) ? item.videos : []),
+      item.video_url,
+      item.cover_url,
+      item.avatar_url,
+    ];
+    const seen = new Set();
+    return candidates.map(value => {
+      const src = mediaUrl(value);
+      if (!src || seen.has(src)) return null;
+      seen.add(src);
+      return {
+        src,
+        isVideo: mediaIsVideo(value),
+        poster: value && typeof value === 'object' ? value.poster || value.thumbnail_url : undefined,
+      };
+    }).filter(Boolean);
+  }, [item]);
+  const [index, setIndex] = useState(0);
+  const touchStart = useRef(null);
+
+  useEffect(() => setIndex(0), [item?.id]);
+
+  const change = (next, event) => {
+    event?.stopPropagation();
+    if (media.length < 2) return;
+    setIndex((next + media.length) % media.length);
+  };
+  const onTouchStart = event => {
+    touchStart.current = event.touches[0]?.clientX ?? null;
+  };
+  const onTouchEnd = event => {
+    const start = touchStart.current;
+    const end = event.changedTouches[0]?.clientX;
+    touchStart.current = null;
+    if (start == null || end == null || Math.abs(end - start) < 35) return;
+    change(index + (end < start ? 1 : -1), event);
+  };
+
+  const current = media[index] || { src: '', isVideo: false };
+  return (
+    <div className="discovery-media-slider" onClick={event => event.stopPropagation()} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      {current.isVideo ? (
+        <video src={current.src} poster={current.poster} autoPlay muted loop playsInline aria-label={alt} />
+      ) : (
+        <BeautyImage src={current.src} alt={alt} loading="lazy" />
+      )}
+      {media.length > 1 && (
+        <>
+          <button type="button" className="discovery-media-control prev" onClick={event => change(index - 1, event)} aria-label="Média précédent">
+            <ChevronLeft size={17} />
+          </button>
+          <button type="button" className="discovery-media-control next" onClick={event => change(index + 1, event)} aria-label="Média suivant">
+            <ChevronRight size={17} />
+          </button>
+          <div className="discovery-media-dots" aria-label={`${media.length} médias`}>
+            {media.map((entry, mediaIndex) => (
+              <button
+                key={`${entry.src}-${mediaIndex}`}
+                type="button"
+                className={mediaIndex === index ? 'active' : ''}
+                onClick={event => change(mediaIndex, event)}
+                aria-label={`Afficher le média ${mediaIndex + 1}`}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 async function activeRows(table, signal) {
   const rows = [];
@@ -272,7 +413,10 @@ export default function Recherche() {
           discount_percentage: 15,
           category: 'Coiffure',
           pro_name: 'L\'Atelier Botanique',
-          badge: '-15% Pack Coiffure + Soin'
+          badge: '🔥 Le plus réservé',
+          service_count: 2,
+          duration_minutes: 140,
+          persons: '2–4 pers.'
         },
         {
           id: 'bundle-demo-2',
@@ -283,7 +427,10 @@ export default function Recherche() {
           discount_percentage: 20,
           category: 'Tresses',
           pro_name: 'Amandine K. Braider',
-          badge: '-20% Pack Tresses'
+          badge: '✨ Offre découverte',
+          service_count: 1,
+          duration_minutes: 120,
+          persons: '1 personne'
         }
       ];
 
@@ -315,11 +462,14 @@ export default function Recherche() {
   const categorizedResults = useMemo(() => {
     const query = normalizeSearch(q);
 
-    // Salons (Establishments with fixed address or salon name)
-    const salons = salonResults.filter(p => p.type_pro === 'salon' || p.salon_name || !p.type_pro || p.type_pro === 'etablissement');
+    // Particuliers first: an individual may still have a salon_name filled in.
+    // Studio bb is explicitly an individual profile and must never appear in Salons Pro.
+    const particuliers = salonResults.filter(isParticulierProfile);
 
-    // Particuliers (Freelance / At-home stylists)
-    const particuliers = salonResults.filter(p => p.type_pro === 'particulier' || p.type_pro === 'domicile' || p.est_domicile || p.type_pro === 'freelance');
+    // Salons: only profiles not already classified as individuals.
+    const salons = salonResults.filter(p => !isParticulierProfile(p) && (
+      p.type_pro === 'salon' || p.salon_name || !p.type_pro || p.type_pro === 'etablissement'
+    ));
 
     // Services (Individual service items)
     const matchingServices = data.services.filter(s => {
@@ -361,19 +511,17 @@ export default function Recherche() {
     if (entityType === 'Styles') return categorizedResults.styles.map(item => ({ ...item, entityKind: 'style' }));
     if (entityType === 'Bundles') return categorizedResults.bundles.map(item => ({ ...item, entityKind: 'bundle' }));
 
-    // 'Tous': Interleave all entity types gracefully
+    // 'Tous': organize the main discovery sections. Styles remain available in their own tab.
     const combined = [];
     categorizedResults.salons.forEach(s => combined.push({ ...s, entityKind: 'salon' }));
     categorizedResults.particuliers.forEach(p => combined.push({ ...p, entityKind: 'particulier' }));
     categorizedResults.bundles.forEach(b => combined.push({ ...b, entityKind: 'bundle' }));
-    categorizedResults.styles.forEach(st => combined.push({ ...st, entityKind: 'style' }));
     categorizedResults.services.forEach(srv => combined.push({ ...srv, entityKind: 'service' }));
     return combined;
   }, [entityType, categorizedResults]);
 
   const mapped = useMemo(() => salonResults.filter(p => p.coordinates), [salonResults]);
   const points = useMemo(() => mapped.map(p => p.coordinates), [mapped]);
-  const inspirations = data.styles.filter(style => matchesCategory(style.category, category));
   const cities = [...new Set(data.profiles.map(p => p.city).filter(Boolean))].sort();
   const filterCount = Object.values(filters).filter(Boolean).length;
   const hasCriteria = Boolean(q || category !== 'Tous' || entityType !== 'Tous' || filterCount);
@@ -588,131 +736,220 @@ export default function Recherche() {
                   <div className="discovery-grid">
                     {activeItems.slice(0, visibleCount).map((item, idx) => {
                       const kind = item.entityKind || 'salon';
+                      const sectionMeta = {
+                        salon: { label: 'Salons professionnels', icon: Building2, description: 'Les établissements beauté près de chez vous.' },
+                        particulier: { label: 'Particuliers', icon: UserCheck, description: 'Des professionnels indépendants qui se déplacent à domicile.' },
+                        bundle: { label: 'Bundles', icon: Package, description: 'Des formules beauté avantageuses.' },
+                        service: { label: 'Prestations', icon: Scissors, description: 'Des services beauté adaptés à vos envies.' },
+                      }[kind];
+                      const startsSection = entityType === 'Tous' && (idx === 0 || activeItems[idx - 1]?.entityKind !== kind);
+                      const SectionIcon = sectionMeta?.icon;
+                      const sectionHeader = startsSection && sectionMeta ? (
+                        <div className="discovery-subsection-head">
+                          <div className="discovery-subsection-title">
+                            <span className="discovery-subsection-icon"><SectionIcon size={17} /></span>
+                            <div>
+                              <h3>{sectionMeta.label}</h3>
+                              <p>{sectionMeta.description}</p>
+                            </div>
+                          </div>
+                          <span className="discovery-subsection-count">
+                            {activeItems.slice(idx).filter(entry => entry.entityKind === kind).length}
+                          </span>
+                        </div>
+                      ) : null;
 
                       // CARD TYPE 1: SALONS PRO
                       if (kind === 'salon') {
                         return (
-                          <button key={`salon-${item.id || idx}`} className="discovery-salon" onClick={() => openPro(item)}>
-                            <div className="discovery-salon-photo">
-                              <BeautyImage src={item.cover_url || item.avatar_url} alt={item.salon_name || 'Salon de beauté'} loading="lazy" />
-                              <div className="discovery-badge-cluster">
-                                <span className="entity-badge salon-badge">
-                                  <Building2 size={12} /> Salon Pro
-                                </span>
+                          <Fragment key={`salon-${item.id || idx}`}>
+                            {sectionHeader}
+                            <article className="discovery-salon" onClick={() => openPro(item)}>
+                              <div className="discovery-salon-photo">
+                                <DiscoveryMediaSlider item={item} alt={item.salon_name || 'Salon de beauté'} />
+                                <div className="discovery-badge-cluster">
+                                  <span className="entity-badge salon-badge">
+                                    <Building2 size={12} /> Salon Pro
+                                  </span>
+                                </div>
+                                {item.rating > 0 && (
+                                  <span className="discovery-rating">
+                                    <Star size={13} fill="currentColor" />
+                                    {item.rating.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}
+                                  </span>
+                                )}
+                                <span className="discovery-photo-arrow"><ArrowUpRight size={18} /></span>
                               </div>
-                              {item.rating > 0 && (
-                                <span className="discovery-rating">
-                                  <Star size={13} fill="currentColor" />
-                                  {item.rating.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}
-                                </span>
-                              )}
-                              <span className="discovery-photo-arrow"><ArrowUpRight size={18} /></span>
-                            </div>
-                            <div className="discovery-salon-info">
-                              <p className="discovery-specialties">
-                                {Array.isArray(item.specialites) && item.specialites.length ? item.specialites.slice(0, 2).join(' · ') : 'Établissement Beauté'}
-                              </p>
-                              <h3>{item.salon_name || 'Salon BeautyBook'}</h3>
-                              <p className="discovery-city"><MapPin size={14} />{item.city || 'Paris & IDF'}</p>
-                              <div className="discovery-salon-bottom">
-                                <span>{item.minPrice !== null ? <>À partir de <strong>{money(item.minPrice)}</strong></> : 'Découvrir l\'établissement'}</span>
-                                <ArrowRight size={18} />
+                              <div className="discovery-salon-info">
+                                <p className="discovery-specialties">
+                                  {Array.isArray(item.specialites) && item.specialites.length ? item.specialites.slice(0, 2).join(' · ') : 'Établissement Beauté'}
+                                </p>
+                                <div className="discovery-commerce-title">
+                                  <CommerceAvatar item={item} label={item.salon_name || 'Salon BeautyBook'} />
+                                  <h3>{item.salon_name || 'Salon BeautyBook'}</h3>
+                                </div>
+                                <p className="discovery-city"><MapPin size={14} />{item.city || 'Paris & IDF'}</p>
+                                <div className="discovery-salon-bottom">
+                                  <span>{item.minPrice !== null ? <>À partir de <strong>{money(item.minPrice)}</strong></> : 'Découvrir l\'établissement'}</span>
+                                  <ArrowRight size={18} />
+                                </div>
                               </div>
-                            </div>
-                          </button>
+                            </article>
+                          </Fragment>
                         );
                       }
 
                       // CARD TYPE 2: PARTICULIERS / À DOMICILE
                       if (kind === 'particulier') {
                         return (
-                          <article key={`particulier-${item.id || idx}`} className="discovery-salon particulier-card" onClick={() => openPro(item)}>
-                            <div className="discovery-salon-photo particulier-photo">
-                              <BeautyImage src={item.avatar_url || item.cover_url} alt={item.salon_name || 'Coiffeur particulier'} loading="lazy" />
-                              <div className="discovery-badge-cluster">
-                                <span className="entity-badge particulier-badge">
-                                  <UserCheck size={12} /> Particulier / À domicile
-                                </span>
+                          <Fragment key={`particulier-${item.id || idx}`}>
+                            {sectionHeader}
+                            <article className="discovery-salon particulier-card" onClick={() => openPro(item)}>
+                              <div className="discovery-salon-photo particulier-photo">
+                                <DiscoveryMediaSlider item={item} alt={item.salon_name || 'Coiffeur particulier'} />
+                                <div className="discovery-badge-cluster">
+                                  <span className="entity-badge particulier-badge">
+                                    <UserCheck size={12} /> Particulier / À domicile
+                                  </span>
+                                </div>
+                                {item.rating > 0 && (
+                                  <span className="discovery-rating">
+                                    <Star size={13} fill="currentColor" />
+                                    {item.rating.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}
+                                  </span>
+                                )}
                               </div>
-                              {item.rating > 0 && (
-                                <span className="discovery-rating">
-                                  <Star size={13} fill="currentColor" />
-                                  {item.rating.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}
-                                </span>
-                              )}
-                            </div>
-                            <div className="discovery-salon-info">
-                              <p className="discovery-specialties text-orange">Prestataire Indépendant & Domicile</p>
-                              <h3>{item.salon_name || item.name || 'Coiffeur à domicile'}</h3>
-                              <p className="discovery-city"><Car size={14} />{item.city || 'Déplacement à domicile'}</p>
-                              <div className="discovery-salon-bottom">
-                                <span>Dès <strong>{item.minPrice ? money(item.minPrice) : '35 €'}</strong></span>
-                                <span className="btn-cta-small">Voir le profil <ArrowRight size={15} /></span>
+                              <div className="discovery-salon-info">
+                                <p className="discovery-specialties text-orange">Prestataire Indépendant & Domicile</p>
+                                <div className="discovery-commerce-title">
+                                  <CommerceAvatar item={item} label={item.salon_name || item.name || 'Coiffeur à domicile'} />
+                                  <h3>{item.salon_name || item.name || 'Coiffeur à domicile'}</h3>
+                                </div>
+                                <p className="discovery-city"><Car size={14} />{item.city || 'Déplacement à domicile'}</p>
+                                <div className="discovery-salon-bottom">
+                                  <span>Dès <strong>{item.minPrice ? money(item.minPrice) : '35 €'}</strong></span>
+                                  <span className="btn-cta-small">Voir le profil <ArrowRight size={15} /></span>
+                                </div>
                               </div>
-                            </div>
-                          </article>
+                            </article>
+                          </Fragment>
                         );
                       }
 
                       // CARD TYPE 3: BUNDLES / PACKS PROMO
                       if (kind === 'bundle') {
+                        const discount = bundleDiscount(item);
+                        const serviceCount = bundleServiceCount(item);
+                        const reviewCount = bundleReviewCount(item);
+                        const originalPrice = Number(item.original_price);
+                        const rating = Number(item.rating || 4.3);
                         return (
-                          <article key={`bundle-${item.id || idx}`} className="discovery-salon bundle-card">
-                            <div className="bundle-ribbon">
-                              <Tag size={14} /> {item.badge || `-15% Pack Duo`}
-                            </div>
-                            <div className="discovery-salon-info bundle-info">
-                              <p className="discovery-specialties text-orange"><Package size={12} /> Offre Pack Combiné</p>
-                              <h3>{item.title}</h3>
-                              <p className="bundle-desc">{item.description}</p>
-                              <div className="bundle-pricing">
-                                <div className="prices">
-                                  <span className="deal-price">{money(item.price)}</span>
-                                  {item.original_price && <span className="old-price">{money(item.original_price)}</span>}
-                                </div>
-                                <button className="discovery-primary bundle-btn" onClick={openMaria}>
-                                  Profiter du pack <ArrowUpRight size={16} />
+                          <Fragment key={`bundle-${item.id || idx}`}>
+                            {sectionHeader}
+                            <article className="discovery-salon bundle-card">
+                              <div className="bundle-card-media">
+                                <BeautyImage src={bundleImage(item)} alt={item.title || 'Bundle beauté'} loading="lazy" />
+                                <span className="bundle-ribbon">
+                                  {item.badge || `Économisez ${discount || 15}%`}
+                                </span>
+                                <button className="bundle-favorite" type="button" aria-label="Ajouter ce bundle aux favoris">
+                                  <Heart size={20} />
                                 </button>
                               </div>
-                            </div>
-                          </article>
+                              <div className="discovery-salon-info bundle-info">
+                                <p className="bundle-kicker">{item.category || 'Beauté'}</p>
+                                <h3>{item.title || 'Bundle beauté'}</h3>
+                                <p className="bundle-subtitle">{item.subtitle || item.description || 'Une formule beauté pensée pour vous.'}</p>
+                                <p className="bundle-provider">
+                                  <CommerceAvatar item={item} label={item.pro_name || item.provider_name || 'BeautyBook'} />
+                                  <span>By {item.pro_name || item.provider_name || 'BeautyBook'}</span>
+                                  <BadgeCheck size={16} className="bundle-verified" />
+                                  <Star size={15} fill="currentColor" />
+                                  <strong>{rating.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</strong>
+                                  <span>({reviewCount || 0})</span>
+                                </p>
+                                <div className="bundle-meta">
+                                  <span><Scissors size={15} /> {serviceCount || 2} services</span>
+                                  <span><Clock size={15} /> {formatBundleDuration(item.duration_minutes || item.duration)}</span>
+                                  <span><UsersRound size={15} /> {item.persons || item.people || '1 personne'}</span>
+                                </div>
+                                <div className="bundle-pricing">
+                                  <span className="bundle-saving">Économisez {discount || 15}%</span>
+                                  <span className="bundle-from">À partir de</span>
+                                  {originalPrice > Number(item.price) && <span className="old-price">{money(originalPrice)}</span>}
+                                  <span className="deal-price">{money(item.price)}</span>
+                                  <button className="discovery-primary bundle-btn" onClick={openMaria}>
+                                    Voir le bundle <ArrowUpRight size={16} />
+                                  </button>
+                                </div>
+                              </div>
+                            </article>
+                          </Fragment>
                         );
                       }
 
                       // CARD TYPE 4: STYLES / INSPIRATIONS
                       if (kind === 'style') {
                         return (
-                          <article key={`style-${item.id || idx}`} className="discovery-style style-item-card" onClick={() => navigate('/style/' + item.id)}>
-                            <BeautyImage src={item.image_url || item.images?.[0]} alt={item.title || 'Inspiration look'} loading="lazy" />
-                            <span className="entity-badge style-badge">
-                              <Palette size={12} /> Style / Look
-                            </span>
-                            <div className="style-overlay-content">
-                              <small>{item.category || 'Inspiration'}</small>
-                              <strong>{item.title || 'Découvrir ce style'}</strong>
-                            </div>
-                            <ArrowUpRight size={18} className="style-arrow" />
-                          </article>
+                          <Fragment key={`style-${item.id || idx}`}>
+                            {sectionHeader}
+                            <article className="discovery-style style-item-card" onClick={() => navigate('/style/' + item.id)}>
+                              <BeautyImage src={item.image_url || item.images?.[0]} alt={item.title || 'Inspiration look'} loading="lazy" />
+                              <span className="entity-badge style-badge">
+                                <Palette size={12} /> Style / Look
+                              </span>
+                              <div className="style-overlay-content">
+                                <small>{item.category || 'Inspiration'}</small>
+                                <strong>{item.title || 'Découvrir ce style'}</strong>
+                              </div>
+                              <ArrowUpRight size={18} className="style-arrow" />
+                            </article>
+                          </Fragment>
                         );
                       }
 
                       // CARD TYPE 5: SERVICES / PRESTATIONS
+                      const serviceRating = Number(item.rating || 4.3);
+                      const serviceReviews = Number(item.reviews_count ?? item.review_count ?? 0);
+                      const serviceDuration = Number(item.duration_min || item.duration_minutes || item.duration || 80);
+                      const servicePrice = Number(item.promo_price || item.price || 40);
+                      const serviceType = item.type_pro === 'particulier' || item.est_domicile ? 'Particulier' : 'Salon Professionnel';
+                      const serviceStatus = item.is_open === false || ['fermé', 'ferme', 'inactif'].includes(String(item.status || '').toLowerCase()) ? 'Fermé' : 'Ouvert';
                       return (
-                        <article key={`service-${item.id || idx}`} className="discovery-salon service-card">
-                          <div className="discovery-salon-info">
-                            <span className="entity-badge service-badge">
-                              <Scissors size={12} /> Prestation BeautyBook
-                            </span>
-                            <h3>{item.name || item.title}</h3>
-                            <p className="discovery-city">
-                              <Clock size={14} /> {item.duration_minutes || 45} min • {item.category || 'Beauté'}
-                            </p>
-                            <div className="discovery-salon-bottom">
-                              <span>Tarif : <strong>{money(item.price || 40)}</strong></span>
-                              <button className="discovery-primary btn-sm" onClick={openMaria}>Réserver <ArrowRight size={15} /></button>
+                        <Fragment key={`service-${item.id || idx}`}>
+                          {sectionHeader}
+                          <article className="discovery-service">
+                            <div className="service-card-media">
+                              <BeautyImage src={serviceImage(item)} alt={item.name || item.title || 'Prestation beauté'} loading="lazy" />
+                              <div className="service-media-dots"><span className="active" /><span /><span /></div>
+                              <button className="service-favorite" type="button" aria-label="Ajouter cette prestation aux favoris">
+                                <Heart size={20} />
+                              </button>
                             </div>
-                          </div>
-                        </article>
+                            <div className="service-card-content">
+                              <p className="service-provider">
+                                <CommerceAvatar item={item} label={item.pro_name || item.provider_name || 'BeautyBook'} />
+                                <strong>{item.pro_name || item.provider_name || 'Mamara hair 91'}</strong>
+                              </p>
+                              <h3>{item.name || item.title || 'Prestation beauté'}</h3>
+                              <div className="service-badges">
+                                <span><MapPin size={14} /> {item.city || item.location || 'Paris & IDF'}</span>
+                                <span className="service-type">{serviceType}</span>
+                                <span className={serviceStatus === 'Fermé' ? 'service-closed' : 'service-open'}><i />{serviceStatus}</span>
+                                <span className="service-rating"><Star size={14} fill="currentColor" /> {serviceRating.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} <small>({serviceReviews || 0})</small></span>
+                              </div>
+                              <div className="service-card-divider" />
+                              <div className="service-actions">
+                                <button type="button" className="service-action ai" onClick={openMaria}><Sparkles size={15} /> Filtre IA</button>
+                                <button type="button" className="service-action style" onClick={openMaria}><Palette size={15} /> Style associé</button>
+                              </div>
+                              <div className="service-card-footer">
+                                <span className="service-duration"><Clock size={16} /> {serviceDuration} min</span>
+                                <strong>{money(servicePrice)}</strong>
+                              </div>
+                            </div>
+                          </article>
+                        </Fragment>
                       );
                     })}
                   </div>
@@ -739,31 +976,6 @@ export default function Recherche() {
           )}
         </section>
 
-        {/* Inspirations section */}
-        {inspirations.length > 0 && (
-          <section className="discovery-inspirations" aria-labelledby="inspirations-title">
-            <div className="discovery-section-head">
-              <div>
-                <p className="discovery-eyebrow"><Sparkles size={14} /> L’ENVIE COMMENCE ICI</p>
-                <h2 id="inspirations-title">Inspirations du moment</h2>
-              </div>
-              <span className="discovery-subtle">Créations des coiffeurs & pros</span>
-            </div>
-            <div className="discovery-style-track">
-              {inspirations.map(style => (
-                <button key={style.id} onClick={() => navigate('/style/' + style.id)} className="discovery-style">
-                  <BeautyImage src={style.image_url || style.images?.[0]} alt={style.title || 'Création beauté'} loading="lazy" />
-                  <span>
-                    <small>{style.category || 'Inspiration'}</small>
-                    <strong>{style.title || 'Découvrir ce style'}</strong>
-                  </span>
-                  <ArrowUpRight size={18} />
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
         {/* AI Maria Assistant CTA */}
         <aside className="discovery-assistant">
           <span className="discovery-assistant-icon"><Sparkles size={28} /></span>
@@ -778,17 +990,17 @@ export default function Recherche() {
         </aside>
       </div>
 
-      {showFilters && (
-        <FilterDialog 
-          filters={filters} 
-          cities={cities} 
-          servicesAvailable={servicesAvailable} 
-          resultCount={activeItems.length}
-          onClose={() => setShowFilters(false)} 
-          onApply={next => { updateParams(next); setShowFilters(false); }} 
-        />
-      )}
-    </div>
+    {showFilters && (
+      <FilterDialog
+        filters={filters}
+        cities={cities}
+        servicesAvailable={servicesAvailable}
+        resultCount={activeItems.length}
+        onClose={() => setShowFilters(false)}
+        onApply={next => { updateParams(next); setShowFilters(false); }}
+      />
+    )}
+  </div>
   );
 }
 

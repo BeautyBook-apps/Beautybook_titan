@@ -45,6 +45,23 @@ function sortByDistance(items, userLat, userLng) {
     .sort((a, b) => a._distance - b._distance);
 }
 
+async function fallbackReverseGeocode(latitude, longitude) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`https://api-adresse.data.gouv.fr/reverse/?lon=${encodeURIComponent(longitude)}&lat=${encodeURIComponent(latitude)}`, {
+      headers: { "Accept-Language": "fr" },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Fallback geocoder returned ${response.status}`);
+    const properties = (await response.json())?.features?.[0]?.properties || {};
+    const city = properties.city || properties.municipality || "";
+    return city ? { city, country: "FR" } : null;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 const LocationContext = createContext(null);
 
 export function LocationProvider({ children }) {
@@ -69,10 +86,11 @@ export function LocationProvider({ children }) {
 
   const publishCity = useCallback((city, country, latitude, longitude) => {
     if (!city) return;
-    const label = country ? `${city}, ${country}` : city;
+    const normalizedCountry = String(country || "").toUpperCase() === "FR" ? "France" : country;
+    const label = normalizedCountry ? `${city}, ${normalizedCountry}` : city;
     try { localStorage.setItem(CITY_KEY, label); } catch {}
     window.dispatchEvent(new CustomEvent("bb-location-change", {
-      detail: { city: label, country: country || "", latitude, longitude, source: "gps" },
+      detail: { city: label, country: normalizedCountry || "", latitude, longitude, source: "gps" },
     }));
   }, []);
 
@@ -90,16 +108,34 @@ export function LocationProvider({ children }) {
 
     reverseInFlightRef.current = true;
     try {
-      const data = await apiClient.get(`/maps/reverse?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`);
+      // Le géocodage direct côté navigateur évite de dépendre du proxy API
+      // local pendant le développement. Le backend reste le second choix
+      // pour les environnements où l'API publique n'est pas accessible en CORS.
+      let data = await fallbackReverseGeocode(latitude, longitude).catch(() => null);
+      if (!data?.city) {
+        try {
+          data = await apiClient.get(`/maps/reverse?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`);
+        } catch {
+          // Keep location updates working while the local API is restarting or
+          // while its primary geocoder is temporarily unavailable.
+          data = null;
+        }
+      }
+      if (data?.unavailable && !data?.city) {
+        data = await fallbackReverseGeocode(latitude, longitude).catch(() => null);
+      }
       if (data?.city) {
         lastGeocodedRef.current = { latitude, longitude, at: Date.now() };
         reverseCooldownUntilRef.current = 0;
         publishCity(data.city, data.country || "", latitude, longitude);
-      } else if (data?.unavailable) {
+      } else {
         // Keep a short cooldown when both providers are unavailable so GPS
         // updates do not create a request storm in the background.
         lastGeocodedRef.current = { latitude, longitude, at: Date.now() };
         reverseCooldownUntilRef.current = Date.now() + 60_000;
+        window.dispatchEvent(new CustomEvent("bb-location-change", {
+          detail: { city: "Ma position", latitude, longitude, source: "gps" },
+        }));
       }
     } catch {
       // Le suivi des coordonnées continue même si le reverse geocoding est
@@ -108,6 +144,9 @@ export function LocationProvider({ children }) {
       const now = Date.now();
       lastGeocodedRef.current = { latitude, longitude, at: now };
       reverseCooldownUntilRef.current = now + 60_000;
+      window.dispatchEvent(new CustomEvent("bb-location-change", {
+        detail: { city: "Ma position", latitude, longitude, source: "gps" },
+      }));
     } finally {
       reverseInFlightRef.current = false;
     }
@@ -190,9 +229,30 @@ export function LocationProvider({ children }) {
       setTracking(enabled);
       if (!enabled) requestedRef.current = false;
     };
+    const handleLocationChange = (event) => {
+      const latitude = Number(event.detail?.latitude);
+      const longitude = Number(event.detail?.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+      // A manually selected city is also a real location for distance filters
+      // and maps. Previously only the displayed label changed, so the app
+      // continued using the old GPS coordinates (often Paris).
+      const nextLocation = {
+        latitude,
+        longitude,
+        accuracy: Number(event.detail?.accuracy) || 0,
+        updated_at: new Date().toISOString(),
+      };
+      setLocation(nextLocation);
+      try { localStorage.setItem(LOCATION_KEY, JSON.stringify(nextLocation)); } catch {}
+      lastGeocodedRef.current = { latitude, longitude, at: Date.now() };
+      reverseCooldownUntilRef.current = Date.now() + 60_000;
+    };
     window.addEventListener("bb-location-tracking", handleTrackingChange);
+    window.addEventListener("bb-location-change", handleLocationChange);
     return () => {
       window.removeEventListener("bb-location-tracking", handleTrackingChange);
+      window.removeEventListener("bb-location-change", handleLocationChange);
       stopTracking();
     };
     // Initialisation volontairement unique : les callbacks gèrent ensuite le suivi.

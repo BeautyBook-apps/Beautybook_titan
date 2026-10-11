@@ -3,9 +3,21 @@ import { uploadFile } from '@/api/entities';
 import { adminApi } from "@/lib/adminApiClient";
 import { entities } from "@/api/entities";
 import { supabase } from '@/api/supabaseClient';
-import { Plus, Trash2, Eye, EyeOff, Upload, X, Image, Video, Loader2 } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, Upload, X, Image, Video, Loader2, Pencil } from "lucide-react";
 
 const CATEGORIES = ["Réels", "Tutos", "Conseils"];
+const PUBLICATION_DRAFT_KEY = "bb_admin_publication_draft";
+const EMPTY_FORM = {
+  title: "",
+  description: "",
+  category: "Réels",
+  video_url: "",
+  thumbnail_url: "",
+  images: [],
+  sound: "Son original - BeautyBook",
+  author_name: "BeautyBook",
+  author_handle: "@beautybook",
+};
 
 export default function AdminPublications() {
   const [reels, setReels] = useState([]);
@@ -18,22 +30,48 @@ export default function AdminPublications() {
   const videoInputRef = useRef(null);
   const imagesInputRef = useRef(null);
 
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    category: "Réels",
-    video_url: "",
-    thumbnail_url: "",
-    images: [],
-    sound: "Son original - BeautyBook",
-    author_name: "BeautyBook",
-    author_handle: "@beautybook",
-  });
+  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [draftId, setDraftId] = useState(null);
+  const draftTimer = useRef(null);
 
   useEffect(() => {
     adminApi.listPublications()
       .then(res => setReels(Array.isArray(res) ? res : res?.data?.results || [])).catch(() => {}).finally(() => setLoading(false));
   }, []);
+
+  const hasDraftContent = (value) => Boolean(value.title || value.description || value.video_url || value.images?.length);
+
+  const saveDraft = async (value) => {
+    if (!creating || !hasDraftContent(value)) return;
+    try {
+      localStorage.setItem(PUBLICATION_DRAFT_KEY, JSON.stringify(value));
+      const payload = {
+        ...value,
+        title: value.title || "Brouillon de publication",
+        author_email: "borisnana955@gmail.com",
+        status: "brouillon",
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        views: 0,
+      };
+      if (draftId) await entities.Reel.update(draftId, payload);
+      else {
+        const created = await entities.Reel.create(payload);
+        const item = created?.id ? created : created?.data?.reel || created?.result;
+        if (item?.id) setDraftId(item.id);
+      }
+    } catch (error) {
+      console.warn("[AdminPublications] brouillon non synchronisé", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!creating || !hasDraftContent(form)) return;
+    clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => saveDraft(form), 700);
+    return () => clearTimeout(draftTimer.current);
+  }, [form, creating, draftId]);
 
   const filtered = reels.filter(r =>
     activeTab === "Tous" || r.category === activeTab
@@ -86,11 +124,14 @@ export default function AdminPublications() {
         shares: 0,
         views: 0,
       };
-      const res = await entities.Reel.create(data);
-      const created = res.data?.reel;
-      setReels(prev => [created, ...prev]);
+      const res = draftId ? await entities.Reel.update(draftId, data) : await entities.Reel.create(data);
+      const created = res?.id ? res : res?.data?.reel || res?.result;
+      setReels(prev => draftId ? prev.map(item => item.id === draftId ? created : item) : [created, ...prev]);
       setCreating(false);
-      setForm({ title: "", description: "", category: "Réels", video_url: "", thumbnail_url: "", images: [], author_name: "BeautyBook", author_handle: "@beautybook" });
+      setDraftId(null);
+      setForm({ ...EMPTY_FORM });
+      clearTimeout(draftTimer.current);
+      localStorage.removeItem(PUBLICATION_DRAFT_KEY);
     } catch {}
     setSaving(false);
   };
@@ -105,6 +146,12 @@ export default function AdminPublications() {
     if (!confirm("Supprimer cette publication ?")) return;
     await adminApi.deletePublication(id);
     setReels(prev => prev.filter(r => r.id !== id));
+  };
+
+  const editReel = (reel) => {
+    setDraftId(reel.status === "brouillon" ? reel.id : null);
+    setForm({ ...EMPTY_FORM, ...reel, images: Array.isArray(reel.images) ? reel.images : [] });
+    setCreating(true);
   };
 
   if (loading) return <div className="flex justify-center py-16"><div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
@@ -234,11 +281,14 @@ export default function AdminPublications() {
                 {reel.video_url && <span className="text-[10px] bg-blue-900/50 text-blue-400 px-1.5 py-0.5 rounded-full font-black">Vidéo</span>}
                 {reel.images?.length > 0 && <span className="text-[10px] bg-purple-900/50 text-purple-400 px-1.5 py-0.5 rounded-full font-black">{reel.images.length} image(s)</span>}
                 <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${reel.status === "publie" ? "bg-green-900/60 text-green-400" : "bg-gray-700 text-gray-400"}`}>
-                  {reel.status === "publie" ? "Publié" : "Masqué"}
+                  {reel.status === "publie" ? "Publié" : "Brouillon"}
                 </span>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              <button onClick={() => editReel(reel)} className="w-9 h-9 bg-gray-700 rounded-xl flex items-center justify-center active:scale-95 transition-all" title="Modifier">
+                <Pencil className="w-4 h-4 text-blue-400" />
+              </button>
               <button onClick={() => toggleStatus(reel)} className="w-9 h-9 bg-gray-700 rounded-xl flex items-center justify-center active:scale-95 transition-all">
                 {reel.status === "publie" ? <EyeOff className="w-4 h-4 text-yellow-400" /> : <Eye className="w-4 h-4 text-green-400" />}
               </button>

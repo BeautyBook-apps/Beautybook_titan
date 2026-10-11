@@ -4,7 +4,12 @@ export function authMiddleware(getAdmin = getSupabaseAdmin) {
   return asyncRoute(async (req, res, next) => {
     const match = /^Bearer ([^\s]+)$/.exec(req.headers.authorization || '');
     assert(match, 401, 'AUTH_REQUIRED', 'Connectez-vous pour continuer.');
-    const { data, error } = await getAdmin().auth.getUser(match[1]);
+    // Validate a visitor token with the project anon client. The service-role
+    // client is reserved for server-side data access; using it for token
+    // validation can reject otherwise valid user sessions when the project
+    // service key has been rotated independently of the public client key.
+    const authClient = getAdmin === getSupabaseAdmin ? userSupabase(match[1]) : getAdmin();
+    const { data, error } = await authClient.auth.getUser(match[1]);
     assert(!error && data?.user && !data.user.deleted_at, 401, 'SESSION_INVALID', 'Votre session a expiré. Reconnectez-vous.');
     req.user = data.user;
     req.accessToken = match[1];

@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 import { X, LogIn, UserPlus, Shield, Zap, Gift } from "lucide-react";
 import BrandLogo from "@/components/ui/BrandLogo";
 
@@ -11,8 +12,8 @@ export default function AuthModal({ open, onClose, message }) {
     navigate("/");
   };
 
-  return (
-    <div className="fixed inset-0 z-[999] flex items-end sm:items-center justify-center" onClick={handleClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center pb-[env(safe-area-inset-bottom,0px)]" onClick={handleClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
 
       <div
@@ -102,6 +103,7 @@ export default function AuthModal({ open, onClose, message }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

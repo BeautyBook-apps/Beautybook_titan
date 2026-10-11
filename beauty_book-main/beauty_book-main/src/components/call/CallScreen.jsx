@@ -3,46 +3,6 @@ import { useState, useEffect, useRef } from "react";
 import { PhoneOff, Mic, MicOff, Volume2, VolumeX, MessageSquare, Phone, Clock, User } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 
-function useRingTone(active) {
-  const ctxRef = useRef(null);
-  const intervalRef = useRef(null);
-
-  useEffect(() => {
-    if (!active) {
-      clearInterval(intervalRef.current);
-      ctxRef.current?.close().catch(() => {});
-      ctxRef.current = null;
-      return;
-    }
-    const playRing = () => {
-      try {
-        if (!ctxRef.current || ctxRef.current.state === "closed") {
-          ctxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        const ctx = ctxRef.current;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        osc.frequency.setValueAtTime(660, ctx.currentTime + 0.2);
-        gain.gain.setValueAtTime(0.3, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + 0.5);
-      } catch {}
-    };
-    playRing();
-    intervalRef.current = setInterval(playRing, 1500);
-    return () => {
-      clearInterval(intervalRef.current);
-      ctxRef.current?.close().catch(() => {});
-      ctxRef.current = null;
-    };
-  }, [active]);
-}
-
 const THEME = {
   light: {
     bg: "linear-gradient(180deg, #FFF8F0 0%, #FFFFFF 40%, #FFF8F0 100%)",
@@ -136,8 +96,6 @@ export default function CallScreen({ mode, targetName, targetAvatar, onHangup, o
     if (sendQuickMessage) sendQuickMessage(msg);
     setShowQuickMsgs(false);
   };
-
-  useRingTone(mode === "calling" || mode === "ringing");
 
   useEffect(() => {
     if (mode === "active") {

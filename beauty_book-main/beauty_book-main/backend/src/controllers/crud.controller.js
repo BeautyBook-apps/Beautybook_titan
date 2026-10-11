@@ -33,13 +33,13 @@ const FALLBACK_COLUMNS = {
   DemandeProV2: ['id','user_email','username','nom','prenom','phone','address','city','specialite','experience','description','cv_url','portfolio_urls','status','admin_notes','statut','siret','salon_name','bio','type_activite','categorie','years_experience','services','categories','specialites_cheveux','salon_photo','portfolio','email_pro','doc_identite_recto','doc_identite_verso','doc_siret','doc_assurance','days','time_slots','commodites','seats_count','se_deplace','travail_nuit','visite_video_url','diplomes','has_diplome','created_at','updated_at','created_by_id'],
   DemandefFranchise: ['id','user_email','user_name','full_name','email','phone','city','budget','experience','message','status','created_at','updated_at','created_by_id'],
   CatalogueOption: ['id','name','description','price','duration_min','service_id','pro_email','category','usage_count','created_at','updated_at','created_by_id'],
-  ServiceBundle: ['id','pro_email','name','description','service_ids','bundle_price','discount_percent','image_url','cover_url','banner_url','is_active','is_group','min_persons','max_persons','bundle_price_per_person','category','bonus','created_at','updated_at'],
+  ServiceBundle: ['id','pro_email','name','description','service_ids','style_ids','bundle_price','discount_percent','image_url','cover_url','banner_url','is_active','is_group','min_persons','max_persons','bundle_price_per_person','category','bonus','created_at','updated_at'],
   AppConfig: ['id','key','value','description','created_at','updated_at'],
-  ImmobilierListing: ['id','title','description','price','images','address','city','type','status','pro_email','bedrooms','bathrooms','area','features','estimated_turnover','estimated_net_revenue','virtual_tour_id','created_at','updated_at','created_by_id'],
+  ImmobilierListing: ['id','title','description','price','unit','images','address','city','location','postal_code','type','status','pro_email','bedrooms','bathrooms','area','surface','seats_count','equip','extra','features','estimated_turnover','estimated_net_revenue','virtual_tour_id','created_at','updated_at','created_by_id'],
   PointsFidelite: ['id','user_email','points','points_total','total_earned','total_spent','points_depenses','level','niveau','history','historique','code_parrainage','created_at','updated_at','created_by_id'],
   PointsFidelitePro: ['id','pro_email','points_total','points_depenses','niveau','created_at','updated_at','created_by_id'],
   SoldeBeautyPay: ['id','user_email','balance','solde','currency','transactions','created_at','updated_at','created_by_id'],
-  VisiteVirtuelle: ['id','pro_email','title','scenes','status','created_at','updated_at','created_by_id'],
+  VisiteVirtuelle: ['id','pro_email','name','title','scenes','floorplan_url','status','created_at','updated_at','created_by_id'],
   CallSignal: ['id','call_id','caller_email','caller_name','callee_email','signal_type','type','signal_data','payload','status','created_at','updated_at','created_by_id'],
   RoutineBeaute: ['id','user_email','name','emoji','description','steps','tasks','frequency','status','reminders','reminder_active','category','created_at','updated_at','created_by_id'],
   CommentaireStyle: ['id','style_id','user_email','user_name','user_avatar','content','likes','created_at','updated_at','created_by_id'],
@@ -294,6 +294,7 @@ export const runMigrations = async (req, res) => {
     `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS bundle_price_per_person NUMERIC(10,2)`,
     `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'autre'`,
     `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS bonus TEXT`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS style_ids TEXT[] DEFAULT '{}'`,
   ];
 
   let success = 0, failed = 0, errors = [];

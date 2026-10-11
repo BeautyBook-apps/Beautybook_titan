@@ -278,8 +278,8 @@ export default function Connexion() {
 
   return (
     <div className="min-h-screen w-full max-w-[680px] mx-auto bg-white flex flex-col">
-      <div className="px-[27px] pt-[43px] pb-4">
-        <div className="flex items-center gap-4 mb-[108px]">
+      <div className="px-[27px] pt-[24px] sm:pt-[32px] pb-4">
+        <div className="flex items-center gap-4 mb-[56px] sm:mb-[72px]">
           <BrandLogo size={60} alt="Logo BeautyBook" />
           <span className="text-[#617089] text-[16px] font-extrabold uppercase tracking-[0.3em]">BeautyBook</span>
         </div>

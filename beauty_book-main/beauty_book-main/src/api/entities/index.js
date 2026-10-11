@@ -67,7 +67,10 @@ const createEntity = table => ({
   },
   async delete(id){
     if(table==='Reservation')throw new Error('Annulez le rendez-vous depuis son détail pour conserver son historique.');
-    checked(await supabase.from(table).delete().eq('id',id).select('id').single());
+    // Une suppression PostgREST ne doit pas demander de représentation de la
+    // ligne supprimée : certaines tables/RLS renvoient 406 avec `select()`.
+    // Le statut d'erreur suffit pour confirmer la suppression.
+    checked(await supabase.from(table).delete().eq('id',id));
     return true;
   },
   subscribe(callback){
