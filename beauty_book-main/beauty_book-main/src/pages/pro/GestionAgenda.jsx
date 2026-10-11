@@ -38,6 +38,7 @@ import { fr } from "date-fns/locale";
 import { summarizeHours, hasHoursData, applyNightMode } from "@/lib/hours";
 import ShowcasePhotoStep from "@/components/showcase/ShowcasePhotoStep";
 import RdvShowcaseManager from "@/components/showcase/RdvShowcaseManager";
+import ReservationClientInfo from "@/components/reservation/ReservationClientInfo";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function buildWeek(baseDate) {
@@ -417,6 +418,8 @@ function RdvDetailModal({ rdv, onClose, onUpdateStatus, proEmail }) {
             <p className="text-[13px] text-gray-700 font-medium">{rdv.notes}</p>
           </div>
         )}
+
+        <ReservationClientInfo reservation={rdv} mode="pro" autoTrigger={false} />
 
         {/* Adresse salon */}
         {(rdv.salon_address || editing) && (
@@ -1954,6 +1957,9 @@ export default function GestionAgenda() {
   };
 
   const demandesCount = reservations.filter(r => r.status === "en_attente").length;
+  const nextUpcoming = [...reservations]
+    .filter(r => ["en_attente", "confirme"].includes(r.status))
+    .sort((a, b) => `${a.date || ""}T${a.time || a.time_slot || "00:00"}`.localeCompare(`${b.date || ""}T${b.time || b.time_slot || "00:00"}`))[0] || null;
 
   const TABS = [
     { id: "planning", label: "PLANNING" },
@@ -1981,6 +1987,7 @@ export default function GestionAgenda() {
           }}
         />
       )}
+      <ReservationClientInfo reservation={nextUpcoming} mode="pro" autoOnly />
 
       <div className="bg-white px-5 pt-5 pb-4 sticky top-0 z-10 border-b border-gray-100 shadow-sm">
         <div className="flex items-center gap-3 mb-3">

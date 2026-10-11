@@ -24,7 +24,7 @@ const FALLBACK_COLUMNS = {
   Notification: ['id','user_email','title','message','body','type','is_read','read','icon','action_url','data','created_at','updated_at','created_by_id'],
   MessageChat: ['id','conversation_id','sender_email','sender_name','sender_avatar','receiver_email','receiver_name','content','type','file_url','is_read','read','reservation_id','is_maria','created_at','updated_at','created_by_id'],
   Commande: ['id','client_email','client_name','items','total_price','total','subtotal','shipping','status','payment_status','payment_method','payment_intent_id','shipping_address','tracking_number','notes','created_at','updated_at','created_by_id'],
-  Reservation: ['id','user_email','user_name','pro_email','service_id','service_name','date','time','status','price','notes','created_at','updated_at','created_by_id'],
+  Reservation: ['id','user_email','user_name','client_email','client_name','pro_email','pro_name','service_id','service_name','date','time','time_slot','end_time_slot','duration_min','persons','status','price','service_price','total_price','notes','custom_answers','custom_answer_labels','created_at','updated_at','created_by_id'],
   LiveSession: ['id','host_email','host_name','host_avatar','title','description','category','status','viewers_count','viewers','mux_stream_key','mux_playback_id','thumbnail_url','started_at','ended_at','created_at','updated_at','created_by_id'],
   LiveMessage: ['id','session_id','user_email','user_name','user_avatar','sender_email','sender_name','sender_avatar','content','type','created_at','updated_at','created_by_id'],
   Avis: ['id','user_email','user_name','user_avatar','pro_email','service_id','service_name','rating','comment','status','created_at','updated_at','created_by_id'],
@@ -295,6 +295,8 @@ export const runMigrations = async (req, res) => {
     `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'autre'`,
     `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS bonus TEXT`,
     `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS style_ids TEXT[] DEFAULT '{}'`,
+    `ALTER TABLE public."Reservation" ADD COLUMN IF NOT EXISTS custom_answers JSONB DEFAULT '{}'::jsonb`,
+    `ALTER TABLE public."Reservation" ADD COLUMN IF NOT EXISTS custom_answer_labels JSONB DEFAULT '{}'::jsonb`,
   ];
 
   let success = 0, failed = 0, errors = [];

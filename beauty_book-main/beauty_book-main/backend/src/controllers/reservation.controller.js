@@ -81,7 +81,7 @@ export const createReservation = async (req, res) => {
 
     const {
       pro_email, pro_name, service_name, service_id, service_price,
-      date, time_slot, duration_min, addons, total_price, notes,
+      date, time_slot, duration_min, addons, total_price, notes, custom_answers = {}, custom_answer_labels = {},
       salon_name, salon_address, persons = 1,
       service_location = "salon", client_address, client_postal_code, client_city,
       client_latitude, client_longitude, transport_fee = 0, transport_distance_km = 0,
@@ -158,6 +158,7 @@ export const createReservation = async (req, res) => {
         persons,
         total_price,
         service_location,
+         client_name: userProfile?.full_name || user.user_metadata?.full_name || "",
         client_address,
         client_postal_code,
         client_city,
@@ -167,6 +168,9 @@ export const createReservation = async (req, res) => {
         transport_distance_km,
         salon_name,
         salon_address,
+         notes: typeof notes === "string" ? notes.slice(0, 4000) : "",
+         custom_answers,
+         custom_answer_labels,
         seats_total: seatsTotal,
         status: reservationStatus,
       })

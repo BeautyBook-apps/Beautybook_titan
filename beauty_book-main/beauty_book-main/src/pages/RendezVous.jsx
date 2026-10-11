@@ -10,6 +10,7 @@ import PostServiceReview from "@/components/reservation/PostServiceReview";
 import AddBookingIdModal from "@/components/booking/AddBookingIdModal";
 import RoutineModal from "@/components/routine/RoutineModal";
 import RoutineDashboard from "@/components/routine/RoutineDashboard";
+import ReservationClientInfo from "@/components/reservation/ReservationClientInfo";
 import { useAuthGate } from "@/hooks/useAuthGate";
 import { useAuth } from "@/lib/AuthContext";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
@@ -532,10 +533,16 @@ export default function RendezVous() {
   const upcoming = reservations.filter(r => r.date >= today && ["confirme", "en_attente"].includes(r.status));
   const past = reservations.filter(r => r.status === "termine" || r.date < today);
   const cancelled = reservations.filter(r => r.status === "annule");
+  const nextUpcoming = [...upcoming].sort((a, b) => {
+    const left = `${a.date || ""}T${a.time || a.time_slot || "00:00"}`;
+    const right = `${b.date || ""}T${b.time || b.time_slot || "00:00"}`;
+    return left.localeCompare(right);
+  })[0] || null;
 
   return (
     <div className="font-display pb-28">
       <AuthModal open={showAuthModal} onClose={closeAuthModal} message={authMessage} />
+      <ReservationClientInfo reservation={nextUpcoming} mode="client" autoOnly />
 
       {/* Bannière de succès paiement */}
       {paymentSuccess && (
@@ -1039,6 +1046,8 @@ export default function RendezVous() {
                   <p className="text-[12px] text-gray-700 font-medium">{selectedReservation.notes}</p>
                 </div>
               )}
+
+              <ReservationClientInfo reservation={selectedReservation} mode="client" autoTrigger={false} />
 
               {/* Boutons calendrier */}
               <div className="space-y-2 pt-2">

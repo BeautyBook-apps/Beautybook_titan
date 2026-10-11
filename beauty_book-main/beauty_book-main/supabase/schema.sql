@@ -156,6 +156,8 @@ CREATE TABLE IF NOT EXISTS public."Reservation" (
   payment_type TEXT DEFAULT 'surplace' CHECK (payment_type IN ('full','acompte','surplace')),
   crg_code TEXT,
   notes TEXT,
+  custom_answers JSONB DEFAULT '{}'::jsonb,
+  custom_answer_labels JSONB DEFAULT '{}'::jsonb,
   status TEXT DEFAULT 'en_attente' CHECK (status IN ('en_attente','confirme','annule','termine','no_show')),
   payment_status TEXT DEFAULT 'non_paye' CHECK (payment_status IN ('non_paye','acompte_paye','paye','rembourse')),
   salon_name TEXT,
