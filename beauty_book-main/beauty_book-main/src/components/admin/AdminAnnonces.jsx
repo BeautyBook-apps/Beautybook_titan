@@ -5,7 +5,7 @@ import { supabase } from '@/api/supabaseClient';
 import { Trash2, Plus, Eye, EyeOff, Upload, Loader2, Film, Link, Pencil, X } from "lucide-react";
 
 const EMPTY_FORM = {
-  title: "", sponsor_name: "", image_url: "", video_url: "",
+  title: "", sponsor_name: "", sponsor_logo: "", image_url: "", video_url: "",
   cta_label: "En savoir plus", cta_url: "",
   pages: ["reels"], status: "actif", start_date: "", end_date: "",
 };
@@ -67,6 +67,7 @@ export default function AdminAnnonces() {
   const [uploadError, setUploadError] = useState("");
   const [mediaMode, setMediaMode] = useState("upload");
   const mediaInputRef = useRef(null);
+  const logoInputRef = useRef(null);
 
   const PAGES_OPTIONS = [
     { value: "reels", label: "Réels" },
@@ -96,6 +97,7 @@ export default function AdminAnnonces() {
     setForm({
       title: a.title || "",
       sponsor_name: a.sponsor_name || "",
+      sponsor_logo: a.sponsor_logo || "",
       image_url: a.image_url || "",
       video_url: a.video_url || "",
       cta_label: a.cta_label || "En savoir plus",
@@ -138,6 +140,23 @@ export default function AdminAnnonces() {
       const updated = await adminApi.toggleAnnonceStatus(a.id);
       setAnnonces(prev => prev.map(x => x.id === a.id ? { ...x, status: updated.status } : x));
     } catch {}
+  };
+
+  const uploadSponsorLogo = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadingMedia(true);
+    setUploadError("");
+    try {
+      if (!file.type?.startsWith("image/")) throw new Error("Le logo doit être une image.");
+      const { file_url } = await uploadFile({ file });
+      setForm(f => ({ ...f, sponsor_logo: file_url }));
+    } catch (err) {
+      console.error('[AdminAnnonces] Sponsor logo upload error:', err);
+      setUploadError(err?.message || "Upload du logo échoué");
+    }
+    setUploadingMedia(false);
+    e.target.value = "";
   };
 
   const deleteAnnonce = async (id) => {
@@ -198,6 +217,27 @@ export default function AdminAnnonces() {
           <input value={form.sponsor_name} onChange={e => setForm(f => ({ ...f, sponsor_name: e.target.value }))}
             placeholder="Nom du sponsor *" required
             className="w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-4 py-3 text-[13px] outline-none focus:border-primary" />
+
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+            <p className="text-gray-700 text-[12px] font-black mb-2">Logo de l’entreprise (optionnel)</p>
+            <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={uploadSponsorLogo} />
+            {form.sponsor_logo ? (
+              <div className="flex items-center gap-3">
+                <img src={form.sponsor_logo} alt="Logo du sponsor" className="w-12 h-12 rounded-full object-cover border border-gray-200 bg-white" />
+                <span className="text-green-600 text-[12px] flex-1">✓ Logo prêt</span>
+                <button type="button" onClick={() => setForm(f => ({ ...f, sponsor_logo: "" }))} className="text-gray-400 text-[11px]">Retirer</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => logoInputRef.current?.click()} disabled={uploadingMedia}
+                className="w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 rounded-xl py-3 text-gray-500 text-[12px] hover:border-primary transition-all disabled:opacity-50">
+                {uploadingMedia ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                Ajouter le logo de l’entreprise
+              </button>
+            )}
+            <input value={form.sponsor_logo} onChange={e => setForm(f => ({ ...f, sponsor_logo: e.target.value }))}
+              placeholder="Ou coller l’URL du logo"
+              className="mt-2 w-full bg-white border border-gray-200 text-gray-800 rounded-xl px-4 py-2.5 text-[12px] outline-none focus:border-primary" />
+          </div>
 
           <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
             placeholder="Description"

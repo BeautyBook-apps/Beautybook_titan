@@ -99,6 +99,7 @@ export const adminApi = {
   listAnnonces: () => entities.Annonce.list("-created_at", 200),
   listSubscriptions: () => entities.UserSubscription.list("-created_at", 1000),
   createAnnonce: (data) => entities.Annonce.create(data),
+  updateAnnonce: (id, data) => entities.Annonce.update(id, data),
   toggleAnnonceStatus: async (id) => {
     const annonce = await entities.Annonce.get(id);
     const newStatus = annonce.status === "actif" ? "pause" : "actif";

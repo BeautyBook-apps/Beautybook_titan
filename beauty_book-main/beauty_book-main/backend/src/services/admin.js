@@ -12,7 +12,7 @@ export const RESOURCES = {
   Publication: { permission: 'content', fields: ['content','images','video_url','type','status','author_email','author_name'] },
   StyleCategory: { permission: 'categories', fields: ['name','slug','description','icon','color','is_active'] },
   StyleSubCategory: { permission: 'categories', fields: ['name','slug','description','category_id','is_active'] },
-  Annonce: { permission: 'content', fields: ['title','description','type','status','image_url','video_url','cta_label','cta_url','target_url','pro_email','pro_name','sponsor_name','pages','budget','start_date','end_date'] },
+  Annonce: { permission: 'content', fields: ['title','description','type','status','image_url','video_url','cta_label','cta_url','target_url','pro_email','pro_name','sponsor_name','sponsor_logo','pages','budget','start_date','end_date'] },
   AppConfig: { permission: 'configuration', fields: ['key','value','description'] },
   Reservation: { permission: 'bookings', fields: [], readOnly: true },
   Commande: { permission: 'orders', fields: [], readOnly: true },

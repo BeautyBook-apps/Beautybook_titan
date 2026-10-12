@@ -20,9 +20,12 @@ function Media({ annonce, soundOn }) {
     clearTimeout(resumeTimerRef.current);
     const remaining = Math.max(0, pauseDeadlineRef.current - Date.now());
     resumeTimerRef.current = setTimeout(() => {
-      if (!visibleRef.current) return;
-      pausedByVisibilityRef.current = false;
-      tryPlay();
+      // Une publicité ne doit jamais lire hors écran. Elle reprendra
+      // uniquement lorsque l'IntersectionObserver la rendra visible.
+      if (visibleRef.current) {
+        pausedByVisibilityRef.current = false;
+        tryPlay();
+      }
     }, remaining);
   }, [tryPlay]);
 
@@ -41,6 +44,7 @@ function Media({ annonce, soundOn }) {
       visibleRef.current = isVisible;
       if (!isVisible) {
         video.pause();
+        video.muted = true;
         pausedByVisibilityRef.current = true;
         pauseDeadlineRef.current = Date.now() + 30000;
         scheduleAutoResume();
@@ -56,6 +60,8 @@ function Media({ annonce, soundOn }) {
     return () => {
       observer.disconnect();
       clearTimeout(resumeTimerRef.current);
+      video.pause();
+      video.muted = true;
     };
   }, [scheduleAutoResume, tryPlay]);
 

@@ -33,7 +33,7 @@ export default function SponsoredCard({ annonce, onClose, variant = "reels" }) {
   );
 }
 
-function VideoPlayer({ src, poster, className, style, soundOn = false }) {
+function VideoPlayer({ src, poster, className, style, soundOn = true }) {
   const ref = useRef(null);
   const visibleRef = useRef(true);
   const pausedByVisibilityRef = useRef(false);
@@ -60,9 +60,12 @@ function VideoPlayer({ src, poster, className, style, soundOn = false }) {
     clearTimeout(resumeTimerRef.current);
     const remaining = Math.max(0, pauseDeadlineRef.current - Date.now());
     resumeTimerRef.current = setTimeout(() => {
-      if (!visibleRef.current) return;
-      pausedByVisibilityRef.current = false;
-      tryPlay();
+      // Une publicité ne doit jamais lire hors écran. Elle reprendra
+      // uniquement lorsque l'IntersectionObserver la rendra visible.
+      if (visibleRef.current) {
+        pausedByVisibilityRef.current = false;
+        tryPlay();
+      }
     }, remaining);
   }, [tryPlay]);
 
@@ -76,6 +79,7 @@ function VideoPlayer({ src, poster, className, style, soundOn = false }) {
 
       if (!isVisible) {
         el.pause();
+        el.muted = true;
         pausedByVisibilityRef.current = true;
         pauseDeadlineRef.current = Date.now() + 30000;
         scheduleAutoResume();
@@ -96,6 +100,8 @@ function VideoPlayer({ src, poster, className, style, soundOn = false }) {
     return () => {
       observer.disconnect();
       clearTimeout(resumeTimerRef.current);
+      el.pause();
+      el.muted = true;
     };
   }, [scheduleAutoResume, tryPlay]);
 
@@ -182,7 +188,7 @@ function AdCountdown({ total = 5, onSkip }) {
 function ReelsAd({ annonce, onClose }) {
   const [showSkip, setShowSkip] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [soundOn, setSoundOn] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   const isVideo = !!annonce.video_url;
 
   const descSentences = (() => {
@@ -282,7 +288,7 @@ function ReelsAd({ annonce, onClose }) {
 function StylesAd({ annonce, onClose }) {
   const [showSkip, setShowSkip] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [soundOn, setSoundOn] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   const isVideo = !!annonce.video_url;
 
   const descSentences = (() => {
