@@ -3,8 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "install:all": "cd beauty_book-main/beauty_book-main && npm install",
-    "build": "cd beauty_book-main/beauty_book-main && npm run build",
+    "postinstall": "cd beauty_book-main/beauty_book-main && npm install --include=dev",
+    "install:all": "cd beauty_book-main/beauty_book-main && npm install --include=dev",
+    "build": "cd beauty_book-main/beauty_book-main && npm install --include=dev && npm run build",
     "dev": "cd beauty_book-main/beauty_book-main && npm run dev"
   }
 }

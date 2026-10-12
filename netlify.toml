@@ -1,0 +1,8 @@
+[build]
+  command = "cd beauty_book-main/beauty_book-main && npm install --include=dev && npm run build"
+  publish = "beauty_book-main/beauty_book-main/dist"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
