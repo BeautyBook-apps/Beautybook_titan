@@ -171,7 +171,7 @@ export default function VisitorVoiceCall({ proEmail, salonName, avatarUrl, onClo
           instructions,
           tools: buildVoiceTools({ proEmail }),
           greeting: resolveWelcomeMessage(ai?.welcome_message || "", name),
-          connectionMode: ai?.connection_mode === "agent" ? "agent" : "direct",
+          connectionMode: ai?.connection_mode === "direct" ? "direct" : "agent",
           onEvent: handleEvent,
         });
         sessionRef.current = session;

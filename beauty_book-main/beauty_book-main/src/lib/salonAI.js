@@ -28,7 +28,7 @@ export const DEFAULT_AI_SETTINGS = {
   // Agent vocal : base de connaissances propre au salon
   welcome_message: "",      // message de bienvenue (vide = modèle par défaut)
   custom_instructions: "",  // instructions perso (vide = modèle par défaut)
-  connection_mode: "direct", // 'direct' (FR + outils + données app) | 'agent' (console du fournisseur vocal)
+  connection_mode: "agent", // 'agent' (console xAI) | 'direct' (FR + outils + données app)
   voice_api_key_set: false, // indicateur : une clé est enregistrée (via /api/voice-key, jamais lue au navigateur)
 };
 
@@ -67,7 +67,9 @@ function fromRow(row) {
     voice: row.voice || "ara",
     welcome_message: row.welcome_message || "",
     custom_instructions: row.custom_instructions || "",
-    connection_mode: row.connection_mode === "agent" ? "agent" : "direct",
+    // Une ligne historique sans mode utilise désormais l'agent xAI configuré.
+    // Le mode Direct reste conservé lorsqu'il a été explicitement choisi.
+    connection_mode: row.connection_mode === "direct" ? "direct" : "agent",
     // La clé brute n'est JAMAIS lue depuis le navigateur : seul l'indicateur
     // « configurée / non » transite, via la route serveur /api/voice-key.
     voice_api_key_set: false,

@@ -74,7 +74,7 @@ export default function ReceptionnistIA() {
   const [welcomeDraft, setWelcomeDraft] = useState('');
   const [customInstructions, setCustomInstructions] = useState('');
   const [instructionsDraft, setInstructionsDraft] = useState('');
-  const [connectionMode, setConnectionMode] = useState('direct');
+  const [connectionMode, setConnectionMode] = useState('agent');
   const [kbSaved, setKbSaved] = useState(false);
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagResult, setDiagResult] = useState(null);
@@ -139,7 +139,7 @@ export default function ReceptionnistIA() {
         setWelcomeDraft(ai.welcome_message || '');
         setCustomInstructions(ai.custom_instructions || '');
         setInstructionsDraft(ai.custom_instructions || '');
-        setConnectionMode(ai.connection_mode === 'agent' ? 'agent' : 'direct');
+        setConnectionMode(ai.connection_mode === 'direct' ? 'direct' : 'agent');
         setVoiceKeySet(false);
         // Statut de la clé via la route serveur (la clé brute ne revient jamais au navigateur)
         try {
