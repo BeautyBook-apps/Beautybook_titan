@@ -3,7 +3,7 @@ const SHOPIFY_DOMAIN = String(import.meta.env.VITE_SHOPIFY_DOMAIN || '')
   .replace(/^https?:\/\//i, '')
   .replace(/\/+$/, '');
 const SHOPIFY_TOKEN = String(import.meta.env.VITE_SHOPIFY_STOREFRONT_TOKEN || '').trim();
-const SHOPIFY_API_VERSION = '2026-07';
+const SHOPIFY_API_VERSION = String(import.meta.env.VITE_SHOPIFY_API_VERSION || '2026-07').trim();
 const SHOPIFY_API = SHOPIFY_DOMAIN && SHOPIFY_TOKEN
   ? `https://${SHOPIFY_DOMAIN}/api/${SHOPIFY_API_VERSION}/graphql.json`
   : null;
@@ -81,11 +81,32 @@ function mapShopifyProduct(node) {
 }
 
 export const fetchShopifyProducts = async (options = {}) => {
-  if (!SHOPIFY_API) {
-    return { data: { success: true, products: [] } };
-  }
-
   try {
+    // En production Netlify, keep the Storefront request behind a same-origin
+    // function. This avoids depending on a Vite-only .env.local file at build
+    // time and gives us a useful configuration error instead of an empty list.
+    if (import.meta.env.PROD && typeof window !== 'undefined') {
+      const params = new URLSearchParams();
+      if (options.productId) params.set('productId', options.productId);
+      if (options.first) params.set('first', String(options.first));
+      const response = await fetch(`/api/shopify-products${params.toString() ? `?${params}` : ''}`);
+      if (response.ok) {
+        const payload = await response.json();
+        if (payload?.success === false) throw new Error(payload.error || 'Impossible de charger les produits Shopify.');
+        return { data: payload };
+      }
+      // The direct Storefront fallback keeps local/custom deployments working
+      // while the Netlify function is being configured.
+      if (response.status !== 404 && !SHOPIFY_API) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || `Shopify indisponible (${response.status}).`);
+      }
+    }
+
+    if (!SHOPIFY_API) {
+      throw new Error('La boutique Shopify n’est pas configurée sur ce déploiement.');
+    }
+
     if (options.productId) {
       const data = await shopifyQuery(`
         query ($id: ID!) {
@@ -121,7 +142,7 @@ export const fetchShopifyProducts = async (options = {}) => {
     return { data: { success: true, products } };
   } catch (err) {
     console.warn('[Shopify] Fetch error:', err.message);
-    return { data: { success: true, products: [] } };
+    return { data: { success: false, products: [], error: err.message } };
   }
 };
 

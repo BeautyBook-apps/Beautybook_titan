@@ -3,8 +3,9 @@ const SHOPIFY_DOMAIN = String(import.meta.env.VITE_SHOPIFY_DOMAIN || '')
   .replace(/^https?:\/\//i, '')
   .replace(/\/+$/, '');
 const SHOPIFY_TOKEN = String(import.meta.env.VITE_SHOPIFY_STOREFRONT_TOKEN || '').trim();
+const SHOPIFY_API_VERSION = String(import.meta.env.VITE_SHOPIFY_API_VERSION || '2026-07').trim();
 const SHOPIFY_API = SHOPIFY_DOMAIN && SHOPIFY_TOKEN
-  ? `https://${SHOPIFY_DOMAIN}/api/2024-10/graphql.json`
+  ? `https://${SHOPIFY_DOMAIN}/api/${SHOPIFY_API_VERSION}/graphql.json`
   : null;
 
 const shopifyHeaders = {

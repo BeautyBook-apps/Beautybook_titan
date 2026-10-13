@@ -6,6 +6,7 @@ import { Plus, X, Upload, Loader2, Check, Pencil, Trash2, ToggleLeft, ToggleRigh
 import AdminBoutiqueBanners from "@/components/admin/AdminBoutiqueBanners";
 import AdminBoutiqueCategories, { DEFAULT_BOUTIQUE_CATS, CONFIG_KEY } from "@/components/admin/AdminBoutiqueCategories";
 
+const SHOPIFY_CATEGORY_CONFIG_KEY = "shopify_category_mappings";
 
 const inputCls = "w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-4 py-3 text-[13px] outline-none focus:border-primary transition-colors";
 
@@ -19,6 +20,8 @@ status: "actif", featured: false, tags: []
 export default function AdminBoutique() {
   const [products, setProducts] = useState([]);
   const [shopifyProducts, setShopifyProducts] = useState([]);
+  const [shopifyCategoryOverrides, setShopifyCategoryOverrides] = useState({});
+  const [shopifyCategoryConfigId, setShopifyCategoryConfigId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [allCategories, setAllCategories] = useState(DEFAULT_BOUTIQUE_CATS);
 
@@ -32,6 +35,7 @@ export default function AdminBoutique() {
   }, []);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [editingShopify, setEditingShopify] = useState(false);
   const [form, setForm] = useState({ ...EMPTY });
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -42,18 +46,26 @@ export default function AdminBoutique() {
 
   const loadProducts = async () => {
     setLoading(true);
-    const [dbRes, shopifyRes] = await Promise.allSettled([
+    const [dbRes, shopifyRes, overrideRes] = await Promise.allSettled([
       adminApi.listProduits().then(res => res || []),
       fetchShopifyProducts({}).then(r => r.data?.products || []),
+      adminApi.getConfig(SHOPIFY_CATEGORY_CONFIG_KEY),
     ]);
     setProducts(dbRes.status === "fulfilled" ? dbRes.value : []);
     setShopifyProducts(shopifyRes.status === "fulfilled" ? shopifyRes.value : []);
+    if (overrideRes.status === "fulfilled") {
+      const rows = Array.isArray(overrideRes.value) ? overrideRes.value : [];
+      const row = rows[0];
+      setShopifyCategoryConfigId(row?.id || null);
+      setShopifyCategoryOverrides(row?.value?.products || row?.value || {});
+    }
     setLoading(false);
   };
 
   const openNew = () => {
     setForm({ ...EMPTY });
     setEditId(null);
+    setEditingShopify(false);
     setShowForm(true);
     setTimeout(() => document.getElementById("form-top")?.scrollIntoView({ behavior: "smooth" }), 100);
   };
@@ -70,6 +82,7 @@ export default function AdminBoutique() {
       tags: p.tags || []
     });
     setEditId(p.id);
+    setEditingShopify(Boolean(p._shopify));
     setShowForm(true);
     setTimeout(() => document.getElementById("form-top")?.scrollIntoView({ behavior: "smooth" }), 100);
   };
@@ -98,7 +111,7 @@ export default function AdminBoutique() {
   };
 
   const save = async () => {
-    if (!form.name || !form.price) return;
+    if (!form.name || !form.price || (editingShopify && !editId)) return;
     setSaving(true);
     const data = {
       name: form.name.trim(),
@@ -116,7 +129,34 @@ export default function AdminBoutique() {
       featured: form.featured,
       tags: form.tags,
     };
-    if (editId) {
+    if (editingShopify) {
+      const nextOverrides = {
+        ...shopifyCategoryOverrides,
+        [editId]: {
+          category: form.category || "",
+          sub_category: form.sub_category || "",
+          updated_at: new Date().toISOString(),
+        },
+      };
+      if (shopifyCategoryConfigId) {
+        await adminApi.updateConfig(shopifyCategoryConfigId, {
+          value: nextOverrides,
+          description: "Catégories BeautyBook des produits Shopify",
+        });
+      } else {
+        const response = await adminApi.createConfig({
+          key: SHOPIFY_CATEGORY_CONFIG_KEY,
+          value: nextOverrides,
+          description: "Catégories BeautyBook des produits Shopify",
+        });
+        const created = response?.data?.result || response?.result || response;
+        setShopifyCategoryConfigId(created?.id || null);
+      }
+      setShopifyCategoryOverrides(nextOverrides);
+      setShopifyProducts(prev => prev.map(product => product.id === editId
+        ? { ...product, category: form.category || "", sub_category: form.sub_category || "" }
+        : product));
+    } else if (editId) {
       await adminApi.updateProduit(editId, data);
     } else {
       await adminApi.createProduit(data);
@@ -124,6 +164,7 @@ export default function AdminBoutique() {
     await loadProducts();
     setShowForm(false);
     setEditId(null);
+    setEditingShopify(false);
     setForm({ ...EMPTY });
     setSaving(false);
   };
@@ -147,7 +188,16 @@ export default function AdminBoutique() {
 
   const allProducts = [
     ...products,
-    ...shopifyProducts.map(p => ({ ...p, image_url: p.img, _shopify: true })),
+    ...shopifyProducts.map(p => {
+      const override = shopifyCategoryOverrides[p.id] || {};
+      return {
+        ...p,
+        image_url: p.img,
+        category: override.category ?? p.category ?? "",
+        sub_category: override.sub_category ?? p.sub_category ?? "",
+        _shopify: true,
+      };
+    }),
   ];
 
   const filtered = allProducts.filter(p =>
@@ -255,29 +305,37 @@ export default function AdminBoutique() {
               <input type="number" value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} className={inputCls} placeholder="100" />
             </div>
 
-            {/* Catégorie */}
+            {/* Catégories BeautyBook */}
             <div>
-              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">Catégorie</label>
+              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">Catégorie BeautyBook</label>
               <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, sub_category: "" }))} className={inputCls}>
                 <option value="">-- Choisir --</option>
-                {allCategories.map(c => (
-                  <optgroup key={c.id} label={c.label}>
-                    {c.subs.map(s => <option key={s} value={s}>{s}</option>)}
-                  </optgroup>
-                ))}
+                {allCategories.filter(c => c.id !== "tout").map(c => <option key={c.id} value={c.label}>{c.label}</option>)}
+                {form.category && !allCategories.some(c => c.label === form.category) && (
+                  <option value={form.category}>{form.category} (Shopify)</option>
+                )}
               </select>
             </div>
 
             {/* Sous-catégorie */}
             <div>
-              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">Sous-catégorie</label>
+              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">Sous-catégorie BeautyBook</label>
               <select value={form.sub_category || ""} onChange={e => setForm(f => ({ ...f, sub_category: e.target.value }))} className={inputCls}>
                 <option value="">-- Aucune --</option>
-                {allCategories.find(c => c.subs.includes(form.category))?.subs.map(s => (
+                {allCategories.find(c => c.label === form.category)?.subs.map(s => (
                   <option key={s} value={s}>{s}</option>
                 ))}
+                {form.sub_category && !allCategories.find(c => c.label === form.category)?.subs.includes(form.sub_category) && (
+                  <option value={form.sub_category}>{form.sub_category} (actuelle)</option>
+                )}
               </select>
             </div>
+
+            {editingShopify && (
+              <div className="md:col-span-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-[12px] text-blue-800">
+                Ces catégories sont celles affichées dans BeautyBook. Le produit, son prix et son inventaire restent synchronisés avec Shopify.
+              </div>
+            )}
 
             {/* Statut */}
             <div>
@@ -460,7 +518,9 @@ export default function AdminBoutique() {
                   </td>
                   <td className="px-4 py-4">
                     {p._shopify
-                      ? <span className="text-gray-300 text-[11px]">Géré sur Shopify</span>
+                      ? <button onClick={() => openEdit(p)} className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center hover:bg-blue-100 transition-all" title="Modifier les catégories BeautyBook">
+                          <Pencil className="w-3.5 h-3.5 text-blue-500" />
+                        </button>
                       : <div className="flex items-center gap-2">
                           <button onClick={() => toggleFeatured(p)}
                             className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${p.featured ? "bg-primary/10 text-primary" : "bg-gray-100 text-gray-400 hover:bg-gray-200"}`}

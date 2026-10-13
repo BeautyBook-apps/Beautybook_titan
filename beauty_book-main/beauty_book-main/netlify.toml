@@ -19,6 +19,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/shopify-products"
+  to = "/.netlify/functions/shopify-products"
+  status = 200
+
+[[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"
   status = 200

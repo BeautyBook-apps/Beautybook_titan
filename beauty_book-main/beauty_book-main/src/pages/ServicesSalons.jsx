@@ -188,6 +188,8 @@ const STYLE_SUBCATEGORY_FALLBACKS = {
   Tatouage: ["Blackwork", "Coloré", "Aquarelle", "Japonais", "Géométrique", "Cover-up", "Temporaire"],
   Piercing: ["Lobe", "Cartilage", "Nez", "Sourcil", "Lèvre", "Nombril", "Corps"],
 };
+const STYLE_FEED_LIMIT = 100;
+const STYLE_CACHE_LIMIT = 60;
 
 const normalizeStyleTaxonomyValue = value => String(value || "")
   .trim()
@@ -638,6 +640,7 @@ function StyleAdvancedFilterBar({ styles = [], value, onChange, activeCategory =
 }
 
 function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnContext }) {
+  const STYLE_BATCH_SIZE = 24;
   const navigate = useNavigate();
   const { user } = useAuth();
   const { showAuthModal, authMessage, requireAuth, closeAuthModal } = useAuthGate();
@@ -665,6 +668,7 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
   const [showComments, setShowComments] = useState(null);
   const [showShare, setShowShare] = useState(null);
   const [showBook, setShowBook] = useState(null);
+  const [visibleStyleCount, setVisibleStyleCount] = useState(() => returnContext?.styleId ? 60 : STYLE_BATCH_SIZE);
 
   useEffect(() => {
     const category = activeCategory === "Tous" ? "" : activeCategory;
@@ -787,13 +791,16 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
 
   const fetchStyles = useCallback(async () => {
     try {
-      let items = await entities.Style.filter({ status: ["publie", "actif"] }, "-created_at", 200).catch(() => []);
+      let items = await entities.Style.filter({ status: ["publie", "actif"] }, "-created_at", STYLE_FEED_LIMIT).catch(() => []);
       if (!items || items.length === 0) {
-        items = await entities.Style.filter({}, "-created_at", 200).then(r => (r || []).filter(s => s.status !== "brouillon")).catch(() => []);
+        items = await entities.Style.filter({}, "-created_at", STYLE_FEED_LIMIT).then(r => (r || []).filter(s => s.status !== "brouillon")).catch(() => []);
       }
       const mapped = (items || []).map((r, publication_rank) => ({
         id: r.id, img: r.image_url || (r.images && r.images[0]) || STYLE_IMG1,
-        images: r.images && r.images.length > 0 ? r.images : [r.image_url || STYLE_IMG1],
+        // Les galeries complètes restent disponibles dans la fiche détail ;
+        // le fil mobile ne garde que quelques visuels pour éviter une pression
+        // mémoire excessive quand plusieurs publications sont montées.
+        images: [...new Set((r.images && r.images.length > 0 ? r.images : [r.image_url || STYLE_IMG1]).filter(Boolean))].slice(0, 6),
         video_url: r.video_url || null,
         author: r.pro_email?.split("@")[0] || "Pro",
         author_name: r.author_name || r.pro_email?.split("@")[0] || "Pro",
@@ -809,7 +816,7 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
       }));
       const orderedMapped = orderStylesForCurrentSession(mapped);
       setStyles(orderedMapped);
-      mergePageCache("services_salons", { styles: orderedMapped });
+      mergePageCache("services_salons", { styles: orderedMapped.slice(0, STYLE_CACHE_LIMIT) });
 
       const styleIds = mapped.map(s => String(s.id));
       if (styleIds.length === 0) return;
@@ -833,7 +840,7 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
       }));
       const orderedEnriched = orderStylesForCurrentSession(enriched);
       setStyles(orderedEnriched);
-      mergePageCache("services_salons", { styles: orderedEnriched });
+      mergePageCache("services_salons", { styles: orderedEnriched.slice(0, STYLE_CACHE_LIMIT) });
 
       // The public Supabase policy may hide user_like rows from the browser.
       // Read the aggregate through the server-side content endpoint instead.
@@ -1013,6 +1020,26 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
     return result;
   }, [activeCategory, styles, styleFilters]);
 
+  // Ne pas monter plusieurs centaines de cartes lourdes dès l'ouverture.
+  // Les cartes suivantes sont ajoutées uniquement quand l'utilisateur
+  // approche de la fin du fil.
+  useEffect(() => {
+    setVisibleStyleCount(returnContext?.styleId ? 60 : STYLE_BATCH_SIZE);
+  }, [activeCategory, styleFilters.category, styleFilters.subcategory, styleFilters.type_cheveux, styleFilters.type_peau, styleFilters.niveau_difficulte, styleFilters.priceMin, styleFilters.priceMax, styleFilters.sortBy, returnContext?.styleId]);
+
+  const visibleStyles = useMemo(
+    () => filteredStyles.slice(0, visibleStyleCount),
+    [filteredStyles, visibleStyleCount],
+  );
+
+  const handleStylesScroll = useCallback((event) => {
+    const container = event.currentTarget;
+    const nearEnd = container.scrollTop + container.clientHeight >= container.scrollHeight - Math.max(container.clientHeight, 600);
+    if (nearEnd) {
+      setVisibleStyleCount(previous => Math.min(previous + STYLE_BATCH_SIZE, filteredStyles.length));
+    }
+  }, [filteredStyles.length]);
+
   const goToDetail = (style) => {
     const restoreStylesContext = saveStylesReturnContext({
       styleId: style.id,
@@ -1060,13 +1087,13 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
       <AuthModal open={showAuthModal} onClose={closeAuthModal} message={authMessage} />
       <div className="h-full flex flex-col">
         <StyleAdvancedFilterBar styles={styles} value={styleFilters} activeCategory={activeCategory} quickFilter={quickFilter} onQuickFilterConsumed={onQuickFilterConsumed} onChange={setStyleFilters} />
-        <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-scroll hide-scrollbar" style={{ scrollSnapType: "y mandatory", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
-        {filteredStyles.map((style, idx) => (
+        <div ref={scrollRef} onScroll={handleStylesScroll} className="flex-1 min-h-0 overflow-y-scroll hide-scrollbar" style={{ scrollSnapType: "y mandatory", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
+        {visibleStyles.map((style, idx) => (
           <React.Fragment key={style.id}>
-            {idx > 0 && idx % 5 === 0 && annonces.length > 0 && !hiddenAds.includes(idx) && (
+            {idx > 0 && idx % 10 === 0 && annonces.length > 0 && !hiddenAds.includes(idx) && (
               <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "100%" }}
                 className="bg-black flex flex-col overflow-hidden">
-                <SponsoredCard annonce={annonces[Math.floor(idx / 5 - 1) % annonces.length]} onClose={() => setHiddenAds(h => [...h, idx])} variant="styles" />
+                <SponsoredCard annonce={annonces[Math.floor(idx / 10 - 1) % annonces.length]} onClose={() => setHiddenAds(h => [...h, idx])} variant="styles" />
               </div>
             )}
             <StyleCard
@@ -1082,10 +1109,10 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
             />
           </React.Fragment>
         ))}
-        {filteredStyles.length === 5 && annonces[0] && !hiddenAds.includes(5) && (
+        {visibleStyles.length === 10 && annonces[0] && !hiddenAds.includes(10) && (
           <div style={{ scrollSnapAlign: "start", scrollSnapStop: "always", height: "100%" }}
             className="bg-black flex flex-col overflow-hidden">
-            <SponsoredCard annonce={annonces[0]} onClose={() => setHiddenAds(h => [...h, 5])} variant="styles" />
+            <SponsoredCard annonce={annonces[0]} onClose={() => setHiddenAds(h => [...h, 10])} variant="styles" />
           </div>
         )}
         </div>
@@ -1173,22 +1200,20 @@ function StyleCard({ style, styleId, liked, likeCount, followed, onFollow, onLik
     <div data-style-id={styleId || style.id} className="relative w-full shrink-0 overflow-hidden"
       style={{ height: "100%", scrollSnapAlign: "start", scrollSnapStop: "always" }}
       onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      {allMedia.map((url, i) => (
-      <div key={i} className="absolute inset-0 w-full h-full transition-transform duration-300 ease-in-out" style={{ transform: `translateX(${(i - imgIdx) * 100}%)` }}>
-        {isVideo(url) ? (
-          <video ref={i === imgIdx ? videoRef : null} src={url} autoPlay={false} loop muted={muted} playsInline
+      <div className="absolute inset-0 w-full h-full">
+        {currentIsVideo ? (
+          <video ref={videoRef} src={allMedia[imgIdx]} autoPlay={false} loop muted={muted} playsInline preload="none"
             className="w-full h-full object-cover object-[center_55%]"
-            onTimeUpdate={i === imgIdx ? handleTimeUpdate : undefined}
-            onPointerDown={i === imgIdx ? startVideoOnPress : undefined}
-            onPointerUp={i === imgIdx ? stopVideoOnRelease : undefined}
-            onPointerCancel={i === imgIdx ? stopVideoOnRelease : undefined}
-            onPointerLeave={i === imgIdx ? stopVideoOnRelease : undefined}
+            onTimeUpdate={handleTimeUpdate}
+            onPointerDown={startVideoOnPress}
+            onPointerUp={stopVideoOnRelease}
+            onPointerCancel={stopVideoOnRelease}
+            onPointerLeave={stopVideoOnRelease}
             onContextMenu={event => event.preventDefault()} />
         ) : (
-          <BeautyImage src={url} alt={style.title} className="w-full h-full object-cover object-[center_55%]" onClick={onDetail} />
+          <BeautyImage src={allMedia[imgIdx]} alt={style.title} loading="lazy" className="w-full h-full object-cover object-[center_55%]" onClick={onDetail} />
         )}
       </div>
-      ))}
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none" />
       
       {/* Indicateurs de slides */}
@@ -1822,7 +1847,7 @@ function ServicesTab({ activeCategory }) {
         // Ajouter la vidéo si présente
         if (item.video_url && !media.includes(item.video_url)) media.unshift(item.video_url);
         const isOnline = pro?.status === "actif";
-        const adSlot = idx > 0 && idx % 5 === 0 ? Math.floor(idx / 5 - 1) : null;
+        const adSlot = idx > 0 && idx % 10 === 0 ? Math.floor(idx / 10 - 1) : null;
         const annonce = adSlot === null ? null : annonces[adSlot % annonces.length];
         return (
           <React.Fragment key={item.id}>

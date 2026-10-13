@@ -12,6 +12,7 @@ const DEFAULT_BOUTIQUE_CATS = [
   { id: "bebe",      label: "Bébé",      subs: ["Vêtements", "Éveil", "Sommeil", "Repas", "Hygiène"] },
   { id: "grossiste", label: "Grossiste", subs: ["Beauté", "Vêtements", "Accessoires", "Hygiène", "Alimentaire", "Divers"] },
 ];
+const SHOPIFY_CATEGORY_CONFIG_KEY = "shopify_category_mappings";
 import { adminApi } from "@/lib/adminApiClient";
 import { apiClient } from "@/lib/apiClient";
 import { fetchShopifyProducts } from "@/api/shopifyClient";
@@ -168,7 +169,8 @@ export default function Boutique() {
 
     setLoadError(null);
 
-    // Charger les produits publiés dans BeautyBook et ceux de Shopify.
+    // Charger les produits publiés dans BeautyBook, ceux de Shopify et les
+    // catégories BeautyBook définies pour les produits Shopify dans l’admin.
     Promise.allSettled([
       entities.Produit.filter({ status: "actif" }, "-created_at", 500)
         .then(items => items.map(p => ({
@@ -188,10 +190,25 @@ export default function Boutique() {
             created_date: p.created_date,
             source: "db",
           }))).catch(() => []),
-      fetchShopifyProducts({ first: 100 }).then(result => result?.data?.products || [])
-    ]).then(([dbResult, shopifyResult]) => {
+      fetchShopifyProducts({ first: 100 }).then(result => result?.data || {}),
+      entities.AppConfig.filter({ key: SHOPIFY_CATEGORY_CONFIG_KEY }, "-created_at", 50)
+        .then(rows => rows[0]?.value?.products || rows[0]?.value || {})
+        .catch(() => ({})),
+    ]).then(([dbResult, shopifyResult, overridesResult]) => {
       const db = dbResult.status === "fulfilled" ? dbResult.value : [];
-      const shopify = shopifyResult.status === "fulfilled" ? shopifyResult.value : [];
+      const overrides = overridesResult.status === "fulfilled" ? overridesResult.value : {};
+      const shopifyPayload = shopifyResult.status === "fulfilled" ? shopifyResult.value : {};
+      const shopify = (Array.isArray(shopifyPayload.products) ? shopifyPayload.products : []).map(product => {
+        const override = overrides[product.id] || {};
+        return {
+          ...product,
+          category: override.category ?? product.category ?? "",
+          sub_category: override.sub_category ?? product.sub_category ?? "",
+        };
+      });
+      if (shopifyResult.status === "fulfilled" && shopifyPayload.success === false) {
+        setLoadError(shopifyPayload.error || "Les produits Shopify ne sont pas disponibles sur ce déploiement.");
+      }
       const dbIds = new Set(db.map(product => product.id));
       const products = [...db, ...shopify.filter(product => !dbIds.has(product.id))];
 
@@ -201,8 +218,8 @@ export default function Boutique() {
         mergePageCache("boutique_page", { products });
         setLoadError(null);
       } else {
-        // Si les deux sources sont vides, le rendu affiche l'état vide.
-        if (!readPageCache("boutique_page")?.products?.length) setLoadError(null);
+        // Si les deux sources sont vides, conserver l'erreur Shopify éventuelle
+        // afin que l'administration puisse diagnostiquer la configuration Netlify.
       }
       setLoadingProducts(false);
     });
