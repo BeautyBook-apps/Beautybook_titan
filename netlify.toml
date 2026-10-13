@@ -1,0 +1,32 @@
+# L'application se trouve dans un sous-dossier : on indique à Netlify où construire.
+# Les chemins ci-dessous sont relatifs au dossier "base".
+[build]
+  base = "beauty_book-main/beauty_book-main"
+  command = "npm install --include=dev --no-audit --no-fund && npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/voice-key"
+  to = "/.netlify/functions/voice-key"
+  status = 200
+
+[[redirects]]
+  from = "/api/xai-token"
+  to = "/.netlify/functions/xai-token"
+  status = 200
+
+[[redirects]]
+  from = "/api/content/styles/engagement-stats"
+  to = "/.netlify/functions/engagement-stats"
+  status = 200
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
