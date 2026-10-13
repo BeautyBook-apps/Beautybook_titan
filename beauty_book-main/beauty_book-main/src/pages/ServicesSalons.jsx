@@ -841,7 +841,13 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
       // of truth, then enrich likes from the server when available. This also
       // keeps the feed usable when the optional aggregate endpoint is down.
       let counts = Object.fromEntries(styleIds.map(id => [id, Number(mapped.find(style => String(style.id) === id)?.likes || 0)]));
-      if (Date.now() >= engagementStatsRetryAt) {
+      // En développement sans backend configuré, les compteurs de likes
+      // présents dans les lignes Style restent la source locale fiable.
+      // Ne pas appeler le proxy Vite (qui renverrait 500 si le backend n'est
+      // pas lancé) : l'agrégat serveur est utilisé dès qu'un backend est
+      // explicitement configuré, notamment en production.
+      const canUseEngagementApi = !(import.meta.env.DEV && !import.meta.env.VITE_BACKEND_URL);
+      if (canUseEngagementApi && Date.now() >= engagementStatsRetryAt) {
         try {
           const engagement = await apiClient.post('/content/styles/engagement-stats', { styleIds });
           counts = Object.fromEntries(styleIds.map(id => {
