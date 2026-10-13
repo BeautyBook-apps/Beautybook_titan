@@ -448,7 +448,10 @@ export default function Home() {
                 key={cat.id}
                 onClick={() => {
                   const params = new URLSearchParams({ tab: "STYLES" });
-                  if (cat.id !== "tous" && !cat.quickFilter) params.set("cat", cat.id);
+                  // Always pass the selected category, including "Tous".
+                  // This makes the click an explicit navigation intent and
+                  // prevents an old Services page context from being reused.
+                  if (!cat.quickFilter) params.set("cat", cat.id);
                   if (cat.quickFilter) params.set("quickFilter", cat.quickFilter);
                   navigate(`/services-salons?${params.toString()}`);
                 }}

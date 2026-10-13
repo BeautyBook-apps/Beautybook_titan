@@ -1,7 +1,15 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useRef, useEffect, useState, useCallback } from "react";
 import * as THREE from "three";
+import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
+import { EXRLoader } from "three/examples/jsm/loaders/EXRLoader.js";
 import { X, ChevronLeft, ChevronRight, Loader2, Map, Layers, Share2, Bookmark, Maximize2, Move } from "lucide-react";
+
+const getSceneSource = (scene) => scene?.hdr_url || scene?.hdri_url || scene?.image_url || "";
+const isHdrSource = (scene, source) => Boolean(
+  scene?.hdr_url || scene?.hdri_url || scene?.asset_type === "hdr" || /\.(hdr|hdri|exr)(?:$|[?#])/i.test(source || "")
+);
+const isExrSource = (scene, source) => Boolean(scene?.format === "exr" || /\.exr(?:$|[?#])/i.test(source || ""));
 
 function eqToSphere(pctX, pctY) {
   const lon = (pctX / 100) * Math.PI * 2 - Math.PI;
@@ -34,6 +42,7 @@ export default function PanoViewer({ scenes, floorplanUrl, initialScene = 0, onC
   const [sceneLabel, setSceneLabel] = useState("");
   const [transitioning, setTransitioning] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [assetError, setAssetError] = useState(false);
   const [showUI, setShowUI] = useState(true);
   const [showFloorplan, setShowFloorplan] = useState(false);
   const [hotspotScreens, setHotspotScreens] = useState([]);
@@ -134,6 +143,8 @@ export default function PanoViewer({ scenes, floorplanUrl, initialScene = 0, onC
     renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.toneMappingExposure = 1;
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
@@ -198,17 +209,35 @@ export default function PanoViewer({ scenes, floorplanUrl, initialScene = 0, onC
 
   // ── Load texture ──
   useEffect(() => {
-    if (!currentScene?.image_url || !sphereRef.current) return;
+    const source = getSceneSource(currentScene);
+    if (!source || !sphereRef.current) return;
     setLoading(true);
+    setAssetError(false);
     setTransitioning(true);
     setSceneLabel(currentScene.title || `Pièce ${currentIdx + 1}`);
 
-    const loader = new THREE.TextureLoader();
+    const isHdr = isHdrSource(currentScene, source);
+    const loader = isExrSource(currentScene, source)
+      ? new EXRLoader()
+      : isHdr ? new RGBELoader() : new THREE.TextureLoader();
+    let disposed = false;
+    if (rendererRef.current) {
+      rendererRef.current.toneMapping = isHdr ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+      rendererRef.current.toneMappingExposure = isHdr ? 1.05 : 1;
+    }
     loader.load(
-      currentScene.image_url,
+      source,
       (texture) => {
+        if (disposed) {
+          texture.dispose();
+          return;
+        }
         if (textureRef.current) textureRef.current.dispose();
-        texture.colorSpace = THREE.SRGBColorSpace;
+        if (isHdr && "LinearSRGBColorSpace" in THREE) {
+          texture.colorSpace = THREE.LinearSRGBColorSpace;
+        } else if (!isHdr) {
+          texture.colorSpace = THREE.SRGBColorSpace;
+        }
         textureRef.current = texture;
         sphereRef.current.material.map = texture;
         sphereRef.current.material.needsUpdate = true;
@@ -219,9 +248,10 @@ export default function PanoViewer({ scenes, floorplanUrl, initialScene = 0, onC
         setTimeout(() => setTransitioning(false), 300);
       },
       undefined,
-      () => { setLoading(false); setTransitioning(false); }
+      () => { if (!disposed) { setAssetError(true); setLoading(false); setTransitioning(false); } }
     );
-  }, [currentIdx, currentScene?.image_url]);
+    return () => { disposed = true; };
+  }, [currentIdx, currentScene?.image_url, currentScene?.hdr_url, currentScene?.hdri_url, currentScene?.asset_type, currentScene?.format]);
 
   const updateCamera = useCallback(() => {
     if (!cameraRef.current) return;
@@ -361,6 +391,16 @@ export default function PanoViewer({ scenes, floorplanUrl, initialScene = 0, onC
             <div className="absolute inset-2 rounded-full bg-white/5 flex items-center justify-center">
               <Loader2 className="w-6 h-6 text-white/80 animate-spin" />
             </div>
+          </div>
+        </div>
+      )}
+
+      {assetError && !loading && (
+        <div className="absolute inset-0 z-[50] flex items-center justify-center pointer-events-none px-6">
+          <div className="rounded-2xl bg-black/70 backdrop-blur-xl border border-white/10 px-5 py-4 text-center">
+            <Layers className="w-7 h-7 text-white/50 mx-auto mb-2" />
+            <p className="text-white text-[13px] font-black">Panorama HDR/HDRI/EXR indisponible</p>
+            <p className="text-white/50 text-[11px] mt-1">Vérifiez que le fichier est un panorama équirectangulaire valide.</p>
           </div>
         </div>
       )}
@@ -522,7 +562,13 @@ export default function PanoViewer({ scenes, floorplanUrl, initialScene = 0, onC
                     ? "ring-1 ring-white/80 shadow-[0_0_24px_rgba(255,255,255,0.12)]"
                     : "opacity-50 ring-1 ring-white/[0.06] hover:opacity-80 hover:ring-white/[0.15]"
                 }`}>
-                  <BeautyImage src={s.image_url} alt={s.title || ""} className="w-full h-full object-cover" />
+                  {getSceneSource(s) && !isHdrSource(s, getSceneSource(s)) ? (
+                    <BeautyImage src={s.image_url} alt={s.title || ""} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-slate-900 via-cyan-950 to-blue-900 flex items-center justify-center">
+                      <Layers className="w-5 h-5 text-cyan-200/80" />
+                    </div>
+                  )}
                   {i === currentIdx && (
                     <div className="absolute inset-0 bg-primary/10" />
                   )}

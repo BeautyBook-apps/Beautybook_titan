@@ -1,7 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useRef, useCallback, useEffect } from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import { X, Upload, Loader2, Trash2, HelpCircle, GripVertical, Image, CheckCircle2 } from "lucide-react";
+import { X, Upload, Loader2, Trash2, HelpCircle, GripVertical, Image, Box, CheckCircle2 } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import PhotoGuide from "@/components/virtualtour/PhotoGuide";
@@ -10,6 +10,9 @@ async function uploadImage(file) {
   const { file_url } = await uploadFile({ file });
   return file_url;
 }
+
+const isHdrFile = (file) => /\.(hdr|hdri|exr)$/i.test(file?.name || '') || ['image/vnd.radiance', 'image/x-hdr', 'image/exr', 'image/x-exr'].includes(file?.type);
+const isHdrScene = (scene) => Boolean(scene?.hdr_url || scene?.hdri_url || scene?.asset_type === 'hdr');
 
 // ── Progress indicator pour multi-upload ──
 function UploadProgress({ current, total, fileName }) {
@@ -85,10 +88,21 @@ export default function SceneEditor({ visite, theme = "dark", onSave, onClose })
       setUploadQueue({ current: i + 1, total: files.length, fileName: files[i].name });
       try {
         const url = await uploadImage(files[i]);
+        const hdr = isHdrFile(files[i]);
+        const format = files[i].name?.split('.').pop()?.toLowerCase();
         newScenes.push({
           _id: `scene_${Date.now()}_${newScenes.length}`,
           title: `Scène ${scenes.length + newScenes.length + 1}`,
-          image_url: url,
+          ...(hdr ? {
+            hdr_url: url,
+            asset_type: "hdr",
+            format: format === "exr" ? "exr" : format === "hdri" ? "hdri" : "hdr",
+            source_name: files[i].name,
+            projection: "equirectangular",
+          } : {
+            image_url: url,
+            asset_type: "image",
+          }),
           floor_x: 50,
           floor_y: 50,
           hotspots: [],
@@ -180,7 +194,7 @@ export default function SceneEditor({ visite, theme = "dark", onSave, onClose })
         </div>
 
         <p className={`text-[12px] ${subColor} font-medium mb-4`}>
-          Ajoutez des photos 360° de chaque pièce. Pour un résultat optimal, utilisez des photos équirectangulaires (ratio 2:1).
+          Ajoutez des panoramas 360° de chaque pièce. Les fichiers JPG/PNG, HDR/HDRI et EXR équirectangulaires (ratio 2:1) sont pris en charge.
         </p>
 
         {/* Upload progress */}
@@ -212,9 +226,16 @@ export default function SceneEditor({ visite, theme = "dark", onSave, onClose })
 
                         {/* Thumbnail */}
                         <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-800 shrink-0 relative">
-                          <BeautyImage src={scene.image_url} alt={scene.title} className="w-full h-full object-cover" />
+                          {isHdrScene(scene) ? (
+                            <div className="w-full h-full bg-gradient-to-br from-slate-900 via-cyan-950 to-blue-900 flex flex-col items-center justify-center gap-1">
+                              <Box className="w-6 h-6 text-cyan-300" />
+                              <span className="text-[8px] font-black text-cyan-100 tracking-wider">HDR 360°</span>
+                            </div>
+                          ) : (
+                            <BeautyImage src={scene.image_url} alt={scene.title} className="w-full h-full object-cover" />
+                          )}
                           <div className="absolute bottom-0 left-0 right-0 bg-black/60 py-0.5 flex items-center justify-center">
-                            <span className="text-[7px] font-black text-white">360°</span>
+                            <span className="text-[7px] font-black text-white">{isHdrScene(scene) ? "HDR" : "360°"}</span>
                           </div>
                         </div>
 
@@ -286,14 +307,14 @@ export default function SceneEditor({ visite, theme = "dark", onSave, onClose })
             <div className={`w-12 h-12 ${addIconBg} rounded-xl flex items-center justify-center`}>
               <Upload className={`w-5 h-5 ${addIconColor}`} />
             </div>
-            <span className={`text-[12px] font-black ${dashedText} uppercase tracking-widest`}>Ajouter des photos</span>
-            <span className={`text-[10px] ${subColor} font-medium`}>Vous pouvez en sélectionner plusieurs</span>
+            <span className={`text-[12px] font-black ${dashedText} uppercase tracking-widest`}>Ajouter des panoramas</span>
+            <span className={`text-[10px] ${subColor} font-medium`}>JPG, PNG, HDR, HDRI ou EXR · sélection multiple</span>
           </button>
         )}
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.hdr,.hdri,.exr,image/vnd.radiance,image/x-hdr,image/exr,image/x-exr,application/octet-stream"
           multiple
           className="hidden"
           onChange={handleFiles}

@@ -134,13 +134,17 @@ export async function uploadFile(fileOrObj,bucket='uploads'){
   const raw=fileOrObj?.file instanceof File?fileOrObj.file:fileOrObj;
   if(!(raw instanceof File))throw new Error('Choisissez un fichier.');
   if(!['uploads','private-documents','private-images'].includes(bucket))throw new Error('Destination de fichier invalide.');
+  const isHdr = /\.(hdr|hdri|exr)$/i.test(raw.name || '') || ['image/vnd.radiance','image/x-hdr','image/exr','image/x-exr'].includes(raw.type);
   const {data:{session},error:authError}=await supabase.auth.getSession().catch(()=>({data:{}}));
   const allowed=bucket==='private-images'?['image/jpeg','image/png','image/webp']:bucket==='private-documents'?['image/jpeg','image/png','image/webp','application/pdf']:['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','audio/mpeg','audio/wav','audio/webm'];
-  if(!allowed.includes(raw.type))throw new Error('Ce type de fichier n’est pas accepté.');
-  const max=raw.type.startsWith('video/')?100*1024*1024:20*1024*1024;
+  if(!isHdr && !allowed.includes(raw.type))throw new Error('Ce type de fichier n’est pas accepté.');
+  const max=isHdr?100*1024*1024:raw.type.startsWith('video/')?100*1024*1024:20*1024*1024;
   if(raw.size>max)throw new Error('Fichier trop volumineux (20 Mo, ou 100 Mo pour une vidéo).');
-  const file=bucket==='private-documents'?raw:await compressMedia(raw);
-  const extension=({ 'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','application/pdf':'pdf','video/mp4':'mp4','video/webm':'webm','audio/mpeg':'mp3','audio/wav':'wav','audio/webm':'webm'})[file.type];
+  // Les fichiers HDR/HDRI sont des données panoramiques brutes : ne jamais
+  // les passer dans Canvas/compressMedia, sinon leur contenu serait détruit.
+  const file=bucket==='private-documents'||isHdr?raw:await compressMedia(raw);
+  const sourceExtension=(raw.name?.match(/\.([^.]+)$/)?.[1] || '').toLowerCase();
+  const extension=isHdr?(['hdri','exr'].includes(sourceExtension)?sourceExtension:'hdr'):({ 'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','application/pdf':'pdf','video/mp4':'mp4','video/webm':'webm','audio/mpeg':'mp3','audio/wav':'wav','audio/webm':'webm'})[file.type];
   if(!extension)throw new Error('Format de fichier non pris en charge.');
   
   const userId = session?.user?.id || 'public';
@@ -148,7 +152,7 @@ export async function uploadFile(fileOrObj,bucket='uploads'){
   
   // Use uploads bucket directly as private-images is not a provisioned bucket
   const targetBucket = (bucket === 'private-images') ? 'uploads' : bucket;
-  const uploadResult = await supabase.storage.from(targetBucket).upload(path,file,{contentType:file.type,upsert:true});
+  const uploadResult = await supabase.storage.from(targetBucket).upload(path,file,{contentType:file.type || (isHdr ? 'image/vnd.radiance' : 'application/octet-stream'),upsert:true});
 
   // If storage upload succeeded
   if(!uploadResult.error){

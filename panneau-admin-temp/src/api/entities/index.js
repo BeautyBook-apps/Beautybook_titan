@@ -328,10 +328,11 @@ export const uploadFile = async (fileOrObj, bucket = 'uploads') => {
     throw new Error('Supabase non configuré. Ajoutez vos identifiants dans le fichier .env.local');
   }
 
+  const isHdr = /\.(hdr|hdri|exr)$/i.test(rawFile.name || '') || ['image/vnd.radiance','image/x-hdr','image/exr','image/x-exr'].includes(rawFile.type);
   let file;
   try {
     const isVideo = rawFile.type?.startsWith('video/');
-    file = await compressMedia(rawFile, {
+    file = isHdr ? rawFile : await compressMedia(rawFile, {
       maxBytes: MAX_UPLOAD_BYTES,
       forceVideoTranscode: isVideo && !SUPPORTED_VIDEO_TYPES.has(rawFile.type),
     });
@@ -348,6 +349,7 @@ export const uploadFile = async (fileOrObj, bucket = 'uploads') => {
     .replace(/_+/g, '_')
     .replace(/^_|_$/g, '');
   const filePath = `${Date.now()}_${safeName}`;
+  const contentType = file.type || (isHdr ? 'image/vnd.radiance' : 'application/octet-stream');
 
   if (localAdminEnabled && bucket === 'uploads') {
     const base64 = await new Promise((resolve, reject) => {
@@ -356,12 +358,12 @@ export const uploadFile = async (fileOrObj, bucket = 'uploads') => {
       reader.onerror = () => reject(new Error('Lecture du média impossible.'));
       reader.readAsDataURL(file);
     });
-    return apiClient.post('/admin/upload', { name: safeName, contentType: file.type, base64 });
+    return apiClient.post('/admin/upload', { name: safeName, contentType, base64 });
   }
 
   const { data, error } = await supabase.storage
     .from(bucket)
-    .upload(filePath, file, { contentType: file.type, upsert: true });
+    .upload(filePath, file, { contentType, upsert: true });
 
   if (error) {
     console.error('[uploadFile] Erreur Supabase:', error);

@@ -3086,19 +3086,28 @@ function SearchResults({ query, onClose, activeTab = "STYLES", activeCategory = 
 export default function ServicesSalons() {
   const navigate = useNavigate();
   const routerLocation = useRouterLocation();
-  const urlParams = new URLSearchParams(window.location.search);
-  const restoredStylesContext = routerLocation.state?.restoreStylesContext || readStylesReturnContext();
+  // Read the route through React Router so a navigation from the home
+  // category rail is immediately reflected by this page. A category in the
+  // URL is an explicit user choice and must take precedence over a stale
+  // return context saved after opening a style detail page.
+  const urlParams = new URLSearchParams(routerLocation.search);
+  const requestedCategoryParam = urlParams.get("cat") || urlParams.get("categorie") || "";
+  const hasRequestedCategory = Boolean(requestedCategoryParam.trim());
+  const restoredStylesContext = hasRequestedCategory
+    ? null
+    : (routerLocation.state?.restoreStylesContext || readStylesReturnContext());
   const initialTab = urlParams.get("tab") || restoredStylesContext?.activeTab || "STYLES";
 
   // Mapping catégorie id (depuis la source partagée) → onglet + catégorie.
   const CAT_MAP = Object.fromEntries(
     SERVICE_STYLE_CATEGORIES
-      .filter(item => item.id !== "tous")
       .map(item => [item.id, { tab: "STYLES", sub: item.label }])
   );
 
-  const catParam = (urlParams.get("cat") || "").toLowerCase();
-  const catMapped = CAT_MAP[catParam];
+  const catParam = requestedCategoryParam.trim().toLowerCase();
+  const catMapped = CAT_MAP[catParam] || SERVICE_STYLE_CATEGORIES
+    .map(item => [item.label.toLowerCase(), { tab: "STYLES", sub: item.label }])
+    .reduce((map, [label, value]) => ({ ...map, [label]: value }), {})[catParam];
 
   const [activeTab, setActiveTab] = useState(catMapped?.tab || initialTab);
   const [search, setSearch] = useState("");

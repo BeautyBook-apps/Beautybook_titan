@@ -28,7 +28,7 @@ const EMPTY_FORM = {
   surface: "", rooms: "", floor: "",
   location: "", city: "", area: "", postal_code: "",
   equip: "", extra: "",
-  images: [], video_url: "",
+  images: [], virtual_tour_hdrs: [], video_url: "",
   estimated_turnover: "", estimated_net_revenue: "", virtual_tour_id: "",
   contact_email: "", contact_phone: "", status: "actif",
 };
@@ -74,6 +74,7 @@ export default function AdminImmobilier() {
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const imgRef = useRef(null);
+  const hdrRef = useRef(null);
   const videoRef = useRef(null);
   const autoSaveTimer = useRef(null);
 
@@ -118,6 +119,40 @@ export default function AdminImmobilier() {
   };
 
   const removeImage = (idx) => setForm(f => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
+
+  const handleHdrUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!/\.(hdr|hdri|exr)$/i.test(file.name || '')) {
+      setError("Sélectionnez un fichier HDR, HDRI ou EXR équirectangulaire.");
+      e.target.value = "";
+      return;
+    }
+    try {
+      setUploading(true);
+      const { file_url } = await uploadFile({ file });
+      setForm(current => ({
+        ...current,
+        virtual_tour_hdrs: [...(current.virtual_tour_hdrs || []), {
+          url: file_url,
+          name: file.name,
+          format: file.name.split('.').pop()?.toLowerCase() || 'exr',
+        }],
+      }));
+      setError("");
+    } catch (err) {
+      console.error("HDR upload error:", err);
+      setError("Impossible d'importer ce fichier HDR/HDRI.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const removeHdr = (index) => setForm(current => ({
+    ...current,
+    virtual_tour_hdrs: (current.virtual_tour_hdrs || []).filter((_, i) => i !== index),
+  }));
 
   const computePricePerM2 = (price, surface) => {
     const p = parseFloat(price);
@@ -169,7 +204,31 @@ export default function AdminImmobilier() {
       const result = editingId
         ? await adminApi.updateImmobilier(editingId, payload)
         : await adminApi.createImmobilier(payload);
-      const newItem = result?.data ? result.data : result;
+      let newItem = result?.data ? result.data : result;
+      const hdrs = form.virtual_tour_hdrs || [];
+      let linkedTourId = form.virtual_tour_id || null;
+      if (!linkedTourId && hdrs.length && newItem?.id) {
+        const tourResult = await adminApi.createVirtualTour({
+          title: `Visite — ${form.title}`,
+          pro_email: form.contact_email || "",
+          scenes: hdrs.map((asset, index) => ({
+            title: `Panorama ${index + 1}`,
+            hdr_url: asset.url,
+            asset_type: "hdr",
+            format: asset.format || "exr",
+            source_name: asset.name,
+            projection: "equirectangular",
+            hotspots: [],
+          })),
+          status: "actif",
+        });
+        const tour = tourResult?.data?.result || tourResult?.result || tourResult?.data || tourResult;
+        if (!tour?.id) throw new Error("La visite virtuelle HDR/HDRI n'a pas pu être créée.");
+        await adminApi.updateImmobilier(newItem.id, { virtual_tour_id: tour.id });
+        linkedTourId = tour.id;
+        newItem = { ...newItem, virtual_tour_id: linkedTourId };
+        setVirtualTours(prev => [tour, ...prev]);
+      }
       setListings(prev => editingId
         ? prev.map(item => item.id === editingId ? { ...item, ...newItem } : item)
         : [newItem, ...prev]);
@@ -209,28 +268,6 @@ export default function AdminImmobilier() {
       await adminApi.updateImmobilier(listing.id, { status: newStatus });
       setListings(prev => prev.map(l => l.id === listing.id ? { ...l, status: newStatus } : l));
     } catch (err) { console.error("[AdminImmobilier] Toggle error:", err); }
-  };
-
-  const createVirtualTourFromListing = async () => {
-    if (!form.title || !(form.images || []).length) return;
-    setSaving(true);
-    try {
-      const result = await adminApi.createVirtualTour({
-        title: `Visite — ${form.title}`,
-        pro_email: form.contact_email || "",
-        scenes: form.images.map((image_url, index) => ({ title: `Vue ${index + 1}`, image_url, hotspots: [] })),
-        status: "actif",
-      });
-      const tour = result?.data?.result || result?.result || result?.data || result;
-      if (!tour?.id) throw new Error("La visite virtuelle n'a pas été créée.");
-      setVirtualTours(prev => [tour, ...prev]);
-      setForm(current => ({ ...current, virtual_tour_id: tour.id }));
-    } catch (err) {
-      console.error("[AdminImmobilier] Virtual tour error:", err);
-      setError("Impossible de créer la visite virtuelle. Vérifiez la migration VisiteVirtuelle.");
-    } finally {
-      setSaving(false);
-    }
   };
 
   const editListing = (listing) => {
@@ -561,10 +598,24 @@ export default function AdminImmobilier() {
               <option value="">Aucune visite virtuelle</option>
               {virtualTours.map(tour => <option key={tour.id} value={tour.id}>{tour.title || "Visite sans nom"}</option>)}
             </select>
-            <button type="button" onClick={createVirtualTourFromListing} disabled={saving || !form.title || !(form.images || []).length}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-cyan-200 text-cyan-700 rounded-xl py-2.5 text-[11px] font-black disabled:opacity-50">
-              <Plus className="w-3.5 h-3.5" /> Créer une visite depuis les photos importées
+            <input ref={hdrRef} type="file" accept=".hdr,.hdri,.exr,image/vnd.radiance,image/x-hdr,image/exr,image/x-exr,application/octet-stream" className="hidden" onChange={handleHdrUpload} />
+            <button type="button" onClick={() => hdrRef.current?.click()} disabled={uploading}
+              className="w-full flex items-center justify-center gap-2 bg-cyan-600 text-white rounded-xl py-2.5 text-[11px] font-black disabled:opacity-50">
+              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+              Ajouter un fichier HDR / HDRI / EXR 360°
             </button>
+            {!!(form.virtual_tour_hdrs || []).length && (
+              <div className="space-y-1.5">
+                {form.virtual_tour_hdrs.map((asset, index) => (
+                  <div key={`${asset.url}-${index}`} className="flex items-center gap-2 rounded-xl bg-white border border-cyan-100 px-3 py-2">
+                    <Box className="w-4 h-4 text-cyan-600 shrink-0" />
+                    <span className="text-[11px] font-bold text-gray-700 truncate flex-1">{asset.name || `Panorama HDR ${index + 1}`}</span>
+                    <button type="button" onClick={() => removeHdr(index)} className="text-red-400"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-[10px] text-cyan-800/70">La visite sera créée automatiquement à l’enregistrement de l’annonce et affichée dans sa fiche immobilière.</p>
           </div>
 
           {/* ── Contact ── */}

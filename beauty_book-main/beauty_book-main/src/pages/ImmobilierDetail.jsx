@@ -47,6 +47,9 @@ const toAmount = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const getVirtualSceneSource = (scene) => scene?.hdr_url || scene?.hdri_url || scene?.image_url || "";
+const hasVirtualTourScenes = (tour) => Boolean(tour?.scenes?.some(scene => getVirtualSceneSource(scene)));
+
 function MessageModal({ listing, onClose }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -221,7 +224,7 @@ export default function ImmobilierDetail() {
   useEffect(() => {
     const tourId = listing?.virtual_tour_id;
     const embeddedTour = listing?.virtual_tour || null;
-    if (embeddedTour?.scenes?.length) {
+    if (hasVirtualTourScenes(embeddedTour)) {
       setVirtualTour(embeddedTour);
       setVirtualTourLoading(false);
       return undefined;
@@ -243,7 +246,7 @@ export default function ImmobilierDetail() {
       // visite existante et de l'ouvrir sans demander un nouveau contact.
       if (!tour && listing?.title) {
         const matches = await entities.VisiteVirtuelle.filter({ title: listing.title }, "-created_at", 20).catch(() => []);
-        tour = matches.find(item => item?.scenes?.length) || matches[0] || null;
+        tour = matches.find(item => hasVirtualTourScenes(item)) || null;
       }
       if (!cancelled) {
         setVirtualTour(tour);
@@ -300,8 +303,10 @@ export default function ImmobilierDetail() {
   const addressLabel = [data.address || data.location || data.city, data.postal_code, data.city && data.city !== data.location ? data.city : null].filter(Boolean).join(", ");
   const mapItem = [{ id: data.id || id || "listing", title: data.title, address: data.location || data.address, postal_code: data.postal_code, city: data.city, latitude: data.latitude ?? data._lat, longitude: data.longitude ?? data._lng, price: data.price }];
   const appleMapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(addressLabel || data.title || "Emplacement du local")}`;
+  const tourReady = hasVirtualTourScenes(virtualTour);
+  const tourPreview = virtualTour?.scenes?.find(scene => scene?.image_url)?.image_url;
 
-  if (showVirtualTour && virtualTour?.scenes?.length) {
+  if (showVirtualTour && tourReady) {
     return <PanoViewer scenes={virtualTour.scenes} floorplanUrl={virtualTour.floorplan_url} propertyName={data.title} propertyAddress={addressLabel} onClose={() => setShowVirtualTour(false)} />;
   }
 
@@ -485,19 +490,25 @@ export default function ImmobilierDetail() {
             <span className="text-[13px] font-black text-gray-900 uppercase tracking-wider">VISITE VIRTUELLE 3D</span>
           </div>
           <button
-            onClick={() => virtualTour?.scenes?.length ? setShowVirtualTour(true) : setShowMsgModal(true)}
-            disabled={virtualTourLoading}
-            className="relative w-full h-40 rounded-2xl overflow-hidden active:scale-[0.99] transition-all disabled:cursor-wait"
+            onClick={() => tourReady && setShowVirtualTour(true)}
+            disabled={virtualTourLoading || !tourReady}
+            className="relative w-full h-40 rounded-2xl overflow-hidden active:scale-[0.99] transition-all disabled:cursor-not-allowed"
           >
-            <BeautyImage src={virtualTour?.scenes?.[0]?.image_url || images[0]} alt="Visite 3D" className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-2">
+            {tourPreview ? (
+              <BeautyImage src={tourPreview} alt="Aperçu de la visite 3D" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-slate-950 via-cyan-950 to-blue-900 flex flex-col items-center justify-center gap-2">
+                <span className="text-cyan-100/80 text-[10px] font-black uppercase tracking-[0.2em]">Panorama HDR / HDRI / EXR</span>
+              </div>
+            )}
+            <div className={`absolute inset-0 flex flex-col items-center justify-center gap-2 ${tourPreview ? "bg-black/40" : "bg-black/10"}`}>
               <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center shadow-lg">
                 <Box className="w-6 h-6 text-blue-600" />
               </div>
-              <span className="text-white text-[12px] font-black uppercase tracking-widest">{virtualTourLoading ? "Chargement de la visite..." : virtualTour?.scenes?.length ? "Lancer la visite 3D" : "Demander une visite"}</span>
+              <span className="text-white text-[12px] font-black uppercase tracking-widest">{virtualTourLoading ? "Chargement de la visite..." : tourReady ? "Lancer la visite 3D" : "Visite en préparation"}</span>
             </div>
           </button>
-          <p className="text-[11px] text-gray-400 font-medium text-center mt-2">{virtualTour?.scenes?.length ? "Explorez l'espace à 360° avant votre visite" : "La visite virtuelle sera bientôt disponible"}</p>
+          <p className="text-[11px] text-gray-400 font-medium text-center mt-2">{tourReady ? "Explorez l'espace à 360° avant votre visite" : "Un panorama HDR/HDRI/EXR sera bientôt disponible"}</p>
         </div>
 
         {/* Nombre de sièges & Propriétaire */}
