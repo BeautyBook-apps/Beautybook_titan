@@ -453,7 +453,9 @@ export default function Home() {
                   // prevents an old Services page context from being reused.
                   if (!cat.quickFilter) params.set("cat", cat.id);
                   if (cat.quickFilter) params.set("quickFilter", cat.quickFilter);
-                  navigate(`/services-salons?${params.toString()}`);
+                  navigate(`/services-salons?${params.toString()}`, {
+                    state: { serviceTab: "STYLES", serviceCategory: cat.id },
+                  });
                 }}
                 aria-label={`Découvrir ${cat.label}`}
                 className="group flex min-w-[76px] flex-col items-center gap-2.5 shrink-0 rounded-2xl px-1 py-1 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-transform duration-200"

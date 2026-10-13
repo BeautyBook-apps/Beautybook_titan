@@ -132,11 +132,24 @@ export function createLocalDataApi(client, { columns } = {}) {
       return { stats };
     },
     async upload({ name, contentType, base64 }) {
-      if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'].includes(contentType)) fail(400, 'Format de média non pris en charge.');
+      const fileName = String(name || 'media');
+      const isHdr = /\.(hdr|hdri|exr)$/i.test(fileName);
+      const supportedMediaTypes = new Set([
+        'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+        'video/mp4', 'video/webm',
+      ]);
+      const supportedHdrTypes = new Set([
+        'image/vnd.radiance', 'image/x-hdr', 'image/exr', 'image/x-exr',
+        'application/octet-stream',
+      ]);
+      if (!supportedMediaTypes.has(contentType) && !(isHdr && supportedHdrTypes.has(contentType))) {
+        fail(400, 'Format de média non pris en charge.');
+      }
       if (typeof base64 !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) fail(400, 'Média invalide.');
       const bytes = Buffer.from(base64, 'base64');
-      if (!bytes.length || bytes.length > 20 * 1024 * 1024) fail(413, 'Le média doit faire au maximum 20 Mo.');
-      const suffix = String(name || 'media').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100);
+      const maxBytes = isHdr ? 100 * 1024 * 1024 : 20 * 1024 * 1024;
+      if (!bytes.length || bytes.length > maxBytes) fail(413, isHdr ? 'Le fichier HDR/HDRI/EXR doit faire au maximum 100 Mo.' : 'Le média doit faire au maximum 20 Mo.');
+      const suffix = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100);
       const filePath = `admin/${randomUUID()}_${suffix}`;
       checked(await client.storage.from('uploads').upload(filePath, bytes, { contentType, upsert: false }));
       return { file_url: client.storage.from('uploads').getPublicUrl(filePath).data.publicUrl };
@@ -181,7 +194,9 @@ export function localAdminPlugin({ url, serviceKey, origin = 'http://localhost:5
           let length = 0;
           for await (const chunk of req) {
             length += chunk.length;
-            if (length > (pathname.endsWith('/upload') ? 28 : 2) * 1024 * 1024) fail(413, 'Données trop volumineuses.');
+            // The upload body contains base64, so it is larger than the
+            // original file. Allow a 100 MB HDR/EXR plus base64 overhead.
+            if (length > (pathname.endsWith('/upload') ? 140 : 2) * 1024 * 1024) fail(413, 'Données trop volumineuses.');
             chunks.push(chunk);
           }
           const raw = Buffer.concat(chunks).toString('utf8');

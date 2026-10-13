@@ -2841,6 +2841,15 @@ function CategoryPills({ cats, active, onChange, extras = [], extraActive, onExt
   // is active, it replaces the generic "Tous" state instead of appearing
   // selected alongside it.
   const activeCategory = extraActive ? null : (cats.includes(active) ? active : "Tous");
+  const categoryRailRef = useRef(null);
+
+  // Make the category chosen from the home page immediately visible. This is
+  // especially important on mobile where the long horizontal rail can retain
+  // its previous scroll position.
+  useEffect(() => {
+    const selected = categoryRailRef.current?.querySelector('[aria-pressed="true"]');
+    selected?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [activeCategory, extraActive, cats.join("|")]);
 
   const renderExtra = ({ id, label, Icon }) => (
     <button
@@ -2877,7 +2886,7 @@ function CategoryPills({ cats, active, onChange, extras = [], extraActive, onExt
   });
 
   return (
-    <nav className="discovery-categories" aria-label="Catégories de prestations">
+    <nav ref={categoryRailRef} className="discovery-categories" aria-label="Catégories de prestations">
       {categoryItems}
     </nav>
   );
@@ -3091,12 +3100,12 @@ export default function ServicesSalons() {
   // URL is an explicit user choice and must take precedence over a stale
   // return context saved after opening a style detail page.
   const urlParams = new URLSearchParams(routerLocation.search);
-  const requestedCategoryParam = urlParams.get("cat") || urlParams.get("categorie") || "";
+  const requestedCategoryParam = urlParams.get("cat") || urlParams.get("categorie") || routerLocation.state?.serviceCategory || "";
   const hasRequestedCategory = Boolean(requestedCategoryParam.trim());
   const restoredStylesContext = hasRequestedCategory
     ? null
     : (routerLocation.state?.restoreStylesContext || readStylesReturnContext());
-  const initialTab = urlParams.get("tab") || restoredStylesContext?.activeTab || "STYLES";
+  const initialTab = urlParams.get("tab") || routerLocation.state?.serviceTab || restoredStylesContext?.activeTab || "STYLES";
 
   // Mapping catégorie id (depuis la source partagée) → onglet + catégorie.
   const CAT_MAP = Object.fromEntries(
@@ -3104,10 +3113,10 @@ export default function ServicesSalons() {
       .map(item => [item.id, { tab: "STYLES", sub: item.label }])
   );
 
-  const catParam = requestedCategoryParam.trim().toLowerCase();
-  const catMapped = CAT_MAP[catParam] || SERVICE_STYLE_CATEGORIES
-    .map(item => [item.label.toLowerCase(), { tab: "STYLES", sub: item.label }])
-    .reduce((map, [label, value]) => ({ ...map, [label]: value }), {})[catParam];
+  const catParam = normalizeStyleTaxonomyValue(requestedCategoryParam);
+  const categoryByLabel = SERVICE_STYLE_CATEGORIES.find(item => normalizeStyleTaxonomyValue(item.label) === catParam);
+  const catMapped = Object.entries(CAT_MAP).find(([id]) => normalizeStyleTaxonomyValue(id) === catParam)?.[1]
+    || (categoryByLabel ? { tab: "STYLES", sub: categoryByLabel.label } : undefined);
 
   const [activeTab, setActiveTab] = useState(catMapped?.tab || initialTab);
   const [search, setSearch] = useState("");

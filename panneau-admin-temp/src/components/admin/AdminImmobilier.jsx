@@ -3,6 +3,7 @@ import { uploadFile } from '@/api/entities';
 import { adminApi } from "@/lib/adminApiClient";
 import { Plus, Trash2, Upload, Loader2, X, Home, Eye, EyeOff, MapPin, Euro, Phone, Mail, AlertCircle, CheckCircle2, FileText, Clock, Save, Scissors, Building2, Receipt, Edit3, Box } from "lucide-react";
 import AddressInput from "@/components/ui/AddressInput";
+import HdrAssetPreview from "@/components/admin/HdrAssetPreview";
 
 const inputCls = "w-full bg-gray-50 border border-gray-200 text-gray-800 rounded-xl px-4 py-3 text-[13px] outline-none focus:border-primary transition-colors";
 const labelCls = "text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1";
@@ -594,10 +595,6 @@ export default function AdminImmobilier() {
                 <p className="text-[10px] text-cyan-700/70">Elle sera affichée dans le détail de cette annonce.</p>
               </div>
             </div>
-            <select value={form.virtual_tour_id || ""} onChange={e => setForm(f => ({ ...f, virtual_tour_id: e.target.value }))} className={inputCls}>
-              <option value="">Aucune visite virtuelle</option>
-              {virtualTours.map(tour => <option key={tour.id} value={tour.id}>{tour.title || "Visite sans nom"}</option>)}
-            </select>
             <input ref={hdrRef} type="file" accept=".hdr,.hdri,.exr,image/vnd.radiance,image/x-hdr,image/exr,image/x-exr,application/octet-stream" className="hidden" onChange={handleHdrUpload} />
             <button type="button" onClick={() => hdrRef.current?.click()} disabled={uploading}
               className="w-full flex items-center justify-center gap-2 bg-cyan-600 text-white rounded-xl py-2.5 text-[11px] font-black disabled:opacity-50">
@@ -605,12 +602,13 @@ export default function AdminImmobilier() {
               Ajouter un fichier HDR / HDRI / EXR 360°
             </button>
             {!!(form.virtual_tour_hdrs || []).length && (
-              <div className="space-y-1.5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {form.virtual_tour_hdrs.map((asset, index) => (
-                  <div key={`${asset.url}-${index}`} className="flex items-center gap-2 rounded-xl bg-white border border-cyan-100 px-3 py-2">
-                    <Box className="w-4 h-4 text-cyan-600 shrink-0" />
-                    <span className="text-[11px] font-bold text-gray-700 truncate flex-1">{asset.name || `Panorama HDR ${index + 1}`}</span>
-                    <button type="button" onClick={() => removeHdr(index)} className="text-red-400"><X className="w-3.5 h-3.5" /></button>
+                  <div key={`${asset.url}-${index}`} className="relative rounded-2xl bg-white border border-cyan-100 p-2 shadow-sm">
+                    <HdrAssetPreview asset={asset} />
+                    <button type="button" onClick={() => removeHdr(index)} aria-label={`Supprimer ${asset.name || `le panorama ${index + 1}`}`} className="absolute right-4 top-4 z-30 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-red-500 shadow-sm hover:bg-red-50">
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 ))}
               </div>

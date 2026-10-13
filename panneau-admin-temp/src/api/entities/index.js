@@ -349,7 +349,13 @@ export const uploadFile = async (fileOrObj, bucket = 'uploads') => {
     .replace(/_+/g, '_')
     .replace(/^_|_$/g, '');
   const filePath = `${Date.now()}_${safeName}`;
-  const contentType = file.type || (isHdr ? 'image/vnd.radiance' : 'application/octet-stream');
+  const extension = file.name?.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  // Browsers commonly report HDR/HDRI/EXR as application/octet-stream (or an
+  // empty MIME). Normalize it before sending the local admin request so the
+  // server can validate it from both the extension and the media type.
+  const contentType = isHdr
+    ? (extension === 'exr' ? 'image/exr' : 'image/vnd.radiance')
+    : (file.type || 'application/octet-stream');
 
   if (localAdminEnabled && bucket === 'uploads') {
     const base64 = await new Promise((resolve, reject) => {
