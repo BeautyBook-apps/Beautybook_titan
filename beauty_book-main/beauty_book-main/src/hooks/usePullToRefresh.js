@@ -4,6 +4,7 @@ export default function usePullToRefresh(onRefresh, threshold = 70) {
   const [pulling, setPulling] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
   const startY = useRef(null);
+  const pullDistanceRef = useRef(0);
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -27,6 +28,7 @@ export default function usePullToRefresh(onRefresh, threshold = 70) {
       const scrollEl = getScrollEl();
       if (scrollEl.scrollTop <= 1) {
         startY.current = e.touches[0].clientY;
+        pullDistanceRef.current = 0;
       }
     };
 
@@ -34,19 +36,26 @@ export default function usePullToRefresh(onRefresh, threshold = 70) {
       if (startY.current === null) return;
       const dist = e.touches[0].clientY - startY.current;
       if (dist > 0) {
-        setPullDistance(Math.min(dist, threshold * 1.5));
-        if (dist > 10) e.preventDefault();
+        const nextDistance = Math.min(dist, threshold * 1.5);
+        pullDistanceRef.current = nextDistance;
+        setPullDistance(nextDistance);
+        // Certains touchmove arrivent après le début du scroll et ne sont
+        // plus annulables : appeler preventDefault() dans ce cas déclenche
+        // l'avertissement Chrome "cancelable=false".
+        if (dist > 10 && e.cancelable) e.preventDefault();
       }
     };
 
     const onTouchEnd = () => {
-      if (pullDistance >= threshold) {
+      if (pullDistanceRef.current >= threshold) {
         setPulling(true);
         Promise.resolve(onRefresh()).finally(() => {
           setPulling(false);
+          pullDistanceRef.current = 0;
           setPullDistance(0);
         });
       } else {
+        pullDistanceRef.current = 0;
         setPullDistance(0);
       }
       startY.current = null;
@@ -61,7 +70,7 @@ export default function usePullToRefresh(onRefresh, threshold = 70) {
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
     };
-  }, [onRefresh, pullDistance, threshold]);
+  }, [onRefresh, threshold]);
 
   return { containerRef, pulling, pullDistance };
 }

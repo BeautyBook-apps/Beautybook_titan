@@ -190,6 +190,11 @@ export default function Connexion() {
   const [resending, setResending] = useState(false);
   const { checkLimit } = useRateLimit({ maxAttempts: 5, windowMs: 300000 });
 
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/', { replace: true });
+  };
+
   useEffect(() => { const r = localStorage.getItem("bb_remember_email"); if (r) { setEmail(r); setRemember(true); } }, []);
 
   const [isResetMode, setIsResetMode] = useState(() => {
@@ -280,6 +285,14 @@ export default function Connexion() {
     <div className="min-h-screen w-full max-w-[680px] mx-auto bg-white flex flex-col">
       <div className="px-[27px] pt-[24px] sm:pt-[32px] pb-4">
         <div className="flex items-center gap-4 mb-[56px] sm:mb-[72px]">
+          <button
+            type="button"
+            onClick={handleBack}
+            aria-label="Retour à la page précédente"
+            className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center active:scale-95 transition"
+          >
+            <ArrowLeft className="w-[18px] h-[18px] text-gray-500" />
+          </button>
           <BrandLogo size={60} alt="Logo BeautyBook" />
           <span className="text-[#617089] text-[16px] font-extrabold uppercase tracking-[0.3em]">BeautyBook</span>
         </div>

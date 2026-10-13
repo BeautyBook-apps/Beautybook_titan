@@ -3,8 +3,9 @@ const SHOPIFY_DOMAIN = String(import.meta.env.VITE_SHOPIFY_DOMAIN || '')
   .replace(/^https?:\/\//i, '')
   .replace(/\/+$/, '');
 const SHOPIFY_TOKEN = String(import.meta.env.VITE_SHOPIFY_STOREFRONT_TOKEN || '').trim();
+const SHOPIFY_API_VERSION = '2026-07';
 const SHOPIFY_API = SHOPIFY_DOMAIN && SHOPIFY_TOKEN
-  ? `https://${SHOPIFY_DOMAIN}/api/2024-10/graphql.json`
+  ? `https://${SHOPIFY_DOMAIN}/api/${SHOPIFY_API_VERSION}/graphql.json`
   : null;
 
 const shopifyHeaders = {
@@ -122,4 +123,65 @@ export const fetchShopifyProducts = async (options = {}) => {
     console.warn('[Shopify] Fetch error:', err.message);
     return { data: { success: true, products: [] } };
   }
+};
+
+/**
+ * Creates a Shopify cart for a product purchased from the connected store.
+ * The public Storefront token is intentionally used here: only the checkout
+ * URL is returned to the browser and Shopify remains the source of truth for
+ * inventory, shipping and payment.
+ */
+export const createShopifyCheckout = async ({ variantId, quantity = 1, email, countryCode, address = {} }) => {
+  if (!SHOPIFY_API) throw new Error('La boutique Shopify n’est pas configurée.');
+  if (!/^gid:\/\/shopify\/ProductVariant\/\d+$/.test(String(variantId || ''))) {
+    throw new Error('Variante Shopify invalide.');
+  }
+
+  const query = `
+    mutation CreateCart($input: CartInput!) {
+      cartCreate(input: $input) {
+        cart { checkoutUrl }
+        userErrors { field message }
+      }
+    }
+  `;
+  const input = {
+    lines: [{ merchandiseId: variantId, quantity: Math.max(1, Number(quantity) || 1) }],
+    ...(email || address.phone ? {
+      buyerIdentity: {
+        ...(email ? { email } : {}),
+        ...(address.phone ? { phone: address.phone } : {}),
+        ...(countryCode ? { countryCode } : {}),
+      },
+    } : {}),
+    attributes: Object.entries({
+      'Prénom': address.firstName,
+      'Nom': address.lastName,
+      Adresse: address.address1,
+      'Complément': address.address2,
+      Ville: address.city,
+      'Code postal': address.zip,
+      Pays: countryCode,
+    }).filter(([, value]) => String(value || '').trim()).map(([key, value]) => ({ key, value: String(value).trim() })),
+  };
+
+  const response = await fetch(SHOPIFY_API, {
+    method: 'POST',
+    headers: shopifyHeaders,
+    body: JSON.stringify({ query, variables: { input } }),
+  });
+  if (!response.ok) throw new Error(`Shopify ne répond pas (${response.status}).`);
+
+  const json = await response.json();
+  const cart = json.data?.cartCreate;
+  const message = json.errors?.[0]?.message || cart?.userErrors?.[0]?.message;
+  if (message || !cart?.cart?.checkoutUrl) {
+    throw new Error(message || 'Ce produit Shopify ne peut pas être commandé actuellement.');
+  }
+
+  const checkoutUrl = new URL(cart.cart.checkoutUrl);
+  if (checkoutUrl.protocol !== 'https:' || !checkoutUrl.hostname.endsWith('.myshopify.com')) {
+    throw new Error('Shopify a renvoyé une adresse de paiement invalide.');
+  }
+  return { checkoutUrl: checkoutUrl.href };
 };

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { ArrowLeft, Heart, MessageSquare, Phone, MapPin, Maximize2, Armchair, Zap, TrendingUp, X, Send, CheckCircle, Box, Users, User, Sparkles, Check, ExternalLink } from "lucide-react";
 import { entities } from '@/api/entities';
+import apiClient from '@/lib/apiClient';
 import { supabase } from '@/api/supabaseClient';
 import { likesApi } from '@/api/likes';
 import { readPageCache, writePageCache } from "@/hooks/usePageCache";
@@ -27,6 +28,24 @@ const FALLBACK = {
 // Email de l'admin (destinataire des messages depuis l'immo)
 const ADMIN_EMAIL = "admin@beautybook.fr";
 const ADMIN_PHONE = "+33 1 00 00 00 00";
+
+// Les annonces historiques peuvent encore contenir les anciens noms de
+// colonnes. On les normalise ici afin que la fiche publique affiche toujours
+// les montants enregistrés dans l'administration.
+const normalizeListing = (value) => {
+  if (!value) return value;
+  return {
+    ...value,
+    estimated_turnover: value.estimated_turnover ?? value.estimatedTurnover ?? value.estimated_ca ?? value.ca_estime ?? value.ca_estime_mensuel ?? null,
+    estimated_net_revenue: value.estimated_net_revenue ?? value.estimatedNetRevenue ?? value.ebe_estime ?? value.net_revenue ?? value.revenu_net_estime ?? value.revenue_net_estime ?? null,
+  };
+};
+
+const toAmount = (value) => {
+  if (value === null || value === undefined || value === "") return 0;
+  const parsed = Number(String(value).replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
 
 function MessageModal({ listing, onClose }) {
   const [name, setName] = useState("");
@@ -149,13 +168,14 @@ export default function ImmobilierDetail() {
 
   // Affichage direct : le state de navigation d'abord (le plus frais),
   // sinon le cache de cette annonce — jamais un affichage vide.
-  const [listing, setListing] = useState(() => state || readPageCache(id ? `immobilier_${id}` : null)?.listing || null);
+  const [listing, setListing] = useState(() => normalizeListing(state || readPageCache(id ? `immobilier_${id}` : null)?.listing || null));
   const [imgIdx, setImgIdx] = useState(0);
   const [liked, setLiked] = useState(false);
   const [showImageLightbox, setShowImageLightbox] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
   const [showMsgModal, setShowMsgModal] = useState(false);
   const [virtualTour, setVirtualTour] = useState(() => state?.virtual_tour || null);
+  const [virtualTourLoading, setVirtualTourLoading] = useState(false);
   const [showVirtualTour, setShowVirtualTour] = useState(false);
 
   // Charger le listing depuis la BDD si on a un ID.
@@ -166,37 +186,73 @@ export default function ImmobilierDetail() {
     const cacheKey = `immobilier_${id}`;
     if (state) {
       // Navigation depuis la liste : l'objet transmis est le plus frais.
-      setListing(state);
+      setListing(normalizeListing(state));
     } else {
       const cached = readPageCache(cacheKey);
-      if (cached?.listing) setListing(cached.listing);
+      if (cached?.listing) setListing(normalizeListing(cached.listing));
       // Sinon on garde l'affichage actuel (jamais de reset à vide).
     }
     setImgIdx(0);
-    entities.ImmobilierListing.filter({ status: "actif" }, "-created_at", 100)
-      .then(all => {
-        const found = all.find(l => l.id === id);
-        if (found) {
-          setListing(found);
-          writePageCache(cacheKey, { listing: found });
-        }
-      })
-      .catch(() => {});
+    // En développement sans backend explicitement configuré, lire directement
+    // l'entité Supabase comme la page liste. Cela évite un POST proxy inutile
+    // vers localhost et conserve le fallback si le backend n'est pas lancé.
+    const loadListing = async () => {
+      let found = null;
+      if (import.meta.env.DEV && !import.meta.env.VITE_BACKEND_URL) {
+        found = await entities.ImmobilierListing.get(id).catch(() => null);
+      } else {
+        // Le endpoint de contenu accepte listingId et évite de dépendre de la
+        // limite de la liste publique ou d'un cache incomplet.
+        found = await apiClient.callFunction("getImmobilier", { listingId: id })
+          .then(response => response?.data?.listing || null)
+          .catch(() => entities.ImmobilierListing.get(id).catch(() => null));
+      }
+      if (!found) return;
+      setListing(current => {
+        const merged = normalizeListing({ ...(current || {}), ...found });
+        writePageCache(cacheKey, { listing: merged });
+        return merged;
+      });
+    };
+    loadListing().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
     const tourId = listing?.virtual_tour_id;
-    if (!tourId) {
-      setVirtualTour(listing?.virtual_tour || null);
+    const embeddedTour = listing?.virtual_tour || null;
+    if (embeddedTour?.scenes?.length) {
+      setVirtualTour(embeddedTour);
+      setVirtualTourLoading(false);
+      return undefined;
+    }
+    if (!tourId && !listing?.title) {
+      setVirtualTour(null);
+      setVirtualTourLoading(false);
       return undefined;
     }
     let cancelled = false;
-    entities.VisiteVirtuelle.get(tourId)
-      .then(tour => { if (!cancelled) setVirtualTour(tour || null); })
-      .catch(() => { if (!cancelled) setVirtualTour(null); });
+    setVirtualTourLoading(true);
+    const loadTour = async () => {
+      let tour = null;
+      if (tourId) {
+        tour = await entities.VisiteVirtuelle.get(tourId).catch(() => null);
+      }
+      // Compatibilité avec les visites créées avant l'ajout de
+      // ImmobilierListing.virtual_tour_id : le titre permet de retrouver la
+      // visite existante et de l'ouvrir sans demander un nouveau contact.
+      if (!tour && listing?.title) {
+        const matches = await entities.VisiteVirtuelle.filter({ title: listing.title }, "-created_at", 20).catch(() => []);
+        tour = matches.find(item => item?.scenes?.length) || matches[0] || null;
+      }
+      if (!cancelled) {
+        setVirtualTour(tour);
+        setVirtualTourLoading(false);
+      }
+    };
+    loadTour().catch(() => { if (!cancelled) { setVirtualTour(null); setVirtualTourLoading(false); } });
     return () => { cancelled = true; };
-  }, [listing?.virtual_tour_id, listing?.virtual_tour]);
+  }, [listing?.title, listing?.virtual_tour_id, listing?.virtual_tour]);
 
   const data = listing || FALLBACK;
   const images = data.images?.length ? data.images : FALLBACK.images;
@@ -239,8 +295,8 @@ export default function ImmobilierDetail() {
     }
   };
   const phone = data.contact_phone || ADMIN_PHONE;
-  const turnover = Number(data.estimated_turnover ?? data.estimated_ca ?? data.ca_estime ?? 0);
-  const netRevenue = Number(data.estimated_net_revenue ?? data.ebe_estime ?? data.net_revenue ?? 0);
+  const turnover = toAmount(data.estimated_turnover);
+  const netRevenue = toAmount(data.estimated_net_revenue);
   const addressLabel = [data.address || data.location || data.city, data.postal_code, data.city && data.city !== data.location ? data.city : null].filter(Boolean).join(", ");
   const mapItem = [{ id: data.id || id || "listing", title: data.title, address: data.location || data.address, postal_code: data.postal_code, city: data.city, latitude: data.latitude ?? data._lat, longitude: data.longitude ?? data._lng, price: data.price }];
   const appleMapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(addressLabel || data.title || "Emplacement du local")}`;
@@ -430,14 +486,15 @@ export default function ImmobilierDetail() {
           </div>
           <button
             onClick={() => virtualTour?.scenes?.length ? setShowVirtualTour(true) : setShowMsgModal(true)}
-            className="relative w-full h-40 rounded-2xl overflow-hidden active:scale-[0.99] transition-all"
+            disabled={virtualTourLoading}
+            className="relative w-full h-40 rounded-2xl overflow-hidden active:scale-[0.99] transition-all disabled:cursor-wait"
           >
             <BeautyImage src={virtualTour?.scenes?.[0]?.image_url || images[0]} alt="Visite 3D" className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-2">
               <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center shadow-lg">
                 <Box className="w-6 h-6 text-blue-600" />
               </div>
-              <span className="text-white text-[12px] font-black uppercase tracking-widest">{virtualTour?.scenes?.length ? "Lancer la visite 3D" : "Demander une visite"}</span>
+              <span className="text-white text-[12px] font-black uppercase tracking-widest">{virtualTourLoading ? "Chargement de la visite..." : virtualTour?.scenes?.length ? "Lancer la visite 3D" : "Demander une visite"}</span>
             </div>
           </button>
           <p className="text-[11px] text-gray-400 font-medium text-center mt-2">{virtualTour?.scenes?.length ? "Explorez l'espace à 360° avant votre visite" : "La visite virtuelle sera bientôt disponible"}</p>

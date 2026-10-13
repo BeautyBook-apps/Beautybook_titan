@@ -20,7 +20,7 @@ import { useAuthGate } from "@/hooks/useAuthGate";
 import { useLocation } from '@/contexts/LocationContext';
 import { isOpenNow } from "@/lib/hours";
 import { isProfilParticulier, isProfilSalon } from "@/lib/annonces";
-import { SALON_CATEGORIES } from "@/lib/categories";
+import { SALON_CATEGORIES, SERVICE_STYLE_CATEGORIES, SERVICE_QUICK_FILTERS } from "@/lib/categories";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import './Recherche.css';
 import './ServicesSalons.css';
@@ -162,7 +162,7 @@ function CardMediaSlider({ media, onCardClick }) {
   );
 }
 
-const STYLE_CATEGORIES = ["Tous", "Coiffure", "Perruque", "Tresses", "Extensions", "Maquillage", "Ongles", "Pédicure", "Soin", "Barbe", "Massage", "Épilation", "Cils & Sourcils", "Spa & Bien-être", "Tatouage", "Piercing"];
+const STYLE_CATEGORIES = SERVICE_STYLE_CATEGORIES.map(item => item.label);
 const STYLE_HAIR_TYPES = ["Afro", "Européenne", "Asiatique", "Crépus", "Bouclés", "Ondulés", "Lisses", "Tresses", "Locks"];
 const STYLE_SKIN_TYPES = ["Normale", "Sèche", "Grasse", "Mixte", "Sensible", "Mature"];
 const STYLE_DIFFICULTY_LEVELS = ["Débutant", "Intermédiaire", "Avancé", "Expert"];
@@ -3084,22 +3084,12 @@ export default function ServicesSalons() {
   const restoredStylesContext = routerLocation.state?.restoreStylesContext || readStylesReturnContext();
   const initialTab = urlParams.get("tab") || restoredStylesContext?.activeTab || "STYLES";
 
-  // Mapping catégorie id (depuis Home GLOBAL_CATEGORIES) → tab + sous-catégorie
-  const CAT_MAP = {
-    "coiffure":   { tab: "STYLES",       sub: "Coiffure" },
-    "perruque":   { tab: "STYLES",       sub: "Perruque" },
-    "tresses":    { tab: "STYLES",       sub: "Coiffure" },
-    "maquillage": { tab: "STYLES",       sub: "Maquillage" },
-    "manucure":   { tab: "STYLES",       sub: "Ongles" },
-    "pedicure":   { tab: "STYLES",       sub: "Ongles" },
-    "extensions": { tab: "STYLES",       sub: "Coiffure" },
-    "soin-visage":{ tab: "SERVICES",     sub: "Soin" },
-    "barbe":      { tab: "SERVICES",     sub: "Barbe" },
-    "massage":    { tab: "SERVICES",     sub: "Massage" },
-    "epilation":  { tab: "SERVICES",     sub: "Épilation" },
-    "cils":       { tab: "SERVICES",     sub: "Soin" },
-    "spa":        { tab: "SERVICES",     sub: "Massage" },
-  };
+  // Mapping catégorie id (depuis la source partagée) → onglet + catégorie.
+  const CAT_MAP = Object.fromEntries(
+    SERVICE_STYLE_CATEGORIES
+      .filter(item => item.id !== "tous")
+      .map(item => [item.id, { tab: "STYLES", sub: item.label }])
+  );
 
   const catParam = (urlParams.get("cat") || "").toLowerCase();
   const catMapped = CAT_MAP[catParam];
@@ -3112,7 +3102,11 @@ export default function ServicesSalons() {
   const [visualSearchError, setVisualSearchError] = useState("");
   const imageSearchInputRef = useRef(null);
   const [showPublish, setShowPublish] = useState(false);
-  const [styleQuickFilter, setStyleQuickFilter] = useState(restoredStylesContext?.quickFilter || null);
+  const requestedQuickFilter = urlParams.get("quickFilter");
+  const sharedQuickFilters = new Set(SERVICE_QUICK_FILTERS.map(item => item.id));
+  const [styleQuickFilter, setStyleQuickFilter] = useState(
+    restoredStylesContext?.quickFilter || (sharedQuickFilters.has(requestedQuickFilter) ? requestedQuickFilter : null)
+  );
   const [adminStyleCategories, setAdminStyleCategories] = useState([]);
   const [activeCategoryMap, setActiveCategoryMap] = useState({
     STYLES: catMapped?.tab === "STYLES" ? catMapped.sub : (restoredStylesContext?.activeCategory || "Tous"),
@@ -3258,11 +3252,11 @@ export default function ServicesSalons() {
               setActiveCategoryMap(p => ({ ...p, [activeTab]: v }));
               if (activeTab === "STYLES") setStyleQuickFilter(null);
             }}
-            extras={activeTab === "STYLES" ? [
-              { id: "type_cheveux", label: "Type de cheveux", Icon: Scissors },
-              { id: "type_peau", label: "Type de peau", Icon: Droplets },
-              { id: "niveau_difficulte", label: "Niveau de difficulté", Icon: Sparkles },
-            ] : []}
+            extras={activeTab === "STYLES" ? SERVICE_QUICK_FILTERS.map(item => ({
+              id: item.id,
+              label: item.label,
+              Icon: item.id === "type_cheveux" ? Scissors : item.id === "type_peau" ? Droplets : Sparkles,
+            })) : []}
             extraActive={activeTab === "STYLES" ? styleQuickFilter : null}
             onExtraChange={id => {
               setActiveCategoryMap(p => ({ ...p, STYLES: "Tous" }));

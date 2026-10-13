@@ -2,16 +2,54 @@ import { useLiveSessions } from '@/hooks/useLiveSessions';
 import BeautyImage from '@/components/ui/BeautyImage';
 import { fetchShopifyProducts } from "@/api/shopifyClient";
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Star, MapPin, Award, Users, Flame, ChevronRight, Radio, Search } from "lucide-react";
+import { Award, Circle, Crown, ChevronRight, Droplets, Eye, Flame, Footprints, Gem, Hand, Heart, MapPin, Paintbrush, PenTool, Radio, Scissors, Search, Sparkles, Star, Users, Waves, Wind, Zap } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import usePullToRefresh from "@/hooks/usePullToRefresh";
-import { GLOBAL_CATEGORIES } from "@/lib/categories";
+import { SERVICE_HOME_CATEGORIES } from "@/lib/categories";
 import { getPublicAds } from "@/lib/publicAds";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { useLocale } from "@/hooks/useLocale";
 import UserGuide from "@/components/UserGuide";
+
+const HOME_CATEGORY_ICONS = {
+  tous: Sparkles,
+  coiffure: Scissors,
+  perruque: Crown,
+  tresses: Waves,
+  extensions: Sparkles,
+  maquillage: Paintbrush,
+  ongles: Gem,
+  pedicure: Footprints,
+  soin: Droplets,
+  barbe: Zap,
+  massage: Hand,
+  epilation: Wind,
+  cils: Eye,
+  spa: Heart,
+  tatouage: PenTool,
+  piercing: Circle,
+};
+
+const HOME_CATEGORY_STYLES = {
+  tous: { surface: "bg-slate-100", border: "border-slate-200", icon: "text-slate-800" },
+  coiffure: { surface: "bg-purple-50", border: "border-purple-200", icon: "text-purple-500" },
+  perruque: { surface: "bg-violet-50", border: "border-violet-200", icon: "text-violet-500" },
+  tresses: { surface: "bg-rose-50", border: "border-rose-200", icon: "text-rose-500" },
+  extensions: { surface: "bg-fuchsia-50", border: "border-fuchsia-200", icon: "text-fuchsia-500" },
+  maquillage: { surface: "bg-pink-50", border: "border-pink-200", icon: "text-pink-500" },
+  ongles: { surface: "bg-amber-50", border: "border-amber-200", icon: "text-amber-500" },
+  pedicure: { surface: "bg-pink-50", border: "border-pink-200", icon: "text-pink-500" },
+  soin: { surface: "bg-cyan-50", border: "border-cyan-200", icon: "text-cyan-500" },
+  barbe: { surface: "bg-slate-100", border: "border-slate-200", icon: "text-slate-700" },
+  massage: { surface: "bg-emerald-50", border: "border-emerald-200", icon: "text-emerald-500" },
+  epilation: { surface: "bg-indigo-50", border: "border-indigo-200", icon: "text-indigo-500" },
+  cils: { surface: "bg-sky-50", border: "border-sky-200", icon: "text-sky-500" },
+  spa: { surface: "bg-orange-50", border: "border-orange-200", icon: "text-orange-500" },
+  tatouage: { surface: "bg-slate-100", border: "border-slate-200", icon: "text-slate-700" },
+  piercing: { surface: "bg-yellow-50", border: "border-yellow-200", icon: "text-yellow-600" },
+};
 
 
 function getSectionBg() {
@@ -402,20 +440,26 @@ export default function Home() {
       <div data-tour="categories" className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
         <SectionTitle title="Catégories" />
         <div className="flex gap-3.5 overflow-x-auto hide-scrollbar pb-1">
-          {GLOBAL_CATEGORIES.map((cat) => {
-            const Icon = cat.Icon;
+          {SERVICE_HOME_CATEGORIES.map((cat) => {
+            const Icon = HOME_CATEGORY_ICONS[cat.id] || Sparkles;
+            const visual = HOME_CATEGORY_STYLES[cat.id] || HOME_CATEGORY_STYLES.tous;
             return (
               <button
                 key={cat.id}
-                onClick={() => navigate(`/services-salons?cat=${encodeURIComponent(cat.id)}`)}
+                onClick={() => {
+                  const params = new URLSearchParams({ tab: "STYLES" });
+                  if (cat.id !== "tous" && !cat.quickFilter) params.set("cat", cat.id);
+                  if (cat.quickFilter) params.set("quickFilter", cat.quickFilter);
+                  navigate(`/services-salons?${params.toString()}`);
+                }}
                 aria-label={`Découvrir ${cat.label}`}
-                className="group flex min-w-[72px] flex-col items-center gap-2.5 shrink-0 rounded-2xl px-1 py-1 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-transform duration-200"
+                className="group flex min-w-[76px] flex-col items-center gap-2.5 shrink-0 rounded-2xl px-1 py-1 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-transform duration-200"
               >
-                <div className={`relative flex h-[58px] w-[58px] items-center justify-center rounded-[20px] border ${cat.border} ${cat.bg} shadow-[0_8px_18px_rgba(30,41,59,0.06)] transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_10px_24px_rgba(30,41,59,0.1)] group-active:scale-95`}>
-                  <div className="absolute inset-1 rounded-[16px] border border-white/75" />
-                  <Icon aria-hidden="true" className={`relative h-7 w-7 ${cat.color}`} strokeWidth={2} />
+                <div className={`relative grid h-[72px] w-[72px] place-items-center rounded-[23px] border ${visual.border} ${visual.surface} shadow-[0_10px_22px_rgba(30,41,59,0.07)] transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_14px_28px_rgba(30,41,59,0.12)] group-active:scale-95`}>
+                  <span className={`absolute inset-[6px] rounded-[18px] border ${visual.border} opacity-70`} aria-hidden="true" />
+                  <Icon className={`relative ${visual.icon}`} size={29} strokeWidth={1.9} aria-hidden="true" />
                 </div>
-                <span className="text-[10px] font-extrabold text-slate-600 tracking-tight text-center transition-colors group-hover:text-slate-900">{cat.label}</span>
+                <span className="max-w-[78px] truncate text-center text-[10px] font-extrabold tracking-tight text-slate-600 transition-colors group-hover:text-slate-900">{cat.label}</span>
               </button>
             );
           })}

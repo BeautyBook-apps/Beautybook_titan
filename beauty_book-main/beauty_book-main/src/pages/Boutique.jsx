@@ -8,12 +8,13 @@ const DEFAULT_BOUTIQUE_CATS = [
   { id: "homme",     label: "Homme",     subs: ["Vêtements", "Chaussures", "Accessoires", "Sacs", "Sport"] },
   { id: "femme",     label: "Femme",     subs: ["Vêtements", "Chaussures", "Sacs", "Bijoux", "Lingerie"] },
   { id: "enfant",    label: "Enfant",    subs: ["Fille", "Garçon", "Chaussures", "Jouets"] },
-  { id: "beaute",    label: "Beauté",    subs: ["Maquillage", "Soins Visage", "Cheveux", "Parfums", "Outils"] },
+  { id: "beaute",    label: "Beauté/Parapharmacie",    subs: ["Maquillage", "Soins Visage", "Cheveux", "Parfums", "Outils"] },
   { id: "bebe",      label: "Bébé",      subs: ["Vêtements", "Éveil", "Sommeil", "Repas", "Hygiène"] },
   { id: "grossiste", label: "Grossiste", subs: ["Beauté", "Vêtements", "Accessoires", "Hygiène", "Alimentaire", "Divers"] },
 ];
 import { adminApi } from "@/lib/adminApiClient";
 import { apiClient } from "@/lib/apiClient";
+import { fetchShopifyProducts } from "@/api/shopifyClient";
 import usePullToRefresh from "@/hooks/usePullToRefresh";
 import { useLikedProducts } from "@/hooks/useLikedProducts";
 import { useCartSync } from "@/hooks/useCartSync";
@@ -105,7 +106,7 @@ export default function Boutique() {
   const { liked, toggle: toggleLike, isLiked } = useLikedProducts();
   const { addToCart, adding, cartCount } = useCartSync();
   const [justAdded, setJustAdded] = useState(null);
-  const [shopifyProducts, setShopifyProducts] = useCachedState("boutique_page", [], c => (c?.products || []).filter(p => !p._shopify));
+  const [shopifyProducts, setShopifyProducts] = useCachedState("boutique_page", [], c => c?.products || []);
   const [loadingProducts, setLoadingProducts] = useState(() => !readPageCache("boutique_page")?.products?.length);
   const [loadError, setLoadError] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -167,7 +168,7 @@ export default function Boutique() {
 
     setLoadError(null);
 
-    // Charger uniquement les produits publiés dans la base BeautyBook.
+    // Charger les produits publiés dans BeautyBook et ceux de Shopify.
     Promise.allSettled([
       entities.Produit.filter({ status: "actif" }, "-created_at", 500)
         .then(items => items.map(p => ({
@@ -186,17 +187,22 @@ export default function Boutique() {
             min_qty: p.min_qty || null,
             created_date: p.created_date,
             source: "db",
-          }))).catch(() => [])
-    ]).then(([dbResult]) => {
+          }))).catch(() => []),
+      fetchShopifyProducts({ first: 100 }).then(result => result?.data?.products || [])
+    ]).then(([dbResult, shopifyResult]) => {
       const db = dbResult.status === "fulfilled" ? dbResult.value : [];
-      if (db.length > 0) {
-        setShopifyProducts(db);
-        // Mettre en cache les nouveaux produits
-        mergePageCache("boutique_page", { products: db });
+      const shopify = shopifyResult.status === "fulfilled" ? shopifyResult.value : [];
+      const dbIds = new Set(db.map(product => product.id));
+      const products = [...db, ...shopify.filter(product => !dbIds.has(product.id))];
+
+      if (products.length > 0) {
+        setShopifyProducts(products);
+        // Mettre en cache les produits des deux sources.
+        mergePageCache("boutique_page", { products });
         setLoadError(null);
       } else {
-        // Si l'API échoue, garder le cache affiché
-        if (!readPageCache("boutique_page")?.products?.length) setLoadError("Aucun produit disponible.");
+        // Si les deux sources sont vides, le rendu affiche l'état vide.
+        if (!readPageCache("boutique_page")?.products?.length) setLoadError(null);
       }
       setLoadingProducts(false);
     });

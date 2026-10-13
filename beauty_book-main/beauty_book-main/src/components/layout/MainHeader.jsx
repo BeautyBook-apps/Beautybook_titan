@@ -8,11 +8,11 @@ import { getUnreadCount } from '@/lib/notificationService';
 import CityPickerModal from "@/components/layout/CityPickerModal";
 
 const topTabs = [
-  { id: "live",       label: "Direct",    path: "/live",                Icon: Radio,      color: "#ef4444", badge: true },
-  { id: "recherche",  label: "Recherche", path: "/recherche",           Icon: Search,     color: "#E8732A" },
-  { id: "reels",      label: "Social",    path: "/reseau-social",       Icon: Users,      color: "#a855f7" },
   { id: "boutique",   label: "Boutique",  path: "/boutique",            Icon: ShoppingBag,color: "#06b6d4" },
-  { id: "immobilier", label: "Immo",      path: "/immobilier",          Icon: Building2,  color: "#10b981" },
+  { id: "reels",      label: "R.Social",  path: "/reseau-social",       Icon: Users,      color: "#a855f7" },
+  { id: "immobilier", label: "Immobilier",path: "/immobilier",          Icon: Building2,  color: "#10b981" },
+  { id: "recherche",  label: "Recherche", path: "/recherche",           Icon: Search,     color: "#E8732A" },
+  { id: "live",       label: "Direct",    path: "/live",                Icon: Radio,      color: "#ef4444", badge: true },
   { id: "fidelite",   label: "Fidélité",  path: "/programme-fidelite",  Icon: Star,       color: "#f59e0b" },
 ];
 

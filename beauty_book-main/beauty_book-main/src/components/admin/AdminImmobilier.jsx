@@ -161,6 +161,11 @@ export default function AdminImmobilier() {
       seats_count: listing.seats_count ?? listing.seats ?? "",
       images: Array.isArray(listing.images) ? listing.images : [],
       video_url: listing.video_url || "",
+      // Keep the numeric inputs controlled even when an older listing does
+      // not yet contain the optional performance columns.
+      estimated_turnover: listing.estimated_turnover ?? listing.estimatedTurnover ?? "",
+      estimated_net_revenue: listing.estimated_net_revenue ?? listing.estimatedNetRevenue ?? "",
+      virtual_tour_id: listing.virtual_tour_id || "",
     });
     setCreating(true);
     window.scrollTo({ top: 0, behavior: "smooth" });

@@ -105,4 +105,15 @@ CREATE POLICY "MariaConversation_all" ON public."MariaConversation" FOR ALL USIN
 CREATE POLICY "Repub_all" ON public."Repub" FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Panier_all" ON public."Panier" FOR ALL USING (true) WITH CHECK (true);
 
+-- The authenticated commerce API stores its cart in bb_carts. Keep this
+-- idempotent so existing installations can apply the backend migration safely.
+CREATE TABLE IF NOT EXISTS public.bb_carts (
+  user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  items jsonb NOT NULL DEFAULT '[]'::jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.bb_carts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.bb_carts FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.bb_carts TO service_role;
+
 SELECT pg_notify('pgrst', 'reload schema');

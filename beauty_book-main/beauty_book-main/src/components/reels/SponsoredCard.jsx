@@ -33,7 +33,7 @@ export default function SponsoredCard({ annonce, onClose, variant = "reels" }) {
   );
 }
 
-function VideoPlayer({ src, poster, className, style, soundOn = true }) {
+function VideoPlayer({ src, poster, className, style, soundOn = false }) {
   const ref = useRef(null);
   const visibleRef = useRef(true);
   const pausedByVisibilityRef = useRef(false);
@@ -188,7 +188,7 @@ function AdCountdown({ total = 5, onSkip }) {
 function ReelsAd({ annonce, onClose }) {
   const [showSkip, setShowSkip] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [soundOn, setSoundOn] = useState(true);
+  const [soundOn, setSoundOn] = useState(false);
   const isVideo = !!annonce.video_url;
 
   const descSentences = (() => {
@@ -288,7 +288,7 @@ function ReelsAd({ annonce, onClose }) {
 function StylesAd({ annonce, onClose }) {
   const [showSkip, setShowSkip] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [soundOn, setSoundOn] = useState(true);
+  const [soundOn, setSoundOn] = useState(false);
   const isVideo = !!annonce.video_url;
 
   const descSentences = (() => {

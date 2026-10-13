@@ -20,6 +20,7 @@ export function createAdminEntity(table, apiClient) {
         const missingField = error?.status === 409
           ? error.message?.match(/Le champ ([A-Za-z_][A-Za-z0-9_]*) n[’']existe pas encore/i)?.[1]
           : null;
+        if (table === 'ImmobilierListing' && ['estimated_turnover', 'estimated_net_revenue', 'virtual_tour_id'].includes(missingField)) throw error;
         if (!missingField || !Object.prototype.hasOwnProperty.call(payload, missingField)) throw error;
         delete payload[missingField];
       }
@@ -36,6 +37,7 @@ export function createAdminEntity(table, apiClient) {
         const missingField = error?.status === 409
           ? error.message?.match(/Le champ ([A-Za-z_][A-Za-z0-9_]*) n[’']existe pas encore/i)?.[1]
           : null;
+        if (table === 'ImmobilierListing' && ['estimated_turnover', 'estimated_net_revenue', 'virtual_tour_id'].includes(missingField)) throw error;
         if (!missingField || !Object.prototype.hasOwnProperty.call(payload, missingField)) throw error;
         delete payload[missingField];
       }

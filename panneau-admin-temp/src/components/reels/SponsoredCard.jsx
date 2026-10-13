@@ -79,7 +79,7 @@ function Media({ annonce, soundOn }) {
 }
 
 export default function SponsoredCard({ annonce, onClose }) {
-  const [soundOn, setSoundOn] = useState(true);
+  const [soundOn, setSoundOn] = useState(false);
   if (!annonce || (!annonce.image_url && !annonce.video_url)) return null;
 
   const openCta = () => {

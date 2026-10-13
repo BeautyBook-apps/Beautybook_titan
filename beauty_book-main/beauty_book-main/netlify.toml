@@ -1,0 +1,29 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/voice-key"
+  to = "/.netlify/functions/voice-key"
+  status = 200
+
+[[redirects]]
+  from = "/api/xai-token"
+  to = "/.netlify/functions/xai-token"
+  status = 200
+
+[[redirects]]
+  from = "/api/content/styles/engagement-stats"
+  to = "/.netlify/functions/engagement-stats"
+  status = 200
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

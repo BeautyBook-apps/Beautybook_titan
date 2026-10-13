@@ -13,6 +13,42 @@ import { useCartSync } from "@/hooks/useCartSync";
 import { useLikedProducts } from "@/hooks/useLikedProducts";
 import { readPageCache, writePageCache, mergePageCache } from "@/hooks/usePageCache";
 
+// Couleurs courantes utilisées par les variantes Shopify. Les valeurs non
+// présentes dans cette palette restent affichées comme des boutons texte.
+const COLOR_MAP = Object.freeze({
+  noir: "#111827",
+  black: "#111827",
+  blanc: "#ffffff",
+  white: "#ffffff",
+  gris: "#9ca3af",
+  grey: "#9ca3af",
+  gray: "#9ca3af",
+  beige: "#f5f0e8",
+  écru: "#f5f0e8",
+  ecru: "#f5f0e8",
+  marron: "#8b5e3c",
+  brown: "#8b5e3c",
+  rouge: "#dc2626",
+  red: "#dc2626",
+  orange: "#f97316",
+  jaune: "#facc15",
+  yellow: "#facc15",
+  vert: "#16a34a",
+  green: "#16a34a",
+  bleu: "#2563eb",
+  blue: "#2563eb",
+  violet: "#7c3aed",
+  purple: "#7c3aed",
+  rose: "#ec4899",
+  pink: "#ec4899",
+  nude: "#d6a58d",
+  doré: "#d4a72c",
+  dore: "#d4a72c",
+  gold: "#d4a72c",
+  argent: "#c0c0c0",
+  silver: "#c0c0c0",
+});
+
 // ── Scroll to Top Button ─────────────────────────────────────────────────────
 function ScrollToTopButton() {
   const [visible, setVisible] = useState(false);
@@ -113,6 +149,111 @@ function ExpandableSection({ title, children, defaultOpen = false }) {
         {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
       </button>
       {open && <div className="pb-4 text-[13px] text-gray-600 leading-relaxed">{children}</div>}
+    </div>
+  );
+}
+
+const DESCRIPTION_HEADINGS = [
+  "overview", "description", "features", "caractéristiques", "caracteristiques",
+  "details", "détails", "details du produit", "détails du produit",
+  "specifications", "spécifications", "materials", "matériaux", "packing list",
+  "contenu", "composition", "entretien",
+];
+
+function cleanDescriptionMarkup(value) {
+  return String(value || "")
+    .replace(/<br\s*\/?>(\s*)/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6])\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+}
+
+function parseProductDescription(value) {
+  let text = cleanDescriptionMarkup(value);
+  if (!text) return [];
+
+  // Place les titres connus sur leur propre ligne, même lorsqu'ils arrivent
+  // dans une description Shopify envoyée sous forme d'un seul paragraphe.
+  const headingsPattern = DESCRIPTION_HEADINGS
+    .sort((a, b) => b.length - a.length)
+    .map(title => title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  text = text.replace(
+    new RegExp(`\\b(${headingsPattern})\\s*:?\\s*`, "gi"),
+    (_, heading) => `\n§${heading.trim()}\n`,
+  );
+
+  // Sépare les propriétés qui suivent un texte continu : « Material: ... ».
+  text = text.replace(
+    /\s+(?=[A-ZÀ-Ý][A-Za-zÀ-ÿ0-9 &'()/\-]{1,40}:\s)/g,
+    "\n",
+  );
+
+  const sections = [];
+  let current = { title: "", paragraphs: [], fields: [] };
+  const pushCurrent = () => {
+    if (current.paragraphs.length || current.fields.length || current.title) {
+      sections.push(current);
+    }
+  };
+
+  text.split(/\n+/).map(line => line.trim()).filter(Boolean).forEach(line => {
+    if (line.startsWith("§")) {
+      pushCurrent();
+      current = { title: line.slice(1).trim(), paragraphs: [], fields: [] };
+      return;
+    }
+
+    const field = line.match(/^([^:]{1,45})\s*:\s*(.+)$/);
+    if (field && field[1].trim().length >= 2) {
+      current.fields.push({ label: field[1].trim(), value: field[2].trim() });
+    } else {
+      current.paragraphs.push(line);
+    }
+  });
+  pushCurrent();
+  return sections;
+}
+
+function ProductDescription({ text }) {
+  const sections = parseProductDescription(text);
+  if (sections.length === 0) {
+    return <p className="text-[13px] text-gray-500 leading-7 text-justify">Aucune description disponible.</p>;
+  }
+
+  return (
+    <div className="space-y-5">
+      {sections.map((section, sectionIndex) => (
+        <section key={`${section.title}-${sectionIndex}`} className="space-y-3">
+          {section.title && (
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-5 rounded-full bg-primary shrink-0" />
+              <h3 className="text-[14px] font-black text-gray-900 tracking-tight">{section.title}</h3>
+            </div>
+          )}
+          {section.paragraphs.map((paragraph, paragraphIndex) => (
+            <p key={paragraphIndex} className="text-[13px] text-gray-600 leading-7 text-justify">
+              {paragraph}
+            </p>
+          ))}
+          {section.fields.length > 0 && (
+            <div className="rounded-2xl bg-gray-50 border border-gray-100 divide-y divide-gray-200/70 overflow-hidden">
+              {section.fields.map((field, fieldIndex) => (
+                <div key={`${field.label}-${fieldIndex}`} className="px-3.5 py-3">
+                  <p className="text-[11px] font-black text-gray-900 mb-1">{field.label}</p>
+                  <p className="text-[12px] text-gray-600 leading-5 text-justify break-words">{field.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ))}
     </div>
   );
 }
@@ -442,12 +583,10 @@ export default function ProduitDetail() {
           if (product.stock !== undefined && !seen.has("disponibilité")) specLines.push({ label: "Disponibilité", value: product.stock > 0 ? "En stock" : "Rupture de stock" });
           if (product.tags?.length > 0 && !seen.has("tags")) specLines.push({ label: "Tags", value: product.tags.join(", ") });
 
-          const cleanDesc = descLines.join("\n").trim();
-
           return (
             <>
               <ExpandableSection title="Description du produit" defaultOpen>
-                <p className="text-[13px] text-gray-600 leading-relaxed text-justify">{cleanDesc || "Aucune description disponible."}</p>
+                <ProductDescription text={desc} />
               </ExpandableSection>
               <ExpandableSection title="Spécifications">
                 <div className="space-y-2">
@@ -616,7 +755,7 @@ function RecommendedProducts({ currentProductId, product, title = "PRODUITS DE L
         const SHOPIFY_DOMAIN = import.meta.env.VITE_SHOPIFY_DOMAIN || '';
         const SHOPIFY_TOKEN = import.meta.env.VITE_SHOPIFY_STOREFRONT_TOKEN || '';
         if (SHOPIFY_DOMAIN && SHOPIFY_TOKEN && vendorName) {
-          const r = await fetch(`https://${SHOPIFY_DOMAIN}/api/2024-10/graphql.json`, {
+          const r = await fetch(`https://${SHOPIFY_DOMAIN}/api/2026-07/graphql.json`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN },
             body: JSON.stringify({

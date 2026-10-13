@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-09-18T23:25:39.868Z",
+  "checkedAt": "2026-10-12T23:49:56.664Z",
   "metadataAccess": true,
   "tables": {
     "profiles": [
@@ -130,7 +130,10 @@
       "time_slot",
       "notes",
       "code_validated",
-      "calendar_shown"
+      "calendar_shown",
+      "booking_code",
+      "qr_code_url",
+      "collaborateur"
     ],
     "Produit": [
       "id",
@@ -274,7 +277,15 @@
       "created_by_id"
     ],
     "bb_admin_memberships": null,
-    "bb_seller_accounts": null
+    "bb_seller_accounts": [
+      "user_id",
+      "shop_name",
+      "status",
+      "low_stock_threshold",
+      "stripe_account_id",
+      "created_at",
+      "updated_at"
+    ]
   },
   "columnTypes": {
     "Service": {
@@ -519,6 +530,81 @@
         "format": "uuid"
       }
     },
+    "social_agent_config": {
+      "pro_email": {
+        "type": "string",
+        "format": "text"
+      },
+      "enabled": {
+        "type": "boolean",
+        "format": "boolean"
+      },
+      "instructions": {
+        "type": "string",
+        "format": "text"
+      },
+      "tone": {
+        "type": "string",
+        "format": "text"
+      },
+      "dm_enabled": {
+        "type": "boolean",
+        "format": "boolean"
+      },
+      "comments_enabled": {
+        "type": "boolean",
+        "format": "boolean"
+      },
+      "platforms": {
+        "format": "jsonb"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      }
+    },
+    "prestation_showcase": {
+      "id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "service_id": {
+        "type": "string",
+        "format": "text"
+      },
+      "is_bundle": {
+        "type": "boolean",
+        "format": "boolean"
+      },
+      "photo_url": {
+        "type": "string",
+        "format": "text"
+      },
+      "caption": {
+        "type": "string",
+        "format": "text"
+      },
+      "position": {
+        "type": "integer",
+        "format": "integer"
+      },
+      "pro_email": {
+        "type": "string",
+        "format": "text"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      "reservation_id": {
+        "type": "string",
+        "format": "text"
+      },
+      "client_name": {
+        "type": "string",
+        "format": "text"
+      }
+    },
     "Reservation": {
       "id": {
         "type": "string",
@@ -658,6 +744,18 @@
       "calendar_shown": {
         "type": "boolean",
         "format": "boolean"
+      },
+      "booking_code": {
+        "type": "string",
+        "format": "text"
+      },
+      "qr_code_url": {
+        "type": "string",
+        "format": "text"
+      },
+      "collaborateur": {
+        "type": "string",
+        "format": "text"
       }
     },
     "LiveSession": {
@@ -731,6 +829,36 @@
       "created_by_id": {
         "type": "string",
         "format": "uuid"
+      }
+    },
+    "bb_seller_accounts": {
+      "user_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "shop_name": {
+        "type": "string",
+        "format": "text"
+      },
+      "status": {
+        "type": "string",
+        "format": "text"
+      },
+      "low_stock_threshold": {
+        "type": "integer",
+        "format": "integer"
+      },
+      "stripe_account_id": {
+        "type": "string",
+        "format": "text"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
       }
     },
     "Style": {
@@ -860,6 +988,14 @@
       "niveau_difficulte": {
         "type": "string",
         "format": "text"
+      },
+      "category_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "subcategory_id": {
+        "type": "string",
+        "format": "uuid"
       }
     },
     "Notification": {
@@ -917,6 +1053,70 @@
       "read": {
         "type": "boolean",
         "format": "boolean"
+      }
+    },
+    "social_oauth_states": {
+      "state": {
+        "type": "string",
+        "format": "text"
+      },
+      "user_email": {
+        "type": "string",
+        "format": "text"
+      },
+      "platform": {
+        "type": "string",
+        "format": "text"
+      },
+      "return_to": {
+        "type": "string",
+        "format": "text"
+      },
+      "expires_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      }
+    },
+    "StyleSubCategory": {
+      "id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "name": {
+        "type": "string",
+        "format": "text"
+      },
+      "slug": {
+        "type": "string",
+        "format": "text"
+      },
+      "category_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "description": {
+        "type": "string",
+        "format": "text"
+      },
+      "is_active": {
+        "type": "boolean",
+        "format": "boolean"
+      },
+      "styles_count": {
+        "type": "integer",
+        "format": "integer"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
       }
     },
     "user_favorite": {
@@ -2103,6 +2303,36 @@
         "format": "timestamp with time zone"
       }
     },
+    "salon_ai_settings": {
+      "pro_email": {
+        "type": "string",
+        "format": "text"
+      },
+      "vocal_enabled": {
+        "type": "boolean",
+        "format": "boolean"
+      },
+      "chatbot_enabled": {
+        "type": "boolean",
+        "format": "boolean"
+      },
+      "agent_id": {
+        "type": "string",
+        "format": "text"
+      },
+      "voice": {
+        "type": "string",
+        "format": "text"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      "voice_api_key": {
+        "type": "string",
+        "format": "text"
+      }
+    },
     "Repub": {
       "id": {
         "type": "string",
@@ -2117,6 +2347,52 @@
         "format": "text"
       },
       "created_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      }
+    },
+    "StyleCategory": {
+      "id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "name": {
+        "type": "string",
+        "format": "text"
+      },
+      "slug": {
+        "type": "string",
+        "format": "text"
+      },
+      "description": {
+        "type": "string",
+        "format": "text"
+      },
+      "icon": {
+        "type": "string",
+        "format": "text"
+      },
+      "color": {
+        "type": "string",
+        "format": "text"
+      },
+      "is_active": {
+        "type": "boolean",
+        "format": "boolean"
+      },
+      "styles_count": {
+        "type": "integer",
+        "format": "integer"
+      },
+      "subcategories_count": {
+        "type": "integer",
+        "format": "integer"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      "updated_at": {
         "type": "string",
         "format": "timestamp with time zone"
       }
@@ -2802,6 +3078,64 @@
         "format": "timestamp with time zone"
       }
     },
+    "social_connections": {
+      "id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "user_email": {
+        "type": "string",
+        "format": "text"
+      },
+      "platform": {
+        "type": "string",
+        "format": "text"
+      },
+      "platform_user_id": {
+        "type": "string",
+        "format": "text"
+      },
+      "username": {
+        "type": "string",
+        "format": "text"
+      },
+      "display_name": {
+        "type": "string",
+        "format": "text"
+      },
+      "avatar_url": {
+        "type": "string",
+        "format": "text"
+      },
+      "access_token": {
+        "type": "string",
+        "format": "text"
+      },
+      "refresh_token": {
+        "type": "string",
+        "format": "text"
+      },
+      "expires_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      "scopes": {
+        "type": "string",
+        "format": "text"
+      },
+      "account_id": {
+        "type": "string",
+        "format": "text"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      }
+    },
     "SoldeBeautyPay": {
       "id": {
         "type": "string",
@@ -2937,6 +3271,59 @@
         "format": "timestamp with time zone"
       }
     },
+    "bb_image_jobs": {
+      "id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "user_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "request_key": {
+        "type": "string",
+        "format": "text"
+      },
+      "request_hash": {
+        "type": "string",
+        "format": "text"
+      },
+      "kind": {
+        "type": "string",
+        "format": "text"
+      },
+      "label": {
+        "type": "string",
+        "format": "text"
+      },
+      "input": {
+        "format": "jsonb"
+      },
+      "status": {
+        "type": "string",
+        "format": "text"
+      },
+      "output_path": {
+        "type": "string",
+        "format": "text"
+      },
+      "error_code": {
+        "type": "string",
+        "format": "text"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      "started_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      "finished_at": {
+        "type": "string",
+        "format": "timestamp with time zone"
+      }
+    },
     "user_follow": {
       "id": {
         "type": "string",
@@ -3029,6 +3416,14 @@
     {
       "id": "uploads",
       "public": true
+    },
+    {
+      "id": "qr-codes",
+      "public": true
+    },
+    {
+      "id": "ai-results",
+      "public": false
     }
   ]
 }

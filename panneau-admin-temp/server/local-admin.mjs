@@ -4,12 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 import { resourceAccess } from '../../beauty_book-main/beauty_book-main/backend/src/services/admin.js';
 
 const hidden = new Set(['password', 'access_token', 'refresh_token', 'credentials', 'stripe_customer_id', 'mux_stream_key']);
-// Ces colonnes sont ajoutées par des migrations facultatives de l'immobilier.
-// Tant que Supabase n'a pas reçu la migration, le panneau doit pouvoir créer
-// l'annonce de base sans bloquer sur ces enrichissements.
-const IMMOBILIER_OPTIONAL_COLUMNS = new Set([
-  'latitude', 'longitude', 'estimated_turnover', 'estimated_net_revenue', 'virtual_tour_id',
-]);
+// Les champs de l'annonce immobilière sont vérifiés contre le schéma distant.
+// Ne supprimons jamais silencieusement un champ renseigné par le formulaire :
+// une migration manquante doit rester visible et explicite.
+const IMMOBILIER_OPTIONAL_COLUMNS = new Set();
 const cleanRow = row => row && Object.fromEntries(Object.entries(row).filter(([key]) => !hidden.has(key)));
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const field = key => {
@@ -57,9 +55,15 @@ export function createLocalDataApi(client, { columns } = {}) {
         if ('price' in data && (!Number.isFinite(Number(data.price)) || Number(data.price) < 0)) fail(400, 'Prix invalide.');
         const payload = { ...data };
         if (columns && operation !== 'delete') {
-          const available = await columns(table);
+          let available = await columns(table);
           for (const [key, value] of Object.entries(payload)) {
-            if (available.has(key)) continue;
+            if (!available.has(key)) {
+              // Le schéma OpenAPI peut avoir été mis en cache avant une
+              // migration récente. On le recharge une fois avant de renvoyer
+              // une erreur 409 définitive.
+              available = await columns(table, true);
+              if (available.has(key)) continue;
+            } else continue;
             if (value === '' || value === null || value === undefined) delete payload[key];
             else if (table === 'ImmobilierListing' && IMMOBILIER_OPTIONAL_COLUMNS.has(key)) delete payload[key];
             else fail(409, `Le champ ${key} n’existe pas encore dans ${table}. Appliquez la migration de schéma avant de renseigner ce champ.`);
@@ -145,8 +149,8 @@ export function localAdminPlugin({ url, serviceKey, origin = 'http://localhost:5
   let api;
   let schema;
   let schemaTime = 0;
-  const columns = async table => {
-    if (!schema || Date.now() - schemaTime > 60000) {
+  const columns = async (table, force = false) => {
+    if (force || !schema || Date.now() - schemaTime > 60000) {
       const response = await fetch(url.replace(/\/$/, '') + '/rest/v1/', { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } });
       if (!response.ok) fail(502, 'Le schéma Supabase ne peut pas être chargé.');
       schema = (await response.json()).definitions;
