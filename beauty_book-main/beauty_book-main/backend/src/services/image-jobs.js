@@ -4,6 +4,7 @@ import {getSupabaseAdmin} from '../config/supabase.js';
 import {assert,HttpError} from '../lib/errors.js';
 import {checkedImage,openaiRequest} from './openai.js';
 import {isXaiConfigured,xaiImageEdit} from './xai.js';
+import {aiCredits} from './ai-credits.js';
 
 export function imageInput(input){
  const kind=input.mode||'article';
@@ -42,7 +43,7 @@ function provider() {
  if(configured==='grok'||configured==='xai')return 'grok';
  return isXaiConfigured()?'grok':'openai';
 }
-export function createImageJobs(database=db,{storage=imageStorage,configured=()=>provider()==='grok'?isXaiConfigured():!!process.env.OPENAI_API_KEY,generate,dailyLimit=()=>Number(process.env.AI_IMAGE_DAILY_LIMIT||10)}={}){
+export function createImageJobs(database=db,{storage=imageStorage,configured=()=>provider()==='grok'?isXaiConfigured():!!process.env.OPENAI_API_KEY,generate,dailyLimit=()=>Number(process.env.AI_IMAGE_FREE_DAILY_LIMIT||process.env.AI_IMAGE_DAILY_LIMIT||5),billing=aiCredits}={}){
  const generateImage=generate||((input)=>provider()==='grok'
   ?xaiImageEdit({images:input.images,prompt:promptFor(input)})
   :openaiRequest('images/edits',{model:process.env.OPENAI_IMAGE_MODEL||'gpt-image-2.5-flare',images:input.images.map(image_url=>({image_url})),prompt:promptFor(input),n:1,size:'1024x1024',quality:'medium',output_format:'png',moderation:'auto'},{timeoutMs:180000}));
@@ -62,10 +63,15 @@ export function createImageJobs(database=db,{storage=imageStorage,configured=()=
    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['image-quota:'+user.id]);
    const {rows:[previous]}=await client.query('SELECT * FROM bb_image_jobs WHERE user_id=$1 AND request_key=$2',[user.id,key]);
    if(previous){assert(previous.request_hash===hash,409,'IDEMPOTENCY_CONFLICT','Cet identifiant correspond déjà à une autre génération.');return previous;}
-   const {rows:[counts]}=await client.query("SELECT count(*) FILTER(WHERE created_at>now()-interval '24 hours')::integer AS daily,count(*) FILTER(WHERE status IN ('queued','processing'))::integer AS active FROM bb_image_jobs WHERE user_id=$1",[user.id]);
-   const limit=dailyLimit();assert(Number.isInteger(limit)&&limit>0&&limit<=100,503,'AI_QUOTA_NOT_CONFIGURED','Le quota IA doit être configuré.');
-   assert(counts.daily<limit&&counts.active<2,429,'AI_QUOTA_REACHED','Votre limite de générations est atteinte. Attendez la fin de vos demandes en cours.');
-   return (await client.query('INSERT INTO bb_image_jobs(user_id,request_key,request_hash,kind,label,input) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING *',[user.id,key,hash,input.kind,input.label,JSON.stringify(input)])).rows[0];
+   const {rows:[counts]}=await client.query("SELECT count(*) FILTER(WHERE status IN ('queued','processing'))::integer AS active FROM bb_image_jobs WHERE user_id=$1",[user.id]);
+   const configuredLimit=dailyLimit();
+   const limit=typeof billing.freeLimit==='function'?await billing.freeLimit(client,configuredLimit):configuredLimit;
+   assert(Number.isInteger(limit)&&limit>0&&limit<=100,503,'AI_QUOTA_NOT_CONFIGURED','Le quota IA doit être configuré.');
+   assert(counts.active<2,429,'AI_QUOTA_REACHED','Attendez la fin de vos demandes en cours avant de lancer une nouvelle génération.');
+   const reservation=await billing.reserve(client,user.id,limit);
+   const {rows:[job]}=await client.query('INSERT INTO bb_image_jobs(user_id,request_key,request_hash,kind,label,input,billing_source,credit_cost) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING *',[user.id,key,hash,input.kind,input.label,JSON.stringify(input),reservation.source,reservation.credit_cost]);
+   await billing.recordGeneration(client,user.id,job.id,reservation);
+   return job;
   });
   return present(row);
  }
@@ -74,6 +80,7 @@ export function createImageJobs(database=db,{storage=imageStorage,configured=()=
  async function remove(user,id){return database.transaction(async client=>{
   const {rows:[row]}=await client.query('SELECT * FROM bb_image_jobs WHERE id::text=$1 AND user_id=$2 FOR UPDATE',[id,user.id]);assert(row,404,'IMAGE_NOT_FOUND','Essayage introuvable.');
   assert(row.status!=='processing',409,'IMAGE_PROCESSING','La génération a déjà commencé. Supprimez le résultat une fois le traitement terminé.');
+  if(row.status==='queued')await billing.refundGeneration(client,row);
   if(row.output_path)await storage.remove(row.output_path);
   await client.query("UPDATE bb_image_jobs SET status='deleted',input='{}',output_path=NULL WHERE id=$1",[row.id]);return {deleted:true};
  });}
@@ -98,7 +105,12 @@ export function createImageJobs(database=db,{storage=imageStorage,configured=()=
    // Storage may have accepted the output before a network interruption.
    if(providerReturned&&error.code!=='INVALID_IMAGE_RESULT')return true;
    const uncertain=error.code==='AI_NETWORK_ERROR';
-   await database.query("UPDATE bb_image_jobs SET status=$1,error_code=$2,input='{}',finished_at=now() WHERE id=$3",[uncertain?'uncertain':'failed',error instanceof HttpError?error.code:'IMAGE_GENERATION_FAILED',row.id]);
+   await database.transaction(async client=>{
+    const {rows:[current]}=await client.query('SELECT * FROM bb_image_jobs WHERE id=$1 FOR UPDATE',[row.id]);
+    if(!current)return;
+    await client.query("UPDATE bb_image_jobs SET status=$1,error_code=$2,input='{}',finished_at=now() WHERE id=$3",[uncertain?'uncertain':'failed',error instanceof HttpError?error.code:'IMAGE_GENERATION_FAILED',row.id]);
+    if(!uncertain)await billing.refundGeneration(client,current);
+   });
   }
   return true;
  }

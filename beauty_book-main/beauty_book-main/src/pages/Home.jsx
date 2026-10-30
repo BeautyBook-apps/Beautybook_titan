@@ -2,16 +2,21 @@ import { useLiveSessions } from '@/hooks/useLiveSessions';
 import BeautyImage from '@/components/ui/BeautyImage';
 import { fetchShopifyProducts } from "@/api/shopifyClient";
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Award, Circle, Crown, ChevronRight, Droplets, Eye, Flame, Footprints, Gem, Hand, Heart, MapPin, Paintbrush, PenTool, Radio, Scissors, Search, Sparkles, Star, Users, Waves, Wind, Zap } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Award, Circle, Crown, ChevronRight, Droplets, Eye, Flame, Footprints, Gem, Hand, Heart, MapPin, Paintbrush, PenTool, Scissors, Sparkles, Star, Users, Waves, Wind, Zap } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import usePullToRefresh from "@/hooks/usePullToRefresh";
 import { SERVICE_HOME_CATEGORIES } from "@/lib/categories";
 import { getPublicAds } from "@/lib/publicAds";
 import { entities } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
 import { useLocale } from "@/hooks/useLocale";
 import UserGuide from "@/components/UserGuide";
+import {
+  buildRecommendationProfile,
+  loadRecommendationSignals,
+  rankRecommendations,
+  recordRecommendationEvent,
+} from "@/lib/recommendations";
 
 const HOME_CATEGORY_ICONS = {
   tous: Sparkles,
@@ -144,11 +149,10 @@ function SectionTitle({ title, action, onAction }) {
 }
 
 export default function Home() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [refreshKey, setRefreshKey] = useState(0);
   const [sectionBg, setSectionBg] = useState(getSectionBg);
-  const adminRecommandesSet = useRef(false);
   // Première peinture directement depuis le cache (pas de page vide).
   const [homeCacheInitial] = useState(readHomeCache);
   const [homeConfig, setHomeConfig] = useState(homeCacheInitial.homeConfig || {});
@@ -162,6 +166,7 @@ export default function Home() {
   const [bundles, setBundles] = useState(homeCacheInitial.bundles || []);
   const [bundlesTendance, setBundlesTendance] = useState(homeCacheInitial.bundlesTendance || []);
   const [servicesSponsorises, setServicesSponsorises] = useState(homeCacheInitial.servicesSponsorises || []);
+  const [servicesRecommandes, setServicesRecommandes] = useState(homeCacheInitial.servicesRecommandes || []);
   const [stylesTendance, setStylesTendance] = useState(homeCacheInitial.stylesTendance || []);
   const [annoncesPub, setAnnoncesPub] = useState([]);
   // Devient true dès que de vraies données sont arrivées : autorise alors
@@ -175,6 +180,20 @@ export default function Home() {
     getPublicAds({ limit: 10 })
       .then(setAnnoncesPub)
       .catch(() => setAnnoncesPub([]));
+
+    const syncBundles = async (cfg = {}) => {
+      const active = await entities.ServiceBundle
+        .filter({ is_active: true, is_group: false }, "-created_at", 50)
+        .catch(() => []);
+      const source = Array.isArray(cfg.bundles) && cfg.bundles.length > 0 ? cfg.bundles : active;
+      const byId = new Map(active.map(bundle => [bundle.id, bundle]));
+      const resolved = source
+        .map(bundle => byId.get(bundle.id) || bundle)
+        .filter(bundle => bundle && bundle.is_active !== false)
+        .slice(0, 6);
+      setBundles(resolved);
+      setBundlesTendance(resolved.filter(bundle => Number(bundle.discount_percent || 0) >= 20).slice(0, 6));
+    };
 
     // Charger config depuis AppConfig
     entities.AppConfig.filter({ key: "home_config" }, "-created_at", 50)
@@ -202,21 +221,13 @@ export default function Home() {
           const adminRecommandes = cfg.recommande_pour_vous || [];
           if (adminRecommandes.length > 0) {
             setProduitsRecommandes(adminRecommandes.slice(0, 8));
-            adminRecommandesSet.current = true;
           }
+           await syncBundles(cfg);
+         } else {
+           await syncBundles();
         }
       })
-      .catch(() => {});
-
-
-
-    // Bundles
-    entities.ServiceBundle.filter({ is_active: true, is_group: false }, "-created_at", 10)
-      .then(items => {
-        setBundles(items.slice(0, 6));
-        setBundlesTendance(items.filter(b => b.discount_percent >= 20).slice(0, 6));
-      })
-      .catch(() => {});
+       .catch(() => syncBundles());
 
     // Services sponsorisés — pubs actives liées à un service ou un bundle
     entities.Annonce.filter({ status: "actif" }, "-created_at", 50)
@@ -263,45 +274,77 @@ export default function Home() {
       setProduitsTendanceLive([...db, ...shopify].slice(0, 4));
     }).catch(() => setProduitsTendanceLive([]));
 
-    // Produits recommandés : fallback Shopify + vendeurs si pas de config admin
-    (async () => {
-      if (adminRecommandesSet.current) return;
-      const shopifyProds = [];
-      const vendeurProds = [];
-
-      try {
-        const result = await fetchShopifyProducts({ first: 20 });
-        for (const product of result.data?.products || []) {
-          shopifyProds.push({
-            id: product.id,
-            name: product.name,
-            brand: product.brand || '',
-            price: product.price,
-            image_url: product.image_url || product.img || '',
-            source: 'shopify',
-          });
-        }
-      } catch (e) { console.error("[Home] Shopify error:", e); }
-
-      try {
-        const items = await entities.Produit.filter({ status: "actif" }, "-created_at", 20);
-        for (const p of items) {
-          vendeurProds.push({
-            id: p.id, name: p.name || '', brand: p.brand || '',
-            price: parseFloat(p.price || 0),
-            image_url: p.image_url || (p.images && p.images[0]) || '', source: 'vendeur',
-          });
-        }
-      } catch (e) { console.error("[Home] DB error:", e); }
-
-      setProduitsRecommandes([...shopifyProds, ...vendeurProds].slice(0, 8));
-    })();
-
     // Fallback : charger la première offre dispo si aucune config admin
     entities.ImmobilierListing.filter({ status: "actif" }, "-created_at", 1)
       .then(rows => { if (rows[0]) setOffresImmoLive(prev => prev || rows[0]); })
       .catch(() => {});
   }, [refreshKey]);
+
+  // Moteur de recommandation hybride : préférences explicites, historique de
+  // réservation, favoris/likes, puis qualité et popularité en fallback.
+  useEffect(() => {
+    let cancelled = false;
+    const uniqueById = items => [...new Map(
+      (items || []).filter(item => item?.id).map(item => [String(item.id), item]),
+    ).values()];
+
+    const loadRecommendations = async () => {
+      const [shopifyResult, productsResult, servicesResult, signals] = await Promise.all([
+        fetchShopifyProducts({ first: 20 }).catch(() => ({ data: {} })),
+        entities.Produit.filter({ status: "actif" }, "-created_at", 50).catch(() => []),
+        entities.Service.filter({ status: "actif" }, "-created_at", 200).catch(() => []),
+        loadRecommendationSignals({ email: user?.email, entities }),
+      ]);
+
+      if (cancelled) return;
+
+      const shopifyProducts = (shopifyResult.data?.products || []).map(product => ({
+        id: product.id,
+        name: product.name,
+        brand: product.brand || '',
+        price: product.price,
+        image_url: product.image_url || product.img || '',
+        source: 'shopify',
+        category: product.category || product.product_type || '',
+        tags: product.tags || [],
+      }));
+      const sellerProducts = (productsResult || []).map(product => ({
+        ...product,
+        name: product.name || product.title || '',
+        price: parseFloat(product.price || 0),
+        image_url: product.image_url || product.images?.[0] || '',
+        source: 'vendeur',
+      }));
+      const services = (servicesResult || []).map(service => ({
+        ...service,
+        title: service.title || service.name || 'Prestation beauté',
+        image_url: service.image_url || service.images?.[0] || '',
+      }));
+      const recommendationProfile = buildRecommendationProfile({
+        user,
+        profile,
+        reservations: signals.reservations,
+        favorites: signals.favorites,
+        likes: signals.likes,
+        events: signals.events,
+        catalog: services,
+      });
+      const configuredProducts = Array.isArray(homeConfig.recommande_pour_vous)
+        ? homeConfig.recommande_pour_vous
+        : [];
+      const productCandidates = uniqueById([
+        ...configuredProducts,
+        ...shopifyProducts,
+        ...sellerProducts,
+      ]);
+
+      setProduitsRecommandes(rankRecommendations(productCandidates, recommendationProfile, { limit: 8 }));
+      setServicesRecommandes(rankRecommendations(services, recommendationProfile, { limit: 4 }));
+    };
+
+    void loadRecommendations();
+    return () => { cancelled = true; };
+  }, [refreshKey, user?.email, profile?.id, homeConfig.recommande_pour_vous]);
 
   // Persiste les données en cache dès qu'elles sont chargées (jamais de vide) :
   // la prochaine ouverture affiche directement la page complète.
@@ -314,12 +357,13 @@ export default function Home() {
       bundles,
       bundlesTendance,
       servicesSponsorises,
+      servicesRecommandes,
       stylesTendance,
       partenairesDiplomes,
       produitsTendanceLive,
       produitsRecommandes,
     });
-  }, [homeConfig, offresSpeciales, offresImmoLive, bundles, bundlesTendance, servicesSponsorises, stylesTendance, partenairesDiplomes, produitsTendanceLive, produitsRecommandes]);
+  }, [homeConfig, offresSpeciales, offresImmoLive, bundles, bundlesTendance, servicesSponsorises, servicesRecommandes, stylesTendance, partenairesDiplomes, produitsTendanceLive, produitsRecommandes]);
 
   useEffect(() => {
     const update = () => setSectionBg(getSectionBg());
@@ -522,6 +566,40 @@ export default function Home() {
         </div>
       </div>
 
+      {/* ── Recommandations personnalisées ── */}
+      {servicesRecommandes.length > 0 && (
+        <div className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
+          <SectionTitle title="Pour vous" action="Voir tout" onAction={() => navigate("/services-salons")} />
+          <p className="text-[11px] text-gray-500 font-medium -mt-2 mb-3">
+            Une sélection basée sur vos envies et vos dernières découvertes.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {servicesRecommandes.map(service => {
+              const image = service.image_url || service.images?.[0] || "";
+              return (
+                <button
+                  key={service.id}
+                  onClick={() => { recordRecommendationEvent("click", service); navigate(`/service/${service.id}`, { state: { title: service.title, price: service.price, cover: image } }); }}
+                  className="bg-white rounded-[24px] overflow-hidden shadow-sm active:scale-95 transition-all text-left border border-orange-100"
+                >
+                  <div className="relative h-[135px]">
+                    <BeautyImage src={image} alt={service.title} className="w-full h-full object-cover" />
+                    <span className="absolute top-2.5 left-2.5 bg-white/95 text-primary text-[9px] font-black uppercase px-2 py-1 rounded-full shadow-sm">
+                      <Sparkles className="w-2.5 h-2.5 inline mr-1" /> Pour vous
+                    </span>
+                  </div>
+                  <div className="p-3">
+                    <p className="text-[13px] font-black text-gray-900 leading-tight line-clamp-2">{service.title}</p>
+                    <p className="text-[10px] text-gray-500 font-medium mt-1 line-clamp-1">{service.recommendation_reason}</p>
+                    <p className="text-[12px] font-bold text-primary mt-1.5">À partir de {formatPrice(service.promo_price || service.price)}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── Bundles ── */}
       {bundles.length > 0 && (
         <div className="mx-4 rounded-3xl px-4 py-5 mb-2" style={{ background: sectionBg }}>
@@ -651,7 +729,7 @@ export default function Home() {
         <div className="grid grid-cols-2 gap-3">
           {produitsTendance.slice(0, 4).map((p) => (
             <button key={p.id || p.name}
-              onClick={() => navigate(`/produit?id=${p.id}`)}
+              onClick={() => { recordRecommendationEvent("click", p); navigate(`/produit?id=${p.id}`); }}
               className="bg-white rounded-[24px] overflow-hidden shadow-sm active:scale-95 transition-all text-left border border-orange-50">
               <div className="relative h-[140px]">
                 <BeautyImage src={p.image_url || ""} alt={p.name || p.title} className="w-full h-full object-cover" />
@@ -673,7 +751,7 @@ export default function Home() {
           <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory scrollbar-hide">
             {produitsRecommandes.map((p) => (
               <button key={p.id}
-                onClick={() => navigate(`/produit?id=${encodeURIComponent(p.id)}`)}
+                onClick={() => { recordRecommendationEvent("click", p); navigate(`/produit?id=${encodeURIComponent(p.id)}`); }}
                 className="min-w-[160px] max-w-[160px] bg-white rounded-[24px] overflow-hidden shadow-sm active:scale-95 transition-all text-left border border-gray-100 snap-start shrink-0">
                 <div className="relative h-[140px]">
                   <BeautyImage src={p.image_url || ""} alt={p.name} className="w-full h-full object-cover" />

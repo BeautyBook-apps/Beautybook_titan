@@ -76,6 +76,7 @@ const THEMES = {
 
 export function applyTheme(theme) {
   const root = document.documentElement;
+  root.dataset.bbTheme = theme;
   let styleEl = document.getElementById("bb-theme-style");
   if (!styleEl) {
     styleEl = document.createElement("style");

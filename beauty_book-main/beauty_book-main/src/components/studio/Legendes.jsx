@@ -1,8 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useRef } from "react";
-import { X, MessageSquare, Wand2, Check, ChevronDown, Type } from "lucide-react";
-import { entities } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
+import { X, MessageSquare, Wand2, ChevronDown, Type } from "lucide-react";
+import { uploadFile } from '@/api/entities';
 
 const FONTS = [
   { id: "bold", label: "Bold", style: "font-black" },
@@ -41,6 +40,8 @@ const PRESETS = [
 
 export default function Legendes({ onClose, onDone }) {
   const [image, setImage] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
   const [text, setText] = useState("");
   const [font, setFont] = useState("bold");
   const [position, setPosition] = useState("bottom");
@@ -55,13 +56,24 @@ export default function Legendes({ onClose, onDone }) {
     const file = e.target.files[0];
     if (!file) return;
     const localUrl = URL.createObjectURL(file);
+    setUploading(true);
+    setError("");
     setImage(localUrl);
+    try {
+      const { file_url } = await uploadFile({ file });
+      setImage(file_url || localUrl);
+    } catch (uploadError) {
+      setError(uploadError?.message || "Impossible d'importer ce média.");
+      setImage(null);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const generateAI = async () => {
     setGenerating(true);
     try {
-      const res = await base44.integrations.Core.InvokeLLM({
+      const res = await window.base44?.integrations?.Core?.InvokeLLM?.({
         prompt: `Génère une légende courte et percutante (max 10 mots) pour une publication beauté/coiffure/salon sur les réseaux sociaux. Réponds uniquement avec la légende, sans guillemets.`,
       });
       setText(res?.result || "Un look irrésistible ✨");
@@ -107,12 +119,13 @@ export default function Legendes({ onClose, onDone }) {
         </div>
         <button
           onClick={() => onDone({ image_url: image, caption: text, font, position, style: styleId, animation })}
-          disabled={!text}
+          disabled={!text || uploading}
           className="bg-primary text-white text-[12px] font-black px-4 py-2 rounded-full active:scale-95 disabled:opacity-40"
         >
           Terminer
         </button>
       </div>
+      {error && <p role="alert" className="mx-5 mb-2 rounded-xl bg-red-500/15 px-3 py-2 text-center text-[11px] font-bold text-red-300">{error}</p>}
 
       {/* Preview */}
       <div className="flex-1 flex items-center justify-center bg-black mx-4 rounded-3xl overflow-hidden relative">

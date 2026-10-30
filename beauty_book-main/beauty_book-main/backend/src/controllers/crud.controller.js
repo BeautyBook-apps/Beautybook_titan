@@ -29,7 +29,7 @@ const FALLBACK_COLUMNS = {
   LiveMessage: ['id','session_id','user_email','user_name','user_avatar','sender_email','sender_name','sender_avatar','content','type','created_at','updated_at','created_by_id'],
   Avis: ['id','user_email','user_name','user_avatar','pro_email','service_id','service_name','rating','comment','status','created_at','updated_at','created_by_id'],
   MembreEquipe: ['id','pro_email','membre_email','membre_name','membre_avatar','name','role','specialites','specialties','experience','days','horaires','status','created_at','updated_at','created_by_id'],
-  ProfilPro: ['id','user_email','nom','prenom','salon_name','bio','specialites','avatar_url','cover_url','address','city','phone','status','rating','reviews_count','travail_nuit','horaires','jours_repos','conges','ouverture','team_emails','latitude','longitude','_lat','_lng','abonnement','abonnement_expires_at','stripe_customer_id','categorie','tags','galerie_urls','presentation_video_url','website','instagram','facebook','services_count','followers','created_at','updated_at','created_by_id'],
+  ProfilPro: ['id','user_email','nom','prenom','salon_name','bio','specialites','avatar_url','cover_url','address','city','phone','status','rating','reviews_count','travail_nuit','horaires','jours_repos','conges','ouverture','team_emails','latitude','longitude','_lat','_lng','abonnement','abonnement_expires_at','stripe_customer_id','categorie','tags','galerie_urls','presentation_video_url','website','instagram','facebook','services_count','followers','views','created_at','updated_at','created_by_id'],
   DemandeProV2: ['id','user_email','username','nom','prenom','phone','address','city','specialite','experience','description','cv_url','portfolio_urls','status','admin_notes','statut','siret','salon_name','bio','type_activite','categorie','years_experience','services','categories','specialites_cheveux','salon_photo','portfolio','email_pro','doc_identite_recto','doc_identite_verso','doc_siret','doc_assurance','days','time_slots','commodites','seats_count','se_deplace','travail_nuit','visite_video_url','diplomes','has_diplome','created_at','updated_at','created_by_id'],
   DemandefFranchise: ['id','user_email','user_name','full_name','email','phone','city','budget','experience','message','status','created_at','updated_at','created_by_id'],
   CatalogueOption: ['id','name','description','price','duration_min','service_id','pro_email','category','usage_count','created_at','updated_at','created_by_id'],
@@ -122,6 +122,53 @@ export const runMigration = async (req, res) => {
 export const runMigrations = async (req, res) => {
   const migrations = [
     // ── Tables auto-créées si manquantes ──
+    `CREATE TABLE IF NOT EXISTS public."ServiceBundle" (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      pro_email TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT DEFAULT '',
+      service_ids TEXT[] NOT NULL DEFAULT '{}',
+      style_ids TEXT[] NOT NULL DEFAULT '{}',
+      bundle_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+      discount_percent NUMERIC(5,2) NOT NULL DEFAULT 0,
+      image_url TEXT DEFAULT '',
+      cover_url TEXT DEFAULT '',
+      banner_url TEXT DEFAULT '',
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      is_group BOOLEAN NOT NULL DEFAULT false,
+      min_persons INTEGER NOT NULL DEFAULT 1,
+      max_persons INTEGER NOT NULL DEFAULT 1,
+      bundle_price_per_person NUMERIC(10,2),
+      category TEXT DEFAULT 'autre',
+      bonus TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_by_id UUID
+    )`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS pro_email TEXT DEFAULT ''`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS name TEXT DEFAULT ''`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS service_ids TEXT[] DEFAULT '{}'`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS style_ids TEXT[] DEFAULT '{}'`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS bundle_price NUMERIC(10,2) DEFAULT 0`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS discount_percent NUMERIC(5,2) DEFAULT 0`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT ''`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS cover_url TEXT DEFAULT ''`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS banner_url TEXT DEFAULT ''`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS is_group BOOLEAN DEFAULT false`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS min_persons INTEGER DEFAULT 1`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS max_persons INTEGER DEFAULT 1`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS bundle_price_per_person NUMERIC(10,2)`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'autre'`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS bonus TEXT DEFAULT ''`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()`,
+    `ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS created_by_id UUID`,
+    `ALTER TABLE public."ServiceBundle" ENABLE ROW LEVEL SECURITY`,
+    `DROP POLICY IF EXISTS "ServiceBundle_public_read" ON public."ServiceBundle"`,
+    `DROP POLICY IF EXISTS "ServiceBundle_all" ON public."ServiceBundle"`,
+    `CREATE POLICY "ServiceBundle_all" ON public."ServiceBundle" FOR ALL USING (true) WITH CHECK (true)`,
     `CREATE TABLE IF NOT EXISTS user_like (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_email TEXT NOT NULL DEFAULT '',
@@ -215,6 +262,63 @@ export const runMigrations = async (req, res) => {
     `ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS gender TEXT`,
     `ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS beauty_interests JSONB DEFAULT '[]'::jsonb`,
     `ALTER TABLE public."ProfilPro" ADD COLUMN IF NOT EXISTS followers INTEGER DEFAULT 0`,
+    `ALTER TABLE public."ProfilPro" ADD COLUMN IF NOT EXISTS views INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS likes INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS views INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE public."Style" ADD COLUMN IF NOT EXISTS shares INTEGER NOT NULL DEFAULT 0`,
+    `CREATE TABLE IF NOT EXISTS public.style_view_event (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      style_id TEXT NOT NULL,
+      viewer_key TEXT NOT NULL,
+      viewer_email TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (style_id, viewer_key)
+    )`,
+    `CREATE INDEX IF NOT EXISTS style_view_event_style_idx ON public.style_view_event (style_id)`,
+    `CREATE TABLE IF NOT EXISTS public.pro_profile_view_event (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      pro_email TEXT NOT NULL,
+      viewer_key TEXT NOT NULL,
+      viewer_email TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (pro_email, viewer_key)
+    )`,
+    `CREATE INDEX IF NOT EXISTS pro_profile_view_event_pro_email_idx ON public.pro_profile_view_event (pro_email)`,
+    `ALTER TABLE public.pro_profile_view_event ENABLE ROW LEVEL SECURITY`,
+    `DROP POLICY IF EXISTS "profile view events insert" ON public.pro_profile_view_event`,
+    `CREATE POLICY "profile view events insert" ON public.pro_profile_view_event FOR INSERT WITH CHECK (viewer_key IS NOT NULL AND length(viewer_key) BETWEEN 8 AND 180)`,
+    `DROP POLICY IF EXISTS "profile view events owner read" ON public.pro_profile_view_event`,
+    `CREATE POLICY "profile view events owner read" ON public.pro_profile_view_event FOR SELECT USING (
+      EXISTS (SELECT 1 FROM public."ProfilPro" p WHERE p.user_email = pro_profile_view_event.pro_email AND p.user_email = auth.email())
+      OR EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'admin')
+    )`,
+    `CREATE OR REPLACE FUNCTION public.record_professional_profile_view(
+      target_pro_email TEXT,
+      viewer_key_value TEXT,
+      viewer_email_value TEXT DEFAULT NULL
+    ) RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+    DECLARE inserted_count INTEGER; next_count INTEGER;
+    BEGIN
+      IF target_pro_email IS NULL OR btrim(target_pro_email) = '' OR viewer_key_value IS NULL OR length(btrim(viewer_key_value)) < 8 THEN RETURN 0; END IF;
+      IF NOT EXISTS (SELECT 1 FROM public."ProfilPro" p WHERE lower(p.user_email) = lower(btrim(target_pro_email)))
+         OR lower(btrim(viewer_email_value)) = lower(btrim(target_pro_email)) THEN
+        SELECT COALESCE(MAX(views), 0) INTO next_count FROM public."ProfilPro" WHERE lower(user_email) = lower(btrim(target_pro_email));
+        RETURN next_count;
+      END IF;
+      INSERT INTO public.pro_profile_view_event (pro_email, viewer_key, viewer_email)
+      VALUES (lower(btrim(target_pro_email)), btrim(viewer_key_value), NULLIF(lower(btrim(viewer_email_value)), ''))
+      ON CONFLICT (pro_email, viewer_key) DO NOTHING;
+      GET DIAGNOSTICS inserted_count = ROW_COUNT;
+      IF inserted_count = 1 THEN
+        UPDATE public."ProfilPro" SET views = COALESCE(views, 0) + 1, updated_at = COALESCE(updated_at, now())
+        WHERE lower(user_email) = lower(btrim(target_pro_email));
+      END IF;
+      SELECT COALESCE(MAX(views), 0) INTO next_count FROM public."ProfilPro" WHERE lower(user_email) = lower(btrim(target_pro_email));
+      RETURN next_count;
+    END;
+    $$`,
+    `REVOKE ALL ON FUNCTION public.record_professional_profile_view(TEXT, TEXT, TEXT) FROM PUBLIC`,
+    `GRANT EXECUTE ON FUNCTION public.record_professional_profile_view(TEXT, TEXT, TEXT) TO anon, authenticated`,
     `ALTER TABLE public."ProfilPro" ADD COLUMN IF NOT EXISTS ouverture JSONB DEFAULT '{}'::jsonb`,
     `ALTER TABLE public."MembreEquipe" ADD COLUMN IF NOT EXISTS experience TEXT`,
     `ALTER TABLE public."MembreEquipe" ADD COLUMN IF NOT EXISTS days TEXT[] DEFAULT '{}'`,

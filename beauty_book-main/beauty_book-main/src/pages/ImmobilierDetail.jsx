@@ -1,7 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, Heart, MessageSquare, Phone, MapPin, Maximize2, Armchair, Zap, TrendingUp, X, Send, CheckCircle, Box, Users, User, Sparkles, Check, ExternalLink } from "lucide-react";
+import { ArrowLeft, Share2, Heart, MessageSquare, Phone, MapPin, Maximize2, Armchair, Zap, TrendingUp, X, Send, CheckCircle, Box, Users, User, Sparkles, Check, ExternalLink } from "lucide-react";
 import { entities } from '@/api/entities';
 import apiClient from '@/lib/apiClient';
 import { supabase } from '@/api/supabaseClient';
@@ -9,6 +9,7 @@ import { likesApi } from '@/api/likes';
 import { readPageCache, writePageCache } from "@/hooks/usePageCache";
 import MapWithPricePins from "@/components/map/MapWithPricePins";
 import PanoViewer from "@/components/virtualtour/PanoViewer";
+import DetailShareSheet from "@/components/share/DetailShareSheet";
 
 const FALLBACK = {
   images: [""],
@@ -177,6 +178,7 @@ export default function ImmobilierDetail() {
   const [showImageLightbox, setShowImageLightbox] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
   const [showMsgModal, setShowMsgModal] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const [virtualTour, setVirtualTour] = useState(() => state?.virtual_tour || null);
   const [virtualTourLoading, setVirtualTourLoading] = useState(false);
   const [showVirtualTour, setShowVirtualTour] = useState(false);
@@ -314,6 +316,18 @@ export default function ImmobilierDetail() {
     <div className="font-display bg-[#f5f5f5] min-h-full" style={{ paddingBottom: "calc(80px + env(safe-area-inset-bottom, 0px))" }}>
 
       {showMsgModal && <MessageModal listing={data} onClose={() => setShowMsgModal(false)} />}
+      {showShare && (
+        <DetailShareSheet
+          title={data.title}
+          subtitle={addressLabel}
+          eyebrow="BeautyBook · immobilier"
+          category={data.badge || "Opportunité professionnelle"}
+          image={images[0]}
+          price={data.price ? `${data.price} € ${data.unit || ""}` : null}
+          description={data.description}
+          onClose={() => setShowShare(false)}
+        />
+      )}
 
       {showImageLightbox && images[imgIdx] && (
         <div
@@ -391,9 +405,14 @@ export default function ImmobilierDetail() {
           <button onClick={() => navigate(-1)} className="w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow active:scale-95 transition-all">
             <ArrowLeft className="w-5 h-5 text-gray-800" />
           </button>
-          <button onClick={toggleLike} aria-label={liked ? "Retirer des favoris" : "Ajouter aux favoris"} className="w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow active:scale-95 transition-all">
-            <Heart className={`w-5 h-5 ${liked ? "fill-red-500 text-red-500" : "text-gray-700"}`} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowShare(true)} aria-label="Partager cette annonce" className="w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow active:scale-95 transition-all">
+              <Share2 className="w-5 h-5 text-gray-700" />
+            </button>
+            <button onClick={toggleLike} aria-label={liked ? "Retirer des favoris" : "Ajouter aux favoris"} className="w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow active:scale-95 transition-all">
+              <Heart className={`w-5 h-5 ${liked ? "fill-red-500 text-red-500" : "text-gray-700"}`} />
+            </button>
+          </div>
         </div>
       </div>
 

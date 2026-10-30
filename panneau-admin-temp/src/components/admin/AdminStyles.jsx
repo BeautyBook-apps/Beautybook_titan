@@ -4,7 +4,7 @@ import { adminApi } from "@/lib/adminApiClient";
 import { entities } from "@/api/entities";
 import apiClient from "@/lib/apiClient";
 import { uploadFile } from '@/api/entities';
-import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3, Palette, Tag, Tags, Zap, Clock, Wrench, Lightbulb, Check, CheckSquare2, MonitorPlay, Heart, MessageSquare, Share2, List, Grid2X2, ArrowDownUp } from "lucide-react";
+import { Trash2, Plus, Eye, EyeOff, Loader2, Search, Star, Image, X, Video, GripVertical, Edit3, Palette, Tag, Tags, Zap, Clock, Wrench, Lightbulb, Check, CheckSquare2, MonitorPlay, Heart, MessageSquare, Share2, List, Grid2X2, ArrowDownUp, ExternalLink } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import AdminStyleCategories from "./AdminStyleCategories";
 import AdminStyleSubCategories from "./AdminStyleSubCategories";
@@ -23,6 +23,7 @@ const DIFFICULTY_LEVELS = ["Débutant", "Intermédiaire", "Avancé", "Expert"];
 
 const HAIR_TYPES = ["Afro", "Européenne", "Asiatique", "Crépus", "Bouclés", "Ondulés", "Lisses", "Tresses", "Locks"];
 const SKIN_TYPES = ["Normale", "Sèche", "Grasse", "Mixte", "Sensible", "Mature"];
+const PUBLIC_APP_URL = import.meta.env.VITE_MAIN_APP_URL || "http://localhost:5173";
 
 function countStyleImages(style) {
   const media = [
@@ -104,7 +105,7 @@ function StylePreviewModal({ style, onClose }) {
                 <Icon className="h-5 w-5 text-white" />
               </div>
             ))}
-            <div className="ml-auto rounded-full bg-primary px-4 py-2 text-[11px] font-black uppercase tracking-wider">Offre</div>
+            <a href={`${PUBLIC_APP_URL}/style/${style.id}`} target="_blank" rel="noopener noreferrer" className="ml-auto flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-[11px] font-black uppercase tracking-wider"><ExternalLink className="h-3.5 w-3.5" /> Page détaillée</a>
           </div>
         </div>
       </div>

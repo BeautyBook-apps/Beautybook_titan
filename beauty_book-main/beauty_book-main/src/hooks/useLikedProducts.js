@@ -6,6 +6,10 @@ import { useState, useEffect } from "react";
 
 const STORAGE_KEY = "bb_liked_products";
 
+export function getLikedProducts() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
+}
+
 // Catégorie automatique basée sur le nom/catégorie du produit
 export function guessClothingCategory(product) {
   const text = ((product.name || "") + " " + (product.category || "") + " " + (product.brand || "")).toLowerCase();
@@ -19,7 +23,7 @@ export function guessClothingCategory(product) {
 
 export function useLikedProducts() {
   const [liked, setLiked] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
+    return getLikedProducts();
   });
 
   const save = (items) => {
@@ -32,7 +36,11 @@ export function useLikedProducts() {
     if (exists) {
       save(liked.filter(p => p.id !== product.id));
     } else {
-      save([...liked, { ...product, clothing_category: guessClothingCategory(product) }]);
+      save([...liked, {
+        ...product,
+        clothing_category: guessClothingCategory(product),
+        favorite_created_at: new Date().toISOString(),
+      }]);
     }
   };
 

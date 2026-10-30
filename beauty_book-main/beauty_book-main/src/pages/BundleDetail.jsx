@@ -3,12 +3,12 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import {
   ArrowLeft, Heart, Share2, Timer, Percent, Star, MapPin,
-  BadgeCheck, ChevronRight, ChevronDown, Calendar, Shield, Sparkles, Package, Scissors, Gift, Clock
+  BadgeCheck, ChevronRight, ChevronDown, Calendar, Shield, Sparkles, Package, Scissors
 } from "lucide-react";
 import { entities } from "@/api/entities";
-import { supabase } from "@/api/supabaseClient";
 import { readPageCache, mergePageCache, useCachedState } from "@/hooks/usePageCache";
 import ShowcaseSection from "@/components/showcase/ShowcaseSection";
+import DetailShareSheet from "@/components/share/DetailShareSheet";
 
 function ServiceImageSlider({ images }) {
   const validImages = (images || []).filter(Boolean);
@@ -43,6 +43,7 @@ export default function BundleDetail() {
   const [servicesMap, setServicesMap] = useCachedState(cacheKey, {}, c => c?.servicesMap || {});
   const [loading, setLoading] = useState(() => !(state?.bundle || readPageCache(cacheKey)?.bundle));
   const [showAllReviews, setShowAllReviews] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   useEffect(() => {
     if (!id) { setLoading(false); return; }
@@ -169,7 +170,7 @@ export default function BundleDetail() {
             <button className="w-9 h-9 bg-white/90 backdrop-blur rounded-full flex items-center justify-center active:scale-95 shadow-md">
               <Heart className="w-4 h-4 text-gray-500" />
             </button>
-            <button className="w-9 h-9 bg-white/90 backdrop-blur rounded-full flex items-center justify-center active:scale-95 shadow-md">
+            <button onClick={() => setShowShare(true)} aria-label="Partager ce bundle" className="w-9 h-9 bg-white/90 backdrop-blur rounded-full flex items-center justify-center active:scale-95 shadow-md">
               <Share2 className="w-4 h-4 text-gray-500" />
             </button>
           </div>
@@ -467,6 +468,19 @@ export default function BundleDetail() {
           </div>
         )}
       </div>
+
+      {showShare && (
+        <DetailShareSheet
+          title={bundle.name}
+          subtitle={proDisplayName}
+          eyebrow="BeautyBook · offre groupe"
+          category={bundle.is_group ? "Bundle groupe" : "Offre spéciale"}
+          image={bundle.image_url}
+          price={bundle.bundle_price ? `${bundle.bundle_price} €` : null}
+          description={bundle.description}
+          onClose={() => setShowShare(false)}
+        />
+      )}
 
       {/* Fixed bottom CTA (positioned above bottom navigation bar — nav is 68px + safe-area) */}
       <div className="fixed bottom-28 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-gray-100 px-4 py-3 z-[90] shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">

@@ -16,6 +16,54 @@ CREATE TABLE IF NOT EXISTS public."CatalogueOption" (id UUID PRIMARY KEY DEFAULT
 
 CREATE TABLE IF NOT EXISTS public."AppConfig" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), key TEXT NOT NULL UNIQUE DEFAULT '', value JSONB DEFAULT '{}'::jsonb, description TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now());
 
+CREATE TABLE IF NOT EXISTS public."ServiceBundle" (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pro_email TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  description TEXT DEFAULT '',
+  service_ids TEXT[] NOT NULL DEFAULT '{}',
+  style_ids TEXT[] NOT NULL DEFAULT '{}',
+  bundle_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+  discount_percent NUMERIC(5,2) NOT NULL DEFAULT 0,
+  image_url TEXT DEFAULT '',
+  cover_url TEXT DEFAULT '',
+  banner_url TEXT DEFAULT '',
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  is_group BOOLEAN NOT NULL DEFAULT false,
+  min_persons INTEGER NOT NULL DEFAULT 1,
+  max_persons INTEGER NOT NULL DEFAULT 1,
+  bundle_price_per_person NUMERIC(10,2),
+  category TEXT DEFAULT 'autre',
+  bonus TEXT DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by_id UUID
+);
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS pro_email TEXT DEFAULT '';
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS name TEXT DEFAULT '';
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS service_ids TEXT[] DEFAULT '{}';
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS style_ids TEXT[] DEFAULT '{}';
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS bundle_price NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS discount_percent NUMERIC(5,2) DEFAULT 0;
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT '';
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS cover_url TEXT DEFAULT '';
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS banner_url TEXT DEFAULT '';
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS is_group BOOLEAN DEFAULT false;
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS min_persons INTEGER DEFAULT 1;
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS max_persons INTEGER DEFAULT 1;
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS bundle_price_per_person NUMERIC(10,2);
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'autre';
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS bonus TEXT DEFAULT '';
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+ALTER TABLE public."ServiceBundle" ADD COLUMN IF NOT EXISTS created_by_id UUID;
+ALTER TABLE public."ServiceBundle" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "ServiceBundle_public_read" ON public."ServiceBundle";
+DROP POLICY IF EXISTS "ServiceBundle_all" ON public."ServiceBundle";
+CREATE POLICY "ServiceBundle_all" ON public."ServiceBundle" FOR ALL USING (true) WITH CHECK (true);
+
 CREATE TABLE IF NOT EXISTS public."ImmobilierListing" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), title TEXT DEFAULT '', description TEXT DEFAULT '', price NUMERIC DEFAULT 0, images JSONB DEFAULT '[]'::jsonb, address TEXT DEFAULT '', city TEXT DEFAULT '', type TEXT DEFAULT 'appartement', status TEXT DEFAULT 'disponible', pro_email TEXT DEFAULT '', bedrooms INTEGER DEFAULT 0, bathrooms INTEGER DEFAULT 0, area NUMERIC DEFAULT 0, features JSONB DEFAULT '[]'::jsonb, estimated_turnover NUMERIC(12,2) DEFAULT 0, estimated_net_revenue NUMERIC(12,2) DEFAULT 0, virtual_tour_id UUID, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), created_by_id UUID);
 
 CREATE TABLE IF NOT EXISTS public."PointsFidelite" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_email TEXT DEFAULT '', points INTEGER DEFAULT 0, points_total INTEGER DEFAULT 0, total_earned INTEGER DEFAULT 0, total_spent INTEGER DEFAULT 0, points_depenses INTEGER DEFAULT 0, level TEXT DEFAULT 'Bronze', niveau TEXT DEFAULT 'Bronze', history JSONB DEFAULT '[]'::jsonb, historique JSONB DEFAULT '[]'::jsonb, code_parrainage TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), created_by_id UUID);

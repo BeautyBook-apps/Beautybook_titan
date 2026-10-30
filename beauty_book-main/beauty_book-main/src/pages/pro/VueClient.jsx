@@ -3,10 +3,10 @@ import Lightbox from '@/components/ui/Lightbox';
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
-  ArrowLeft, Share2, Phone, MessageCircle, Calendar, MapPin,
+  ArrowLeft, Share2, MessageCircle, Calendar, MapPin,
   User, Scissors, Image, Star, Home, Moon, Wifi, Car,
-  Coffee, Wind, ChevronRight, MoreVertical, CheckCircle2, Heart,
-  Flag, UserMinus, PhoneCall, PhoneOff, Video, Mic, MicOff,
+  Coffee, ChevronRight, MoreVertical, CheckCircle2, Heart,
+  Flag, UserMinus, PhoneCall, PhoneOff,
   Baby, CreditCard, Accessibility, Shirt, Sofa, Music, PawPrint,
   Snowflake, Sparkles, Clock, Zap, Droplets, Flower2, Brush,
   Play, Maximize2, Palette, RotateCw,
@@ -15,6 +15,7 @@ import {
 import { useAuth } from "@/lib/AuthContext";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
+import { likesApi } from '@/api/likes';
 import { useCall } from "@/components/call/CallManager";
 import VisitorVoiceCall from "@/components/voice/VisitorVoiceCall";
 import { useTheme } from "@/hooks/useTheme";
@@ -36,6 +37,7 @@ function getPageBg(theme) {
 }
 import CommandeModal from "@/components/restaurant/CommandeModal";
 import PanoViewer from "@/components/virtualtour/PanoViewer";
+import DetailShareSheet from "@/components/share/DetailShareSheet";
 
 const BANNER_IMG = "";
 const PROFILE_IMG = "";
@@ -51,6 +53,21 @@ const TABS = [
 ];
 
 const HOURS = [];
+let volatileViewerKey = null;
+
+function getProfileViewerKey() {
+  try {
+    const storageKey = "bb_professional_viewer_key";
+    const existing = localStorage.getItem(storageKey);
+    if (existing) return existing;
+    const created = `device-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+    localStorage.setItem(storageKey, created);
+    return created;
+  } catch {
+    volatileViewerKey ||= `volatile-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return volatileViewerKey;
+  }
+}
 
 // Map icônes commodités — Lucide épuré
 const COMMODITE_ICONS = {
@@ -139,41 +156,6 @@ function RealCallScreen({ targetName, targetAvatar, phoneNumber, onClose }) {
           <PhoneOff className="w-8 h-8 text-white" />
         </button>
         <p className="text-white/40 text-[11px] font-medium">Raccrocher</p>
-      </div>
-    </div>
-  );
-}
-
-// ── Partage Sheet ──────────────────────────────────────────────────────────────
-function ShareSheet({ title, url, onClose }) {
-  const [copied, setCopied] = useState(false);
-  const options = [
-    { label: "WhatsApp", color: "bg-green-500", emoji: "💬", href: `https://wa.me/?text=${encodeURIComponent(title + " " + url)}` },
-    { label: "Copier", color: "bg-gray-700", emoji: "🔗", href: null },
-    { label: "SMS", color: "bg-blue-500", emoji: "✉️", href: `sms:?body=${encodeURIComponent(title + " " + url)}` },
-    { label: "TikTok", color: "bg-black", emoji: "🎵", href: null },
-  ];
-  const handle = (opt) => {
-    if (opt.label === "Copier") {
-      navigator.clipboard.writeText(url).catch(() => {});
-      setCopied(true);
-      setTimeout(() => { setCopied(false); onClose(); }, 1200);
-    } else if (opt.href) { window.open(opt.href, "_blank"); onClose(); }
-    else onClose();
-  };
-  return (
-    <div className="fixed inset-0 z-[400] flex items-end" onClick={onClose}>
-      <div className="bg-[#1a1a2e] rounded-t-3xl w-full px-6 pb-8 pt-4" onClick={e => e.stopPropagation()}>
-        <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4" />
-        <p className="text-white text-[14px] font-black text-center mb-5">Partager ce profil</p>
-        <div className="grid grid-cols-4 gap-4">
-          {options.map(opt => (
-            <button key={opt.label} onClick={() => handle(opt)} className="flex flex-col items-center gap-2 active:scale-95">
-              <div className={`w-14 h-14 ${opt.color} rounded-2xl flex items-center justify-center text-[22px]`}>{opt.emoji}</div>
-              <span className="text-white/60 text-[10px] font-black">{opt.label === "Copier" && copied ? "Copié !" : opt.label}</span>
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -502,9 +484,10 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
   const { startCall } = useCall() || {};
   // Priorité : prop → state de navigation → email user courant
   const proEmailFromState = location?.state?.proEmail || location?.state?.email;
+  const proEmailFromUrl = new URLSearchParams(location?.search || "").get("email");
   // Priorité stricte : prop → state de navigation — JAMAIS user courant (évite d'ouvrir son propre profil)
-  const targetEmail = proEmailProp || proEmailFromState || null;
-  const isOwnProfile = user?.email === targetEmail;
+  const targetEmail = proEmailProp || proEmailFromState || proEmailFromUrl || null;
+  const isOwnProfile = user?.email?.toLowerCase() === targetEmail?.toLowerCase();
 
   // Cache « vue client » par salon : affichage direct des dernières données
   // connues dès la première peinture, sans page « Chargement... » intermédiaire.
@@ -561,11 +544,14 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
   const [showMenuModal, setShowMenuModal] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showShareSheet, setShowShareSheet] = useState(false);
+  const [likedProfile, setLikedProfile] = useState(() => {
+    try { return localStorage.getItem(`bb_profile_favorite_${proEmailProp || ""}`) === "1"; } catch { return false; }
+  });
   const [showCall] = useState(false);
   // « Appel interne » : l'agent vocal IA du salon décroche à la place du WebRTC
   const [showAiCall, setShowAiCall] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const [stats, setStats] = useState(vueCacheInitial.stats || { abonnes: 0, services: 0, avis: 0 });
+  const [stats, setStats] = useState(vueCacheInitial.stats || { abonnes: 0, services: 0, avis: 0, views: 0 });
   const [demandeInfo, setDemandeInfo] = useState(vueCacheInitial.demandeInfo || null);
   const [selectedPlat, setSelectedPlat] = useState(null);
   const [avis, setAvis] = useState(vueCacheInitial.avis || []);
@@ -573,7 +559,7 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
   // (targetEmail et isOwnProfile sont définis plus haut, avant les states)
 
   const proAddress = proInfo?.address || proInfo?.city || null;
-  const profileUrl = window.location.origin + "/profil-pro";
+  const profileUrl = `${window.location.origin}/pro/vue-client?email=${encodeURIComponent(targetEmail || "")}`;
 
   // Horaires effectifs : section Horaires & Congés (ouverture/horaires),
   // sinon repli sur les horaires du parcours Devenir Pro (demande approuvée).
@@ -586,6 +572,22 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
     proInfo?.travail_nuit || demandeInfo?.travail_nuit
   );
 
+  // Vue profil idempotente : la base garantit qu'un même visiteur ne compte
+  // qu'une seule fois pour un même professionnel, même après réouverture.
+  useEffect(() => {
+    if (!targetEmail || isOwnProfile) return;
+    const viewerKey = user?.id ? `user-${user.id}` : user?.email ? `email-${user.email.toLowerCase()}` : getProfileViewerKey();
+    supabase.rpc("record_professional_profile_view", {
+      target_pro_email: targetEmail,
+      viewer_key_value: viewerKey,
+      viewer_email_value: user?.email || null,
+    }).then(({ data, error }) => {
+      if (!error && Number.isFinite(Number(data))) {
+        setStats(current => ({ ...current, views: Number(data) }));
+      }
+    }).catch(() => {});
+  }, [isOwnProfile, targetEmail, user?.email, user?.id]);
+
   useEffect(() => {
     if (!targetEmail) return;
     const getCached = () => {
@@ -596,7 +598,7 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
       } catch { return null; }
     };
     const fetchProfil = async () => {
-      const { data: profiles, error } = await supabase.from('ProfilPro').select('id, user_email, salon_name, phone, address, city, bio, avatar_url, cover_url, status, galerie_urls, followers, ouverture, horaires, travail_nuit, rating, reviews_count, se_deplace, specialites, commodites, latitude, longitude, type_activite, postal_code, seats_count').eq('user_email', targetEmail).order('created_at', { ascending: false });
+      const { data: profiles, error } = await supabase.from('ProfilPro').select('id, user_email, salon_name, phone, address, city, bio, avatar_url, cover_url, status, galerie_urls, followers, views, ouverture, horaires, travail_nuit, rating, reviews_count, se_deplace, specialites, commodites, latitude, longitude, type_activite, postal_code, seats_count').eq('user_email', targetEmail).order('created_at', { ascending: false });
       if (error || !profiles || profiles.length === 0) return null;
       // Priority: 1) actif with images, 2) actif, 3) any with images, 4) latest
       const activeWithImages = profiles.find(p => p.status === 'actif' && (p.avatar_url || p.cover_url));
@@ -638,7 +640,7 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
         const { count } = await supabase.from('user_follow').select('*', { count: 'exact', head: true }).eq('followed_email', targetEmail);
         if (count !== null) followerCount = count;
       } catch (e) {}
-      setStats({ abonnes: followerCount, services: svcs.length, avis: avis.length });
+      setStats(current => ({ abonnes: followerCount, services: svcs.length, avis: avis.length, views: Math.max(Number(current.views || 0), Number(profile?.views || 0)) }));
       // Persiste la vue client en cache (fusion : un chargement partiel
       // n'écrase jamais les sections déjà en cache).
       try {
@@ -670,9 +672,45 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
     return () => window.removeEventListener('pro-profile-updated', onUpdated);
   }, [targetEmail, user]);
 
+  useEffect(() => {
+    let alive = true;
+    if (!targetEmail) return undefined;
+    if (!user?.email) {
+      try { setLikedProfile(localStorage.getItem(`bb_profile_favorite_${targetEmail}`) === "1"); } catch {}
+      return undefined;
+    }
+    likesApi.getUserLikes(user.email, [targetEmail], "pro_profile")
+      .then(rows => {
+        if (!alive) return;
+        const active = rows.length > 0;
+        setLikedProfile(active);
+        try { localStorage.setItem(`bb_profile_favorite_${targetEmail}`, active ? "1" : "0"); } catch {}
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [targetEmail, user?.email]);
+
   const handleClose = () => {
     if (onClose) onClose();
     else navigate(-1);
+  };
+
+  const handleToggleProfileFavorite = async () => {
+    if (!targetEmail) return;
+    const nextLiked = !likedProfile;
+    setLikedProfile(nextLiked);
+    try { localStorage.setItem(`bb_profile_favorite_${targetEmail}`, nextLiked ? "1" : "0"); } catch {}
+    if (!user?.email) return;
+    try {
+      if (nextLiked) {
+        await likesApi.addLike(user.email, targetEmail, "pro_profile", user.full_name || "Utilisateur", user.avatar_url || "");
+      } else {
+        await likesApi.removeLike(user.email, targetEmail, "pro_profile");
+      }
+    } catch {
+      setLikedProfile(!nextLiked);
+      try { localStorage.setItem(`bb_profile_favorite_${targetEmail}`, !nextLiked ? "1" : "0"); } catch {}
+    }
   };
 
   const handleToggleSubscribe = async () => {
@@ -719,7 +757,18 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
 
       {/* Share Sheet */}
       {showShareSheet && (
-        <ShareSheet title={proInfo?.salon_name || "Profil BeautyBook"} url={profileUrl} onClose={() => setShowShareSheet(false)} />
+        <DetailShareSheet
+          title={proInfo?.salon_name || "Profil BeautyBook"}
+          subtitle={[proInfo?.city, proInfo?.type_activite].filter(Boolean).join(" · ")}
+          eyebrow="BeautyBook · profil professionnel"
+          category="Salon professionnel"
+          image={proInfo?.cover_url || proInfo?.avatar_url}
+          description={proInfo?.bio}
+          url={profileUrl}
+          showQrCode
+          qrCaption="Scannez ce code pour ouvrir directement le profil professionnel."
+          onClose={() => setShowShareSheet(false)}
+        />
       )}
 
       {/* More Menu backdrop tap-outside */}
@@ -753,10 +802,16 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
                 <ArrowLeft className={`w-4 h-4 ${btnIcon}`} />
                 <span className={`text-[12px] font-black ${btnIcon} uppercase tracking-widest`}>Quitter</span>
               </button>
-              <button onClick={() => setShowShareSheet(true)}
-                className={`w-10 h-10 ${btnBg} rounded-full flex items-center justify-center shadow-md active:scale-95 transition-all`}>
-                <Share2 className={`w-4 h-4 ${btnIcon}`} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={handleToggleProfileFavorite} aria-label={likedProfile ? "Retirer le profil des favoris" : "Ajouter le profil aux favoris"}
+                  className={`w-10 h-10 ${btnBg} rounded-full flex items-center justify-center shadow-md active:scale-95 transition-all`}>
+                  <Heart className={`w-4 h-4 ${likedProfile ? "fill-red-500 text-red-500" : btnIcon}`} />
+                </button>
+                <button onClick={() => setShowShareSheet(true)} aria-label="Partager ce profil"
+                  className={`w-10 h-10 ${btnBg} rounded-full flex items-center justify-center shadow-md active:scale-95 transition-all`}>
+                  <Share2 className={`w-4 h-4 ${btnIcon}`} />
+                </button>
+              </div>
             </div>
           );
         })()}
@@ -924,11 +979,12 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-0 mt-4 border-t border-gray-100 pt-4">
+        <div className="grid grid-cols-4 gap-0 mt-4 border-t border-gray-100 pt-4">
           {[
             { value: stats.abonnes, label: "ABONNÉS" },
             { value: stats.services, label: "SERVICES" },
             { value: stats.avis, label: "AVIS" },
+            { value: stats.views, label: "VUES" },
           ].map(({ value, label }) => (
             <div key={label} className="flex flex-col items-center">
               <span className="text-[22px] font-black text-gray-900">{value}</span>

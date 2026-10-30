@@ -1,7 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, Share2, Heart, MapPin, Clock, Star, CheckCircle, ShoppingCart, Play, Calendar, ChevronRight, ChevronDown, Scissors, Sparkles, Wand2, ArrowUp, Wifi, Car, Thermometer, CreditCard, Accessibility, PawPrint, Baby, Coffee, Package } from "lucide-react";
+import { ArrowLeft, Share2, Heart, MapPin, Clock, Star, CheckCircle, ShoppingCart, Play, Calendar, ChevronRight, ChevronDown, Scissors, Sparkles, Wand2, ArrowUp, Wifi, Car, Thermometer, CreditCard, Accessibility, PawPrint, Baby, Coffee, Package, MessageCircle, Instagram, Link2, Mail, Check, X } from "lucide-react";
 import VTCSection from "@/components/service/VTCSection";
 import SalonMap from "@/components/map/SalonMap";
 import CommandeModal from "@/components/restaurant/CommandeModal";
@@ -10,7 +10,6 @@ import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import Lightbox from "@/components/ui/Lightbox";
 import ShowcaseSection from "@/components/showcase/ShowcaseSection";
 import { entities } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
 import { useLocale } from "@/hooks/useLocale";
 import { readPageCache, writePageCache, mergePageCache } from "@/hooks/usePageCache";
 
@@ -100,6 +99,104 @@ function ScrollToTopButton() {
     </button>
   );
 }
+
+/* ── Service share sheet ───────────────────────────────────────────── */
+function ServiceShareSheet({ service, salonName, image, price, formatPrice, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const url = window.location.href;
+  const title = service?.title || "Ce service BeautyBook";
+  const shareText = `Découvre ${title}${salonName ? ` chez ${salonName}` : " sur BeautyBook"}.`;
+  const options = [
+    { label: "WhatsApp", tone: "bg-[#eafaf1] text-[#16a34a]", Icon: MessageCircle, href: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${url}`)}` },
+    { label: "Instagram", tone: "bg-gradient-to-br from-[#fff0f8] to-[#f0eaff] text-[#c026d3]", Icon: Instagram },
+    { label: "Message", tone: "bg-[#edf5ff] text-blue-600", Icon: Mail, href: `sms:?body=${encodeURIComponent(`${shareText} ${url}`)}` },
+    { label: "Copier le lien", tone: "bg-[#fff5ea] text-orange-600", Icon: Link2 },
+  ];
+
+  const copyLink = async () => {
+    await navigator.clipboard?.writeText(url).catch(() => {});
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  const handleShare = async (option) => {
+    if (option.label === "Copier le lien") {
+      await copyLink();
+      return;
+    }
+    if (option.href) {
+      window.open(option.href, "_blank", "noopener,noreferrer");
+      onClose();
+      return;
+    }
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text: shareText, url });
+        onClose();
+      } catch (error) {
+        if (error?.name !== "AbortError") onClose();
+      }
+      return;
+    }
+    await copyLink();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[400] flex items-end justify-center bg-slate-950/60 backdrop-blur-[2px]" onClick={onClose}>
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="share-service-title"
+        className="relative z-[401] w-full max-w-md overflow-hidden rounded-t-[2rem] border-t border-white/80 bg-[#fffdfb] px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4 shadow-[0_-18px_50px_-24px_rgba(15,23,42,0.45)]"
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-200" aria-hidden="true" />
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-amber-400 text-white shadow-lg shadow-orange-500/20">
+              <Share2 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">BeautyBook · réservation</p>
+              <h2 id="share-service-title" className="mt-0.5 text-[18px] font-black tracking-tight text-slate-950">Partager ce service</h2>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Fermer le partage" className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-slate-200 active:scale-95">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mb-5 flex items-center gap-3 rounded-2xl border border-orange-100 bg-gradient-to-r from-orange-50 to-amber-50 p-3">
+          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-orange-100">
+            {image ? <BeautyImage src={image} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-orange-400"><Scissors className="h-5 w-5" /></div>}
+          </div>
+          <div className="min-w-0 flex-1">
+            {service?.category && <p className="mb-1 text-[9px] font-black uppercase tracking-[0.16em] text-orange-600">{service.category}</p>}
+            <p className="truncate text-[15px] font-black text-slate-950">{title}</p>
+            <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-slate-500">
+              {salonName && <span className="truncate">{salonName}</span>}
+              {price > 0 && <span className="shrink-0 font-black text-orange-600">{formatPrice(price)}</span>}
+            </div>
+          </div>
+        </div>
+
+        <p className="mb-3 px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Choisir un canal</p>
+        <div className="grid grid-cols-2 gap-2.5">
+          {options.map(option => (
+            <button key={option.label} onClick={() => handleShare(option)} className="group flex min-h-[76px] items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-md active:scale-[0.97]">
+              <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl shadow-sm transition-transform group-hover:scale-105 ${option.tone}`}>
+                {option.label === "Copier le lien" && copied ? <Check className="h-5 w-5" /> : <option.Icon className="h-5 w-5" />}
+              </div>
+              <span className="text-[11px] font-black leading-tight text-slate-700">{option.label === "Copier le lien" && copied ? "Lien copié" : option.label}</span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-5 text-center text-[10px] font-medium text-slate-400">Le lien ouvre directement la fiche de réservation.</p>
+      </section>
+    </div>
+  );
+}
+
 /* ── Section title ─────────────────────────────────────────────────── */
 function SectionTitle({ children, badge }) {
   return (
@@ -137,6 +234,7 @@ export default function ServiceDetail() {
   const [showReview, setShowReview] = useState(false);
   const [reviewReservation, setReviewReservation] = useState(null);
   const [showFiltreAI, setShowFiltreAI] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState(null);
   const [bundles, setBundles] = useState(initialCache.bundles || []);
   const [showAllAvis, setShowAllAvis] = useState(false);
@@ -338,7 +436,7 @@ export default function ServiceDetail() {
         </button>
         <span className="text-[14px] font-black text-gray-900">Détail du Service</span>
         <div className="flex gap-2">
-          <button className="w-9 h-9 flex items-center justify-center rounded-full bg-gray-100 active:scale-95 transition-all">
+          <button onClick={() => setShowShare(true)} aria-label="Partager ce service" className="w-9 h-9 flex items-center justify-center rounded-full bg-gray-100 active:scale-95 transition-all">
             <Share2 className="w-4 h-4 text-gray-600" />
           </button>
           <button onClick={() => setLiked((l) => !l)} className="w-9 h-9 flex items-center justify-center rounded-full bg-gray-100 active:scale-95 transition-all">
@@ -1030,6 +1128,18 @@ export default function ServiceDetail() {
           proEmail={s.pro_email || proData?.user_email}
           proName={proData?.salon_name}
           onClose={() => setSelectedPlat(null)}
+        />
+      )}
+
+      {/* Partage du service — au-dessus de la navigation fixe */}
+      {showShare && (
+        <ServiceShareSheet
+          service={s}
+          salonName={proData?.salon_name || s.salon}
+          image={media.find(item => item.type === "image")?.url}
+          price={price}
+          formatPrice={formatPrice}
+          onClose={() => setShowShare(false)}
         />
       )}
 

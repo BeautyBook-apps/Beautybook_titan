@@ -105,10 +105,11 @@ const Equipe = safeLazy(() => import('@/pages/pro/Equipe'));
 const NouveauMembre = safeLazy(() => import('@/pages/pro/NouveauMembre'));
 const PlanningMembre = safeLazy(() => import('@/pages/pro/PlanningMembre'));
 const Analytics = safeLazy(() => import('@/pages/pro/Analytics'));
+const PublicationAnalytics = safeLazy(() => import('@/pages/pro/PublicationAnalyticsRedesigned'));
 const Publication = safeLazy(() => import('@/pages/pro/Publication'));
 const VeoGenerator = safeLazy(() => import('@/pages/pro/VeoGenerator'));
 const Visite3D = safeLazy(() => import('@/pages/pro/Visite3D'));
-const Franchise = safeLazy(() => import('@/pages/pro/Franchise'));
+const Franchise = safeLazy(() => import('@/pages/pro/FranchiseRedesigned'));
 const LancerDirect = safeLazy(() => import('@/pages/pro/LancerDirect'));
 const ModifierProfilPro = safeLazy(() => import('@/pages/pro/ModifierProfilPro'));
 const AssistantConversationnel = safeLazy(() => import('@/pages/AssistantConversationnel'));
@@ -354,6 +355,7 @@ const AuthenticatedApp = () => {
         <Route path="/pro/planning-membre" element={<PlanningMembre />} />
         <Route path="/pro/nouveau-membre" element={<NouveauMembre />} />
         <Route path="/pro/analytics" element={<Analytics />} />
+        <Route path="/pro/publication-analytics" element={<PublicationAnalytics />} />
         <Route path="/pro/publication" element={<Publication />} />
         <Route path="/pro/veo-generator" element={<VeoGenerator />} />
         <Route path="/pro/visite-3d" element={<Visite3D />} />

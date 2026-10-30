@@ -1,9 +1,10 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, Clock, Star, Heart, Shield, Gift, ChevronRight, ChevronDown, Users, TrendingDown, Calendar, User, Package, Scissors, Sparkles } from "lucide-react";
+import { ArrowLeft, Share2, Clock, Star, Heart, Shield, Gift, ChevronRight, ChevronDown, Users, TrendingDown, User, Package, Scissors } from "lucide-react";
 import { entities } from "@/api/entities";
 import { readPageCache, mergePageCache, useCachedState } from "@/hooks/usePageCache";
+import DetailShareSheet from "@/components/share/DetailShareSheet";
 
 function ServiceImageSlider({ images }) {
   const validImages = (images || []).filter(Boolean);
@@ -40,6 +41,7 @@ export default function BundleGroupeDetail() {
   const [expandedSvc, setExpandedSvc] = useState(null);
   const [nbPers, setNbPers] = useState(2);
   const [showAllReviews, setShowAllReviews] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   useEffect(() => {
     if (!id) { setLoading(false); return; }
@@ -151,10 +153,28 @@ export default function BundleGroupeDetail() {
           <h1 className="text-[17px] font-black text-gray-900">Bundle <span className="text-[#E8732A]">Groupe</span></h1>
           <p className="text-[11px] text-gray-400 font-medium">Plusieurs personnes, plus d'éclat ✨</p>
         </div>
-        <button className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95">
-          <Heart className="w-4 h-4 text-gray-500" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowShare(true)} aria-label="Partager ce bundle groupe" className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95">
+            <Share2 className="w-4 h-4 text-gray-500" />
+          </button>
+          <button aria-label="Ajouter le bundle aux favoris" className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95">
+            <Heart className="w-4 h-4 text-gray-500" />
+          </button>
+        </div>
       </div>
+
+      {showShare && (
+        <DetailShareSheet
+          title={bundle.name}
+          subtitle={`${proDisplayName} · ${nbPers} personne${nbPers > 1 ? "s" : ""}`}
+          eyebrow="BeautyBook · bundle groupe"
+          category="Sorties & événements"
+          image={bundle.image_url}
+          price={displayPrice ? `${displayPrice} €` : null}
+          description={bundle.description}
+          onClose={() => setShowShare(false)}
+        />
+      )}
 
       <div>
         {/* Hero section */}

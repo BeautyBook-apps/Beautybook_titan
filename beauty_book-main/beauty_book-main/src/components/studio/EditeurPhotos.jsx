@@ -1,8 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useRef } from "react";
-import { X, Sun, Contrast, Droplets, FlipHorizontal, RotateCw, Download, Check, ScanLine, Wand2 } from "lucide-react";
-import { entities, uploadFile } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
+import { X, Sun, Contrast, Droplets, FlipHorizontal, ScanLine, Wand2 } from "lucide-react";
+import { uploadFile } from '@/api/entities';
 
 const FILTERS = [
   { id: null, label: "Original", css: "" },
@@ -28,6 +27,7 @@ const CROPS = [
 export default function EditeurPhotos({ onClose, onDone }) {
   const [image, setImage] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("ajuster"); // ajuster | filtres | recadrer
   const [filter, setFilter] = useState(null);
   const [brightness, setBrightness] = useState(100);
@@ -57,11 +57,18 @@ export default function EditeurPhotos({ onClose, onDone }) {
     const file = e.target.files[0];
     if (!file) return;
     setUploading(true);
+    setError("");
     const localUrl = URL.createObjectURL(file);
     setImage({ localUrl, file_url: null, file });
-    const { file_url } = await uploadFile({ file });
-    setImage(prev => ({ ...prev, file_url }));
-    setUploading(false);
+    try {
+      const { file_url } = await uploadFile({ file });
+      setImage(prev => ({ ...prev, file_url }));
+    } catch (uploadError) {
+      setError(uploadError?.message || "Impossible d'importer cette image.");
+      setImage(null);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleSave = async () => {
@@ -100,6 +107,7 @@ export default function EditeurPhotos({ onClose, onDone }) {
           Terminer
         </button>
       </div>
+      {error && <p role="alert" className="mx-5 mb-2 rounded-xl bg-red-500/15 px-3 py-2 text-center text-[11px] font-bold text-red-300">{error}</p>}
 
       {/* Preview */}
       <div className="flex-1 flex items-center justify-center bg-black mx-4 rounded-3xl overflow-hidden relative">

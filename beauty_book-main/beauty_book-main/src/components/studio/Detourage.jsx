@@ -1,8 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useRef } from "react";
-import { X, Scan, Wand2, Check, RefreshCw, Download } from "lucide-react";
-import { entities, uploadFile } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
+import { X, Scan, Wand2, Check, RefreshCw } from "lucide-react";
+import { uploadFile } from '@/api/entities';
 
 const BACKGROUNDS = [
   { id: "transparent", label: "Transparent", preview: "bg-[url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2216%22 height=%2216%22%3E%3Crect width=%228%22 height=%228%22 fill=%22%23ccc%22/%3E%3Crect x=%228%22 y=%228%22 width=%228%22 height=%228%22 fill=%22%23ccc%22/%3E%3Crect x=%228%22 width=%228%22 height=%228%22 fill=%22white%22/%3E%3Crect y=%228%22 width=%228%22 height=%228%22 fill=%22white%22/%3E%3C/svg%3E')]" },
@@ -24,6 +23,8 @@ const TOOLS_INFO = [
 
 export default function Detourage({ onClose, onDone }) {
   const [image, setImage] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
   const [processing, setProcessing] = useState(false);
   const [processed, setProcessed] = useState(false);
   const [background, setBackground] = useState("transparent");
@@ -35,15 +36,23 @@ export default function Detourage({ onClose, onDone }) {
     const file = e.target.files[0];
     if (!file) return;
     const localUrl = URL.createObjectURL(file);
+    setUploading(true);
+    setError("");
     setImage({ localUrl, file_url: null, file });
     setProcessed(false);
-    // Upload en background
-    const { file_url } = await uploadFile({ file });
-    setImage(prev => ({ ...prev, file_url }));
+    try {
+      const { file_url } = await uploadFile({ file });
+      setImage(prev => ({ ...prev, file_url }));
+    } catch (uploadError) {
+      setError(uploadError?.message || "Impossible d'importer cette image.");
+      setImage(null);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleProcess = async () => {
-    if (!image) return;
+    if (!image || uploading) return;
     setProcessing(true);
     // Simulation du détourage IA (2.5s)
     await new Promise(r => setTimeout(r, 2500));
@@ -63,7 +72,7 @@ export default function Detourage({ onClose, onDone }) {
     <div className="fixed inset-0 bg-[#0d0d1a] z-[90] flex flex-col font-display" style={{ height: "100dvh" }}>
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-5 pb-3">
-        <button onClick={onClose} className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center active:scale-95">
+          <button onClick={onClose} className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center active:scale-95">
           <X className="w-5 h-5 text-white" />
         </button>
         <div className="flex items-center gap-2">
@@ -80,6 +89,7 @@ export default function Detourage({ onClose, onDone }) {
         )}
         {!processed && <div className="w-20" />}
       </div>
+      {error && <p role="alert" className="mx-5 mb-2 rounded-xl bg-red-500/15 px-3 py-2 text-center text-[11px] font-bold text-red-300">{error}</p>}
 
       {/* Preview */}
       <div className="flex-1 flex items-center justify-center mx-4 rounded-3xl overflow-hidden relative">
@@ -143,7 +153,7 @@ export default function Detourage({ onClose, onDone }) {
             </div>
             <button
               onClick={handleProcess}
-              disabled={!image}
+              disabled={!image || uploading || processing}
               className="w-full bg-primary text-white font-black text-[14px] uppercase tracking-widest py-4 rounded-2xl shadow-lg shadow-primary/30 active:scale-95 disabled:opacity-40 flex items-center justify-center gap-2"
             >
               <Wand2 className="w-5 h-5" />

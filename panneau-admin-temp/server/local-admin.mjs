@@ -38,6 +38,45 @@ export function acceptsLocalRequest(req, token, origin) {
 }
 
 export function createLocalDataApi(client, { columns } = {}) {
+  const aiCredits = async () => {
+    const [settingsRows, packageRows, jobs, purchases] = await Promise.all([
+      client.from('bb_ai_credit_settings').select('free_daily_limit,provider_cost_cents').eq('id', true).maybeSingle(),
+      client.from('bb_ai_credit_packages').select('id,name,credits,amount_cents,highlight,active,display_order').order('display_order', { ascending: true }),
+      client.from('bb_image_jobs').select('user_id,status,billing_source,billing_refunded_at,created_at').gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString()),
+      client.from('bb_ai_credit_purchases').select('package_id,credits,amount_cents,status,created_at').gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString()),
+    ]);
+    const settings = checked(settingsRows);
+    const packages = (checked(packageRows) || []).filter(row => row.active !== false).map(row => ({ ...row, credits: Number(row.credits), amount_cents: Number(row.amount_cents), display_order: Number(row.display_order || 0) }));
+    const jobRows = checked(jobs) || [];
+    const purchaseRows = checked(purchases) || [];
+    const activeJobs = jobRows.filter(row => row.status !== 'deleted' && !row.billing_refunded_at);
+    const paidPurchases = purchaseRows.filter(row => row.status === 'paid');
+    const providerCostCents = Number(settings?.provider_cost_cents || 0);
+    const dayMap = new Map();
+    for (let index = 0; index < 30; index += 1) {
+      const date = new Date(Date.now() - (29 - index) * 86400000);
+      const key = date.toISOString().slice(0, 10);
+      dayMap.set(key, { day: key, free_generations: 0, paid_generations: 0, active_users: new Set(), purchases: 0, revenue_cents: 0 });
+    }
+    activeJobs.forEach(row => { const day = dayMap.get(String(row.created_at).slice(0, 10)); if (day) { row.billing_source === 'credits' ? day.paid_generations += 1 : day.free_generations += 1; day.active_users.add(row.user_id); } });
+    paidPurchases.forEach(row => { const day = dayMap.get(String(row.created_at).slice(0, 10)); if (day) { day.purchases += 1; day.revenue_cents += Number(row.amount_cents || 0); } });
+    const daily = [...dayMap.values()].map(row => { const generations = row.free_generations + row.paid_generations; const cost = generations * providerCostCents; return { ...row, active_users: row.active_users.size, cost_cents: cost, profit_cents: row.revenue_cents - cost }; });
+    const packageMap = new Map();
+    paidPurchases.forEach(row => { const current = packageMap.get(row.package_id) || { package_id: row.package_id, purchases: 0, credits_sold: 0, revenue_cents: 0 }; current.purchases += 1; current.credits_sold += Number(row.credits || 0); current.revenue_cents += Number(row.amount_cents || 0); packageMap.set(row.package_id, current); });
+    const revenue = paidPurchases.reduce((sum, row) => sum + Number(row.amount_cents || 0), 0);
+    const cost = daily.reduce((sum, row) => sum + row.cost_cents, 0);
+    return { settings: { free_daily_limit: Number(settings?.free_daily_limit || 5), provider_cost_cents: providerCostCents }, packages, kpis: { total_generations: activeJobs.length, free_generations: activeJobs.filter(row => row.billing_source === 'free').length, paid_generations: activeJobs.filter(row => row.billing_source === 'credits').length, active_users: new Set(activeJobs.map(row => row.user_id)).size, failed_generations: jobRows.filter(row => row.status === 'failed').length, revenue_cents: revenue, paid_purchases: paidPurchases.length, estimated_cost_cents: cost, estimated_profit_cents: revenue - cost }, daily, package_stats: [...packageMap.values()] };
+  };
+  const updateAICredits = async ({ settings, packages }) => {
+    const normalizedSettings = { id: true, free_daily_limit: Number(settings?.free_daily_limit), provider_cost_cents: Number(settings?.provider_cost_cents), updated_at: new Date().toISOString() };
+    if (!Number.isInteger(normalizedSettings.free_daily_limit) || normalizedSettings.free_daily_limit < 1 || normalizedSettings.free_daily_limit > 100) fail(400, 'Le quota gratuit doit être compris entre 1 et 100.');
+    if (!Number.isInteger(normalizedSettings.provider_cost_cents) || normalizedSettings.provider_cost_cents < 0) fail(400, 'Le coût fournisseur est invalide.');
+    const rows = (Array.isArray(packages) ? packages : []).map((row, index) => ({ id: String(row.id || ''), name: String(row.name || '').trim(), credits: Number(row.credits), amount_cents: Number(row.amount_cents), highlight: Boolean(row.highlight), active: row.active !== false, display_order: Number(row.display_order || index + 1), updated_at: new Date().toISOString() }));
+    if (!rows.length || rows.some(row => !/^[a-z][a-z0-9_-]{1,40}$/.test(row.id) || row.name.length < 2 || !Number.isInteger(row.credits) || row.credits < 1 || !Number.isInteger(row.amount_cents) || row.amount_cents < 50)) fail(400, 'Un pack contient des valeurs invalides.');
+    checked(await client.from('bb_ai_credit_settings').upsert(normalizedSettings, { onConflict: 'id' }));
+    checked(await client.from('bb_ai_credit_packages').upsert(rows, { onConflict: 'id' }));
+    return aiCredits();
+  };
   return {
       async entities(body) {
         const { table, operation = 'list', id, data = {}, filters = {}, orderBy = '-created_at', limit = 500 } = body;
@@ -131,6 +170,8 @@ export function createLocalDataApi(client, { columns } = {}) {
       likes.forEach(row => { const id = String(row.target_id); if (stats[id]) stats[id].likes += 1; });
       return { stats };
     },
+    aiCredits,
+    updateAICredits,
     async upload({ name, contentType, base64 }) {
       const fileName = String(name || 'media');
       const isHdr = /\.(hdr|hdri|exr)$/i.test(fileName);
@@ -189,7 +230,10 @@ export function localAdminPlugin({ url, serviceKey, origin = 'http://localhost:5
           if (pathname === '/__local-admin/stats' && req.method === 'GET') {
             res.end(JSON.stringify(await api.stats())); return;
           }
-          if (!['/__local-admin/entities', '/__local-admin/upload', '/__local-admin/style-engagement'].includes(pathname) || req.method !== 'POST') fail(404, 'Opération locale indisponible.');
+          if (pathname === '/__local-admin/ai-credits' && req.method === 'GET') {
+            res.end(JSON.stringify(await api.aiCredits())); return;
+          }
+          if (!['/__local-admin/entities', '/__local-admin/upload', '/__local-admin/style-engagement', '/__local-admin/ai-credits'].includes(pathname) || !['POST', 'PUT'].includes(req.method)) fail(404, 'Opération locale indisponible.');
           const chunks = [];
           let length = 0;
           for await (const chunk of req) {
@@ -204,6 +248,7 @@ export function localAdminPlugin({ url, serviceKey, origin = 'http://localhost:5
           if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, 'Données invalides.');
           if (pathname === '/__local-admin/upload') { res.end(JSON.stringify(await api.upload(body))); return; }
           if (pathname === '/__local-admin/style-engagement') { res.end(JSON.stringify(await api.styleEngagement(body))); return; }
+          if (pathname === '/__local-admin/ai-credits') { res.end(JSON.stringify(await api.updateAICredits(body))); return; }
           const writing = ['create', 'update', 'delete'].includes(body.operation);
           if (writing && auditPath) await appendFile(auditPath, JSON.stringify({ time: new Date().toISOString(), operation: body.operation, table: body.table, id: body.id, fields: Object.keys(body.data || {}) }) + '\n');
           res.end(JSON.stringify({ result: await api.entities(body) }));

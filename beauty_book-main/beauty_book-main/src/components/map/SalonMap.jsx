@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Navigation, Loader2 } from "lucide-react";
+import { ExternalLink, MapPin, Navigation, Loader2 } from "lucide-react";
 import { loadAppleMaps } from "@/lib/appleMaps";
 
 // Carte Apple Maps centrée sur le salon avec un pin.
@@ -109,11 +109,31 @@ export default function SalonMap({ lat, lng, address, city, postalCode, name, he
     };
   }, []);
 
-  if (status === "unavailable") return null;
-
   const itineraryUrl = coords
     ? `https://maps.apple.com/?daddr=${coords.lat},${coords.lng}&q=${encodeURIComponent(name || query || "Salon")}`
     : `https://maps.apple.com/?q=${encodeURIComponent(query || name || "")}`;
+
+  if (status === "unavailable") {
+    return (
+      <div className="relative flex items-center justify-between gap-4 overflow-hidden rounded-3xl border border-gray-100 bg-[#f4f7f2] p-5 shadow-sm" style={{ height }}>
+        <div className="absolute -right-8 -top-10 h-32 w-32 rounded-full border-[18px] border-[#dbe8d7] opacity-70" aria-hidden="true" />
+        <div className="relative flex min-w-0 items-center gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm">
+            <MapPin className="h-6 w-6 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[12px] font-black uppercase tracking-widest text-gray-900">Apple Maps</p>
+            <p className="mt-1 truncate text-[11px] font-medium text-gray-500">{name || query || "Localisation du salon"}</p>
+            <p className="mt-0.5 truncate text-[10px] text-gray-400">{query || "Adresse non renseignée"}</p>
+          </div>
+        </div>
+        <a href={itineraryUrl} target="_blank" rel="noopener noreferrer" className="relative flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-gray-800 shadow-sm active:scale-95">
+          <ExternalLink className="h-3.5 w-3.5 text-primary" />
+          Ouvrir
+        </a>
+      </div>
+    );
+  }
 
   return (
     <div className="relative rounded-3xl overflow-hidden border border-gray-100 shadow-sm bg-gray-100" style={{ height }}>

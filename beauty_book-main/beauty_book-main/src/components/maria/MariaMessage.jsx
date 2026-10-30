@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import { Volume2, VolumeX } from "lucide-react";
 import MariaChart, { parseChartSpec } from "./MariaChart";
+import { getMariaAudio } from "@/lib/mariaSpeech";
 
 /**
  * Rendu markdown ultra-soigné pour les messages de Maria.
@@ -10,7 +11,9 @@ import MariaChart, { parseChartSpec } from "./MariaChart";
 export default function MariaMessage({ content, onSpeak, muted, onToggleMuted, voiceUrl }) {
   const playVoicebox = () => {
     if (voiceUrl) {
-      const audio = new Audio(voiceUrl);
+      const audio = getMariaAudio();
+      if (!audio) return;
+      audio.src = voiceUrl;
       audio.play().catch(() => {});
     } else if (onSpeak) {
       onSpeak();

@@ -36,11 +36,25 @@ export function checkedImage(url) {
 
 export async function generateSpeech(text) {
   assert(typeof text === 'string' && text.trim().length > 0 && text.length <= 4096, 400, 'INVALID_SPEECH', 'Le texte vocal doit contenir entre 1 et 4096 caractères.');
-  return openaiRequest('audio/speech', {
-    model: process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts', voice: process.env.OPENAI_TTS_VOICE || 'coral', input: text,
-    instructions: 'Parle en français avec une voix féminine naturelle, chaleureuse et professionnelle. Articule les horaires et les prix clairement.',
-    response_format: 'mp3',
-  }, { binary: true });
+  if (process.env.OPENAI_API_KEY) {
+    return openaiRequest('audio/speech', {
+      model: process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts', voice: process.env.OPENAI_TTS_VOICE || 'coral', input: text,
+      instructions: 'Parle en français avec une voix féminine naturelle, chaleureuse et professionnelle. Articule les horaires et les prix clairement.',
+      response_format: 'mp3',
+    }, { binary: true });
+  }
+
+  // Local installations often have xAI configured but no OpenAI account. The
+  // project already ships an Edge-TTS fallback, so keep the endpoint usable.
+  try {
+    const { speakToBase64 } = await import('./voicebox.js');
+    const result = await speakToBase64(text, { profile: 'Maria', language: 'fr' });
+    assert(result?.audio_base64, 503, 'TTS_NOT_CONFIGURED', 'La synthèse vocale est temporairement indisponible.');
+    return Buffer.from(result.audio_base64, 'base64');
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(503, 'TTS_NOT_CONFIGURED', 'La synthèse vocale est temporairement indisponible.');
+  }
 }
 
 export async function transcribe({ content, type }) {

@@ -28,6 +28,7 @@ const ADMIN_TABS = [
   { id: "tendance", label: "Tendance", icon: Flame },
   { id: "salons", label: "Salons", icon: Award },
   { id: "offres", label: "Offres", icon: Gift },
+  { id: "bundles", label: "Bundles", icon: Sparkles },
   { id: "recommande", label: "Recommandé", icon: Sparkles },
   { id: "directs", label: "Lives", icon: Play },
   { id: "infos", label: "Infos", icon: Info },
@@ -185,6 +186,70 @@ function ServicesPicker({ selected = [], onSave }) {
               </button>
             );
           })}
+        </div>
+      )}
+      <button onClick={save} disabled={saving} className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-[12px] font-black disabled:opacity-60 shadow-md shadow-primary/20 active:scale-95 transition-all">
+        {saving ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Sauvegarde...</> : <><Save className="w-3.5 h-3.5" /> Sauvegarder</>}
+      </button>
+    </div>
+  );
+}
+
+// ── Bundles page d'accueil Picker ─────────────────────────────────────────────
+function BundlesPicker({ selected = [], onSave }) {
+  const [bundles, setBundles] = useState([]);
+  const [picks, setPicks] = useState(selected);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    entities.ServiceBundle.filter({ is_active: true }, "-created_at", 200)
+      .then(rows => setBundles(rows || []))
+      .catch(() => setBundles([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = (bundle) => {
+    const image = bundle.image_url || bundle.banner_url || "";
+    const snapshot = { ...bundle, image_url: image };
+    setPicks(current => current.some(item => item.id === bundle.id)
+      ? current.filter(item => item.id !== bundle.id)
+      : [...current, snapshot]);
+  };
+  const save = async () => { setSaving(true); await onSave("bundles", picks); setSaving(false); };
+  const filtered = search.trim()
+    ? bundles.filter(bundle => `${bundle.name || ""} ${bundle.category || ""} ${bundle.pro_email || ""}`.toLowerCase().includes(search.toLowerCase()))
+    : bundles;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-[12px] text-gray-500">Sélectionnez les bundles actifs à afficher dans la page d'accueil. Les informations sont relues depuis ServiceBundle pour rester synchronisées avec l'app principale.</p>
+      {picks.length > 0 && <div className="flex flex-wrap gap-2">
+        {picks.map(bundle => <div key={bundle.id} className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-xl px-3 py-1.5">
+          {bundle.image_url && <img src={bundle.image_url} className="w-5 h-5 rounded-lg object-cover" alt="" />}
+          <span className="text-[12px] font-black text-orange-800">{bundle.name}</span>
+          <button onClick={() => toggle(bundle)} aria-label={`Retirer ${bundle.name}`}><X className="w-3 h-3 text-orange-400" /></button>
+        </div>)}
+      </div>}
+      <div className="flex items-center gap-2 bg-gray-100 rounded-xl px-3 py-2.5">
+        <Search className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un bundle..." className="flex-1 bg-transparent text-[13px] text-gray-700 outline-none" />
+        {search && <button onClick={() => setSearch("")}><X className="w-3.5 h-3.5 text-gray-400" /></button>}
+      </div>
+      {loading ? <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div> : (
+        <div className="max-h-64 overflow-y-auto space-y-1 border border-gray-200 rounded-xl p-2">
+          {filtered.map(bundle => {
+            const selectedBundle = picks.some(item => item.id === bundle.id);
+            const image = bundle.image_url || bundle.banner_url || "";
+            return <button key={bundle.id} onClick={() => toggle(bundle)} className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl border-2 transition-all text-left ${selectedBundle ? "border-primary bg-orange-50" : "border-transparent bg-gray-50 hover:bg-gray-100"}`}>
+              {image ? <img src={image} alt="" className="w-9 h-9 rounded-xl object-cover shrink-0" /> : <div className="w-9 h-9 rounded-xl bg-gray-200 shrink-0 flex items-center justify-center"><Gift className="w-4 h-4 text-gray-400" /></div>}
+              <div className="flex-1 min-w-0"><p className="text-[12px] font-black text-gray-900 truncate">{bundle.name || "Bundle sans nom"}</p><p className="text-[10px] text-gray-400 truncate">{bundle.bundle_price ?? 0}€{bundle.discount_percent ? ` · -${bundle.discount_percent}%` : ""}{bundle.category ? ` · ${bundle.category}` : ""}</p></div>
+              {selectedBundle && <Check className="w-4 h-4 text-primary shrink-0" />}
+            </button>;
+          })}
+          {!filtered.length && <p className="py-6 text-center text-[12px] text-gray-400">Aucun bundle actif trouvé.</p>}
         </div>
       )}
       <button onClick={save} disabled={saving} className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-[12px] font-black disabled:opacity-60 shadow-md shadow-primary/20 active:scale-95 transition-all">
@@ -922,6 +987,16 @@ export default function AdminHomePage() {
               <ItemPicker sectionKey="expertise_du_mois" label="Expertise du Mois" desc="Meilleur particulier" emoji="" entityName="ProfilPro" nameField="salon_name" onSave={handleSave} selected={homeData.expertise_du_mois ? [homeData.expertise_du_mois] : []} single />
             </div>
           </>
+        )}
+
+        {activeTab === "bundles" && (
+          <div className="bg-white border border-gray-200 rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="w-5 h-5 text-primary" />
+              <h3 className="text-[14px] font-black text-gray-900">Bundles de la page d'accueil</h3>
+            </div>
+            <BundlesPicker selected={homeData.bundles || []} onSave={handleSave} />
+          </div>
         )}
 
         {activeTab === "offres" && (

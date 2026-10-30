@@ -2,11 +2,12 @@ import BeautyImage from '@/components/ui/BeautyImage';
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
-import { Search, ArrowLeft, Heart, MessageSquare, Share2, Volume2, VolumeX, ShoppingBag, Music, X, Send, Smile, Repeat2, Play, Pause, Lightbulb, Video, ChevronRight, Gauge, MoreHorizontal, ShoppingCart, Sparkles, Scissors, ArrowUpRight } from "lucide-react";
+import { Search, ArrowLeft, Heart, MessageSquare, Share2, Volume2, VolumeX, ShoppingBag, Music, X, Repeat2, Play, Gauge, ShoppingCart, Scissors, ArrowUpRight } from "lucide-react";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { likesApi } from '@/api/likes';
 import { useAuth } from "@/lib/AuthContext";
+import apiClient from "@/lib/apiClient";
 import { useToast } from "@/components/ui/use-toast";
 import SponsoredCard from "@/components/reels/SponsoredCard";
 import { getPublicAds } from "@/lib/publicAds";
@@ -14,6 +15,19 @@ import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCa
 
 const TABS = ["Réels", "Conseils", "Tutos"];
 const SPEEDS = [0.5, 1, 1.5, 2, 5, 10];
+
+function getReelViewSession() {
+  try {
+    const key = "bb_reel_view_session";
+    const current = localStorage.getItem(key);
+    if (current) return current;
+    const created = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(key, created);
+    return created;
+  } catch {
+    return `volatile-${Date.now()}`;
+  }
+}
 
 const SHARE_OPTIONS = [
   { label: "WhatsApp", color: "bg-green-500", icon: "💬" },
@@ -905,6 +919,47 @@ export default function Reels() {
   const [feedAttempt, setFeedAttempt] = useState(0);
   const scrollRef = useRef(null);
   const observerRef = useRef(null);
+  const feedRef = useRef([]);
+  const trackedViewsRef = useRef(new Set());
+
+  const trackReelView = useCallback((reel) => {
+    if (!reel?.id) return;
+    // Une vue correspond à la première consultation de cette publication
+    // par ce profil. La clé reste stable : pas de nouvelle vue chaque jour.
+    const viewerKey = user?.id
+      ? `user-${user.id}`
+      : user?.email
+        ? `email-${user.email.toLowerCase()}`
+        : `device-${getReelViewSession()}`;
+    const key = `${reel.id}:${viewerKey}`;
+    if (trackedViewsRef.current.has(key)) return;
+    trackedViewsRef.current.add(key);
+    supabase.rpc("record_reel_view", {
+      reel_uuid: reel.id,
+      viewer_session: viewerKey,
+      viewer_email_value: user?.email || '',
+    }).then(({ data, error }) => {
+      if (error) {
+        trackedViewsRef.current.delete(key);
+        return;
+      }
+      if (Number.isFinite(Number(data))) {
+        setReelsData(prev => prev.map(item => String(item.id) === String(reel.id) ? { ...item, views: Number(data) } : item));
+      }
+    }).catch(() => {
+      // Fallback serveur pour les déploiements où la fonction RPC n'est pas
+      // encore disponible ou lorsque le visiteur est anonyme.
+      apiClient.post('/content/reels/engagement', {
+        reelId: String(reel.id),
+        viewerSession: viewerKey,
+        viewerEmail: user?.email || '',
+      }).then(result => {
+        if (Number.isFinite(Number(result?.value))) {
+          setReelsData(prev => prev.map(item => String(item.id) === String(reel.id) ? { ...item, views: Number(result.value) } : item));
+        }
+      }).catch(() => trackedViewsRef.current.delete(key));
+    });
+  }, [setReelsData, user?.email, user?.id]);
 
   // ── À chaque (ré-)entrée sur la page Social, on repart du haut du fil ──
   // /reels et /reseau-social partagent ce composant sans toujours le démonter :
@@ -1084,7 +1139,11 @@ export default function Reels() {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           const idx = parseInt(entry.target.dataset.idx);
-          if (!isNaN(idx)) setCurrentIdx(idx);
+          if (!isNaN(idx)) {
+            setCurrentIdx(idx);
+            const feedItem = feedRef.current[idx];
+            if (feedItem?.type === "reel") trackReelView(feedItem.reel);
+          }
         }
       });
     }, { root: scrollRef.current, threshold: 0.6 });
@@ -1092,7 +1151,7 @@ export default function Reels() {
     const cards = scrollRef.current.querySelectorAll("[data-idx]");
     cards.forEach(card => observerRef.current.observe(card));
     return () => observerRef.current?.disconnect();
-  }, [reelsData]);
+  }, [reelsData, trackReelView]);
 
   const toggleLike = async (reel) => {
     const reelId = String(reel.id);
@@ -1246,6 +1305,7 @@ export default function Reels() {
       adInsertCount++;
     }
   });
+  feedRef.current = feed;
 
   const isCurrentAd = feed[currentIdx]?.type === "ad";
 

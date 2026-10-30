@@ -1,3 +1,5 @@
+import { getSiteTemplate } from "./siteTemplates.js";
+
 /**
  * generateProWebsite(pro, services, bundles, styles, avis, equipe)
  * Generates an ultra-luxury, high-end, standalone HTML5 website
@@ -12,8 +14,10 @@ export function generateProWebsite(
   bundles = [],
   styles = [],
   avis = [],
-  equipe = []
+  equipe = [],
+  options = {}
 ) {
+  const template = getSiteTemplate(options.templateId || options.template || "signature");
   const nomCommerce   = pro.nom_commerce || pro.salon_name || pro.name || 'Maison de Beauté';
   const slogan        = pro.slogan || pro.tagline || 'Haute Coiffure & Soins Signatures d’Exception';
   const categorie     = pro.categorie || pro.specialite || (Array.isArray(pro.specialites) ? pro.specialites.join(' · ') : 'Salon de Beauté & Bien-être');
@@ -78,18 +82,18 @@ export function generateProWebsite(
   
   <style>
     :root {
-      --gold: #C6A15B;
-      --gold-deep: #74520C;
-      --gold-light: #E8D3A7;
-      --gold-gradient: linear-gradient(135deg, #DFCA9B 0%, #C6A15B 50%, #9A7736 100%);
-      --gold-glow: rgba(198, 161, 91, 0.28);
-      --cream: #FBF6EF;
-      --cream-soft: #F6EFE6;
+      --gold: ${template.colors.primary};
+      --gold-deep: ${template.colors.deep};
+      --gold-light: ${template.colors.light};
+      --gold-gradient: ${template.gradient};
+      --gold-glow: ${template.glow};
+      --cream: ${template.colors.cream};
+      --cream-soft: ${template.colors.soft};
       --cream-card: #FFFFFF;
-      --ink: #140E0A;
-      --ink-soft: #2B2017;
-      --sand: #E7DBD0;
-      --border-gold: rgba(198, 161, 91, 0.22);
+      --ink: ${template.colors.ink};
+      --ink-soft: ${template.colors.inkSoft};
+      --sand: ${template.colors.sand};
+      --border-gold: ${template.border};
       --font-serif: 'Marcellus', Georgia, serif;
       --font-sans: 'Jost', -apple-system, BlinkMacSystemFont, sans-serif;
     }
@@ -1260,7 +1264,7 @@ export function generateProWebsite(
             <div>
               <label style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--gold-deep); display:block; margin-bottom:6px;">Créneau horaire</label>
               <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
-                {['10:00', '11:30', '14:00', '15:30', '17:00', '18:30'].map(t => \`
+                \${['10:00', '11:30', '14:00', '15:30', '17:00', '18:30'].map(t => \`
                   <button type="button" onclick="setTime('\${t}', this)" class="time-btn" style="padding:10px; border-radius:12px; border:1px solid \${selectedTime===t ? 'var(--gold)' : 'var(--sand)'}; background:\${selectedTime===t ? 'var(--gold-gradient)' : '#FFFFFF'}; color:\${selectedTime===t ? '#FFFFFF' : 'var(--ink)'}; font-weight:600; font-size:13px;">\${t}</button>
                 \`).join('')}
               </div>

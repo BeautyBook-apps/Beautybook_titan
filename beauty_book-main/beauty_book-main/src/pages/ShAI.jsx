@@ -1,17 +1,17 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import ImageJobHistory from '@/components/maria/ImageJobHistory';
+import AICreditsCard from '@/components/ai/AICreditsCard';
 import PhotoAnalysis from '@/components/maria/PhotoAnalysis';
 import { fetchShopifyProducts } from "@/api/shopifyClient";
-import { useState, useRef, useEffect, useCallback, Component } from "react";
+import { useState, useRef, useEffect, Component } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   ArrowLeft, ArrowRight, Wand2, Camera, Download,
   Sun, Contrast, Droplets, RefreshCw, X, Heart, Search,
   ShoppingCart, Check, Sparkles, Shirt, Repeat2, Clock,
-  Crop, FlipHorizontal, RotateCw, Palette, Image as ImageIcon
+  FlipHorizontal, RotateCw
 } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
 import { apiClient } from '@/lib/apiClient';
 import { analyzePhotoWithGrok } from '@/lib/grokService';
 import { useLikedProducts } from "@/hooks/useLikedProducts";
@@ -670,6 +670,8 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
         <span className="text-[12px] font-black text-gray-600">Voir mes derniers essayages</span>
         <span className="ml-auto text-gray-300 text-lg">›</span>
       </button>
+
+      <AICreditsCard />
 
       {/* Pré-sélection depuis produit */}
       {preSelectedProduct && !selectedProduct && (

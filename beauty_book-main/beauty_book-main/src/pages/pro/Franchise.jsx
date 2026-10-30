@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, TrendingUp, Network, GraduationCap, Brain, ChevronRight, CheckCircle, Send, Star, Play, Lock } from "lucide-react";
+import { ArrowLeft, TrendingUp, Network, GraduationCap, Brain, CheckCircle, Send, Play, Lock } from "lucide-react";
 import { entities } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
 import { useAuth } from "@/lib/AuthContext";
 
 // ── Données des modules ────────────────────────────────────────────────────────
@@ -258,7 +257,7 @@ const COACHING_MODULES = [
   },
 ];
 
-const PILLARS = [
+export const PILLARS = [
   { key: "marketing", icon: TrendingUp, label: "Marketing", color: "text-pink-500", bg: "bg-pink-50", modules: MARKETING_MODULES },
   { key: "franchise", icon: Network, label: "Franchise", color: "text-blue-500", bg: "bg-blue-50", modules: FRANCHISE_MODULES },
   { key: "cours", icon: GraduationCap, label: "Formations", color: "text-green-500", bg: "bg-green-50", modules: COURS_MODULES },

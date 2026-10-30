@@ -168,11 +168,20 @@ export default function VTCSection({ destinationLat, destinationLng, destination
     }, 600);
   };
 
+  // Actualise immédiatement à l'ouverture de la page, puis quand la position
+  // ou la destination deviennent disponibles.
   useEffect(() => {
-    if (destLat || destLng) {
-      refresh();
-    }
-  }, [userLocation, destLat, destLng]);
+    refresh();
+  }, [userLocation, destLat, destLng, destinationAddress]);
+
+  // Quand l'utilisateur revient sur la page, les estimations sont recalculées.
+  useEffect(() => {
+    const refreshOnVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", refreshOnVisible);
+    return () => document.removeEventListener("visibilitychange", refreshOnVisible);
+  }, [userLocation, destLat, destLng, destinationAddress]);
 
   useEffect(() => {
     const timer = setInterval(refresh, 60000);

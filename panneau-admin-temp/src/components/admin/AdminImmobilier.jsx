@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { uploadFile } from '@/api/entities';
 import { adminApi } from "@/lib/adminApiClient";
-import { Plus, Trash2, Upload, Loader2, X, Home, Eye, EyeOff, MapPin, Euro, Phone, Mail, AlertCircle, CheckCircle2, FileText, Clock, Save, Scissors, Building2, Receipt, Edit3, Box } from "lucide-react";
+import { Plus, Trash2, Upload, Loader2, X, Home, Eye, EyeOff, MapPin, Euro, Phone, Mail, AlertCircle, CheckCircle2, FileText, Clock, Save, Scissors, Building2, Receipt, Edit3, Box, Grid2X2, List, MonitorPlay, ExternalLink } from "lucide-react";
 import AddressInput from "@/components/ui/AddressInput";
 import HdrAssetPreview from "@/components/admin/HdrAssetPreview";
 
@@ -9,6 +9,7 @@ const inputCls = "w-full bg-gray-50 border border-gray-200 text-gray-800 rounded
 const labelCls = "text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1";
 const DRAFT_KEY = "bb_immobilier_draft";
 const DRAFTS_LIST_KEY = "bb_immobilier_drafts";
+const PUBLIC_APP_URL = import.meta.env.VITE_MAIN_APP_URL || "http://localhost:5173";
 
 const SALON_TYPES = [
   { value: "salon_de_beaute", label: "Salon de beauté" },
@@ -61,6 +62,59 @@ function deleteDraftFromList(draftId) {
   } catch {}
 }
 
+function ListingImage({ listing, className }) {
+  return listing.images?.[0]
+    ? <img src={listing.images[0]} alt={listing.title || "Bien immobilier"} className={className} />
+    : <div className={`${className} flex items-center justify-center bg-gray-100`} aria-hidden="true"><Home className="h-7 w-7 text-gray-300" /></div>;
+}
+
+function ImmobilierPreviewModal({ listing, onClose }) {
+  if (!listing) return null;
+  const isVente = listing.type === "vente";
+  const salonLabel = SALON_TYPES.find(item => item.value === listing.salon_type)?.label;
+  const detailUrl = `${PUBLIC_APP_URL}/immobilier/${listing.id}`;
+  const price = Number(listing.price || 0).toLocaleString("fr-FR");
+  const statusLabel = listing.status === "actif" ? "Disponible" : listing.status === "loue" ? (isVente ? "Vendu" : "Loué") : listing.status || "Brouillon";
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" role="presentation" onClick={onClose}>
+      <div className="max-h-[min(820px,calc(100vh-32px))] w-full max-w-[520px] overflow-y-auto rounded-[2rem] bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="immobilier-preview-title" onClick={event => event.stopPropagation()}>
+        <div className="relative">
+          <ListingImage listing={listing} className="h-64 w-full object-cover" />
+          <div className="absolute inset-x-0 top-0 flex items-center justify-between p-4">
+            <span className="rounded-full bg-black/45 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white backdrop-blur-md">Prévisualisation</span>
+            <button type="button" onClick={onClose} aria-label="Fermer la prévisualisation" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-gray-700 shadow-sm"><X className="h-5 w-5" /></button>
+          </div>
+          <div className="absolute bottom-4 left-4 flex gap-2">
+            <span className={`rounded-full px-3 py-1 text-[10px] font-black ${isVente ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>{isVente ? "Vente" : "Location"}</span>
+            <span className="rounded-full bg-white/95 px-3 py-1 text-[10px] font-black text-green-700">{statusLabel}</span>
+          </div>
+        </div>
+        <div className="space-y-5 p-6">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-primary">{salonLabel || "Immobilier professionnel"}</p>
+            <h2 id="immobilier-preview-title" className="mt-1 text-2xl font-black leading-tight text-gray-900">{listing.title || "Bien immobilier sans titre"}</h2>
+            <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-gray-500"><MapPin className="h-4 w-4 text-primary" /> {[listing.location, listing.city, listing.postal_code].filter(Boolean).join(", ") || "Localisation à préciser"}</p>
+          </div>
+          <div className="flex flex-wrap items-end justify-between gap-3 border-y border-gray-100 py-4">
+            <div><p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Prix</p><p className="mt-1 text-2xl font-black text-primary">{price}€{!isVente && listing.tax_mode ? <span className="ml-1 text-sm font-bold text-gray-400">{listing.tax_mode}</span> : null}</p></div>
+            <div className="flex gap-4 text-xs font-bold text-gray-500"><span>{listing.surface ? `${listing.surface} m²` : "Surface non renseignée"}</span>{listing.rooms ? <span>{listing.rooms} pièce(s)</span> : null}</div>
+          </div>
+          <p className="text-sm leading-6 text-gray-600">{listing.description || "Aucune description renseignée pour cette annonce."}</p>
+          <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-500">
+            <div className="rounded-xl bg-gray-50 p-3"><span className="font-black text-gray-800">Équipement</span><br />{listing.equip || "Non renseigné"}</div>
+            <div className="rounded-xl bg-gray-50 p-3"><span className="font-black text-gray-800">Photos</span><br />{listing.images?.length || 0} photo(s)</div>
+          </div>
+          <div className="flex gap-2">
+            <a href={detailUrl} target="_blank" rel="noopener noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-black text-white"><ExternalLink className="h-4 w-4" /> Voir la page détaillée</a>
+            <button type="button" onClick={onClose} className="rounded-xl bg-gray-100 px-4 py-3 text-sm font-black text-gray-600">Fermer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminImmobilier() {
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -71,13 +125,28 @@ export default function AdminImmobilier() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [drafts, setDrafts] = useState(() => loadDraftsList());
-  const [activeTab, setActiveTab] = useState("all");
+  const [displayMode, setDisplayMode] = useState(() => {
+    try { return sessionStorage.getItem("bb_admin_immobilier_display") || "list"; } catch { return "list"; }
+  });
+  const [previewListing, setPreviewListing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const imgRef = useRef(null);
   const hdrRef = useRef(null);
   const videoRef = useRef(null);
   const autoSaveTimer = useRef(null);
+
+  useEffect(() => {
+    if (!previewListing) return undefined;
+    const closeOnEscape = (event) => event.key === "Escape" && setPreviewListing(null);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [previewListing]);
+
+  const changeDisplayMode = (mode) => {
+    setDisplayMode(mode);
+    try { sessionStorage.setItem("bb_admin_immobilier_display", mode); } catch {}
+  };
 
   useEffect(() => {
     Promise.all([
@@ -299,14 +368,10 @@ export default function AdminImmobilier() {
 
   const isVente = form.type === "vente";
 
-  const filteredListings = activeTab === "all" ? listings
-    : activeTab === "vente" ? listings.filter(l => l.type === "vente")
-    : listings.filter(l => l.type === "location");
-
   if (loading) return <div className="flex justify-center py-16"><div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
 
   return (
-    <div className="space-y-4 max-w-2xl">
+    <div className="w-full max-w-none space-y-4">
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
@@ -671,69 +736,62 @@ export default function AdminImmobilier() {
         </div>
       )}
 
-      {/* ── Tabs ── */}
-      <div className="flex gap-1 bg-gray-100 rounded-2xl p-1">
-        {[
-          { id: "all", label: "Tous", count: listings.length },
-          { id: "vente", label: "Vente", count: listings.filter(l => l.type === "vente").length },
-          { id: "location", label: "Location", count: listings.filter(l => l.type === "location").length },
-        ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 ${activeTab === tab.id ? "bg-white text-primary shadow-sm" : "text-gray-400"}`}>
-            {tab.label}
-            <span className="text-[9px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full">{tab.count}</span>
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-gray-500 text-[12px] font-bold">{listings.length} bien(s) immobilier(s)</p>
+        <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-1 shadow-sm" role="group" aria-label="Mode d'affichage immobilier">
+          <button type="button" onClick={() => changeDisplayMode("list")} aria-pressed={displayMode === "list"} className={`flex min-h-10 items-center gap-2 rounded-lg px-3 text-[12px] font-black transition ${displayMode === "list" ? "bg-gray-900 text-white" : "text-gray-500 hover:bg-gray-50"}`}><List className="h-4 w-4" /> Liste</button>
+          <button type="button" onClick={() => changeDisplayMode("grid")} aria-pressed={displayMode === "grid"} className={`flex min-h-10 items-center gap-2 rounded-lg px-3 text-[12px] font-black transition ${displayMode === "grid" ? "bg-gray-900 text-white" : "text-gray-500 hover:bg-gray-50"}`}><Grid2X2 className="h-4 w-4" /> Grille</button>
+        </div>
       </div>
 
-      <p className="text-gray-500 text-[12px] font-bold">{filteredListings.length} bien(s) immobilier(s)</p>
-
-      <div className="space-y-3">
-        {filteredListings.map(l => {
+      <div className="space-y-8">
+        {["location", "vente"].map(sectionType => {
+          const sectionListings = listings.filter(l => l.type === sectionType);
+          const isVenteSection = sectionType === "vente";
+          return (
+            <section key={sectionType} aria-labelledby={`immobilier-${sectionType}-title`}>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${isVenteSection ? "bg-blue-500" : "bg-purple-500"}`} aria-hidden="true" />
+                  <h2 id={`immobilier-${sectionType}-title`} className="text-base font-black text-gray-900">{isVenteSection ? "Ventes" : "Locations"}</h2>
+                </div>
+                <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-black text-gray-500">{sectionListings.length} annonce{sectionListings.length > 1 ? "s" : ""}</span>
+              </div>
+              <div className={displayMode === "grid" ? "grid gap-4 sm:grid-cols-2 xl:grid-cols-3" : "space-y-3"}>
+        {sectionListings.map(l => {
           const isVenteCard = l.type === "vente";
           const salonLabel = SALON_TYPES.find(s => s.value === l.salon_type)?.label;
-          return (
-            <div key={l.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          const statusLabel = l.status === "actif" ? "Disponible" : l.status === "loue" ? (isVenteCard ? "Vendu" : "Loué") : l.status;
+          return displayMode === "grid" ? (
+            <article key={l.id} className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+              <div className="relative">
+                <ListingImage listing={l} className="h-44 w-full object-cover" />
+                <span className={`absolute left-3 top-3 rounded-full px-2.5 py-1 text-[10px] font-black ${isVenteCard ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>{isVenteCard ? "Vente" : "Location"}</span>
+              </div>
+              <div className="space-y-3 p-4">
+                <div><p className="truncate text-[14px] font-black text-gray-900">{l.title}</p><p className="mt-1 truncate text-[11px] text-gray-500">{l.city || l.location}{l.area ? ` · ${l.area}` : ""}</p></div>
+                <div className="flex flex-wrap gap-2"><span className="text-[11px] font-black text-primary">{l.price?.toLocaleString("fr-FR")}€</span>{salonLabel && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-500">{salonLabel}</span>}<span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${l.status === "actif" ? "bg-green-100 text-green-600" : "bg-amber-100 text-amber-600"}`}>{statusLabel}</span></div>
+                <div className="flex gap-2 border-t border-gray-100 pt-3"><button onClick={() => setPreviewListing(l)} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-purple-50 py-2 text-[11px] font-bold text-purple-600"><MonitorPlay className="h-3.5 w-3.5" /> Prévisualiser</button><button onClick={() => editListing(l)} aria-label="Modifier l'annonce" className="rounded-lg bg-blue-50 px-3 text-blue-500"><Edit3 className="h-4 w-4" /></button><button onClick={() => deleteListing(l.id)} aria-label="Supprimer l'annonce" className="rounded-lg bg-red-50 px-3 text-red-500"><Trash2 className="h-4 w-4" /></button></div>
+              </div>
+            </article>
+          ) : (
+            <div key={l.id} className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
               <div className="flex items-center gap-4 p-4">
-                <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-100 shrink-0">
-                  {l.images?.[0]
-                    ? <img src={l.images[0]} alt={l.title} className="w-full h-full object-cover" />
-                    : <div className="w-full h-full flex items-center justify-center"><Home className="w-6 h-6 text-gray-300" /></div>
-                  }
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-gray-900 text-[13px] font-black truncate">{l.title}</p>
-                  <p className="text-gray-500 text-[11px]">{l.city || l.location}{l.area ? ` · ${l.area}` : ""}</p>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${isVenteCard ? "bg-blue-100 text-blue-600" : "bg-purple-100 text-purple-600"}`}>
-                      {isVenteCard ? "Vente" : "Location"}
-                    </span>
-                    {salonLabel && <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">{salonLabel}</span>}
-                    <span className="text-[11px] font-black text-primary">{l.price?.toLocaleString("fr-FR")}€{!isVenteCard && l.tax_mode ? ` ${l.tax_mode}` : ""}</span>
-                    {l.price_per_m2 > 0 && <span className="text-[10px] text-gray-400">{l.price_per_m2.toLocaleString("fr-FR")}€/m²</span>}
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${l.status === "actif" ? "bg-green-100 text-green-600" : "bg-amber-100 text-amber-600"}`}>
-                      {l.status === "actif" ? "Disponible" : l.status === "loue" ? (isVenteCard ? "Vendu" : "Loué") : l.status}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={() => editListing(l)} aria-label="Modifier l'annonce" className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center active:scale-95">
-                    <Edit3 className="w-4 h-4 text-blue-500" />
-                  </button>
-                  <button onClick={() => toggleStatus(l)} aria-label="Changer le statut" className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center active:scale-95">
-                    {l.status === "actif" ? <EyeOff className="w-4 h-4 text-amber-500" /> : <Eye className="w-4 h-4 text-green-500" />}
-                  </button>
-                  <button onClick={() => deleteListing(l.id)} className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center active:scale-95">
-                    <Trash2 className="w-4 h-4 text-red-500" />
-                  </button>
-                </div>
+                <ListingImage listing={l} className="h-16 w-16 shrink-0 rounded-xl object-cover" />
+                <div className="min-w-0 flex-1"><p className="truncate text-[13px] font-black text-gray-900">{l.title}</p><p className="text-[11px] text-gray-500">{l.city || l.location}{l.area ? ` · ${l.area}` : ""}</p><div className="mt-1 flex flex-wrap items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${isVenteCard ? "bg-blue-100 text-blue-600" : "bg-purple-100 text-purple-600"}`}>{isVenteCard ? "Vente" : "Location"}</span>{salonLabel && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-500">{salonLabel}</span>}<span className="text-[11px] font-black text-primary">{l.price?.toLocaleString("fr-FR")}€{!isVenteCard && l.tax_mode ? ` ${l.tax_mode}` : ""}</span>{l.price_per_m2 > 0 && <span className="text-[10px] text-gray-400">{l.price_per_m2.toLocaleString("fr-FR")}€/m²</span>}<span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${l.status === "actif" ? "bg-green-100 text-green-600" : "bg-amber-100 text-amber-600"}`}>{statusLabel}</span></div></div>
+                <div className="flex shrink-0 items-center gap-2"><button onClick={() => setPreviewListing(l)} aria-label={`Prévisualiser ${l.title}`} title="Prévisualiser" className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-50"><MonitorPlay className="h-4 w-4 text-purple-500" /></button><button onClick={() => editListing(l)} aria-label="Modifier l'annonce" className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50"><Edit3 className="h-4 w-4 text-blue-500" /></button><button onClick={() => toggleStatus(l)} aria-label="Changer le statut" className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100">{l.status === "actif" ? <EyeOff className="h-4 w-4 text-amber-500" /> : <Eye className="h-4 w-4 text-green-500" />}</button><button onClick={() => deleteListing(l.id)} aria-label="Supprimer l'annonce" className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50"><Trash2 className="h-4 w-4 text-red-500" /></button></div>
               </div>
               {l.images?.length > 1 && <div className="px-4 pb-3"><span className="text-[10px] text-gray-400">{l.images.length} photos</span></div>}
             </div>
           );
         })}
-        {listings.length === 0 && <p className="text-gray-400 text-center py-10 text-[13px]">Aucun bien immobilier.</p>}
+        {sectionListings.length === 0 && <p className="rounded-2xl border border-dashed border-gray-200 bg-white py-10 text-center text-[13px] text-gray-400">Aucune annonce dans cette section.</p>}
+              </div>
+            </section>
+          );
+        })}
       </div>
+      {previewListing && <ImmobilierPreviewModal listing={previewListing} onClose={() => setPreviewListing(null)} />}
     </div>
   );
 }

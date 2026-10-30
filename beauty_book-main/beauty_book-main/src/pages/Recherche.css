@@ -2118,3 +2118,40 @@ html.dark .discovery-dialog-actions {
   border-top-color: #374151;
   background: #1f2937;
 }
+
+/* Le mode nuit reste plus profond que le mode sombre, sans perdre le contraste. */
+html[data-bb-theme="night"] .discovery-page {
+  --ink: #f9fafb;
+  --muted: #9ca3af;
+  --line: #1f1f1f;
+  --surface: #0a0a0a;
+  --bg-canvas: #000000;
+  --orange-light: #291400;
+}
+
+html[data-bb-theme="night"] .discovery-hero,
+html[data-bb-theme="night"] .discovery-dialog,
+html[data-bb-theme="night"] .discovery-dialog-head,
+html[data-bb-theme="night"] .discovery-dialog-actions {
+  background: #0a0a0a;
+  border-color: #222222;
+}
+
+html[data-bb-theme="night"] .discovery-searchbar,
+html[data-bb-theme="night"] .discovery-entity-tab,
+html[data-bb-theme="night"] .discovery-categories button,
+html[data-bb-theme="night"] .discovery-view-toggle,
+html[data-bb-theme="night"] .discovery-result-tools select,
+html[data-bb-theme="night"] .filter-input-wrapper input,
+html[data-bb-theme="night"] .discovery-filter-group input[type="number"] {
+  background: #111111;
+  border-color: #333333;
+  color: #f9fafb;
+}
+
+html[data-bb-theme="night"] .discovery-salon,
+html[data-bb-theme="night"] .discovery-map-panel,
+html[data-bb-theme="night"] .bundle-card {
+  background: #0a0a0a;
+  border-color: #222222;
+}

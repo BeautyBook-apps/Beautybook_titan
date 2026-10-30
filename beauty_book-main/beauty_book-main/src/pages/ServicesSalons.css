@@ -223,6 +223,39 @@ html.dark .services-page .services-search-hint {
   color: #9CA3AF;
 }
 
+html.dark .services-page .services-page-toolbar,
+html.dark .services-page .services-search-panel {
+  border-color: #374151;
+}
+
+html.dark .services-page .services-search-error {
+  color: #fecaca;
+  background: #450a0a;
+}
+
+html.dark .services-page .discovery-empty,
+html.dark .services-page .discovery-empty h3,
+html.dark .services-page .discovery-map-caption {
+  color: #d1d5db;
+  background: #1a1a2e;
+}
+
+html[data-bb-theme="night"] .services-page .services-search-panel,
+html[data-bb-theme="night"] .services-page .services-search-controls,
+html[data-bb-theme="night"] .services-page .services-search-trigger,
+html[data-bb-theme="night"] .services-page .services-image-search-button {
+  color: #f9fafb;
+  background: #0a0a0a;
+  border-color: #222222;
+}
+
+html[data-bb-theme="night"] .services-page .discovery-empty,
+html[data-bb-theme="night"] .services-page .discovery-empty h3,
+html[data-bb-theme="night"] .services-page .discovery-map-caption {
+  color: #d1d5db;
+  background: #000000;
+}
+
 .services-section .discovery-section-head h2 {
   font-size: 21px;
 }

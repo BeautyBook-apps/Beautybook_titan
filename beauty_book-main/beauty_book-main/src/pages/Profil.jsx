@@ -5,13 +5,14 @@ import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { likesApi } from '@/api/likes';
 import { readIsProCache, writeIsProCache } from "@/hooks/useIsPro";
-import { Share2, Settings, Star, ShoppingBag, Calendar, Award, CreditCard, Grid, Repeat2, Bookmark, Camera, Plus, Play, Heart, Video, BadgeCheck } from "lucide-react";
-import ShareSheet from "@/components/ui/ShareSheet";
+import { Share2, Settings, Star, ShoppingBag, Calendar, CreditCard, Grid, Repeat2, Bookmark, Camera, Plus, Play, Heart, Video, BadgeCheck, Eye, ListFilter, ArrowUpDown, BarChart3 } from "lucide-react";
+import DetailShareSheet from "@/components/share/DetailShareSheet";
 import ScoreFiabilite from "@/components/avis/ScoreFiabilite";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuthGate } from "@/hooks/useAuthGate";
 import AuthModal from "@/components/ui/AuthModal";
+import { getLikedProducts } from "@/hooks/useLikedProducts";
 
 const PROFILE_IMAGE = "";
 
@@ -38,7 +39,16 @@ function InstagramGrid({ items, onItemClick }) {
             <div onClick={onItemClick} className={`overflow-hidden bg-gray-100 cursor-pointer relative rounded-2xl active:scale-[0.98] transition-all ${className}`}>
               {thumb ? <BeautyImage src={thumb} alt={item?.title} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-gray-200 flex items-center justify-center"><Camera className="w-6 h-6 text-gray-400" /></div>}
               {item?.video_url && <div className="absolute top-1.5 right-1.5 bg-black/50 rounded-full p-1"><Video className="w-2.5 h-2.5 text-white" /></div>}
-              {item?.likes > 0 && <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-black/40 rounded-full px-1.5 py-0.5"><Heart className="w-2.5 h-2.5 text-red-400 fill-red-400" /><span className="text-white text-[9px] font-black">{item.likes >= 1000 ? (item.likes/1000).toFixed(1)+"k" : item.likes}</span></div>}
+              <div className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-1">
+                <div className="flex min-w-0 items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 backdrop-blur-sm">
+                  <Heart className="h-2.5 w-2.5 shrink-0 fill-red-400 text-red-400" />
+                  <span className="text-[9px] font-black leading-none text-white">{formatMetric(getMetric(item, ["likes", "like_count", "likes_count"]))}</span>
+                </div>
+                <div className="flex min-w-0 items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 backdrop-blur-sm">
+                  <Eye className="h-2.5 w-2.5 shrink-0 text-white" />
+                  <span className="text-[9px] font-black leading-none text-white">{formatMetric(getMetric(item, ["views", "view_count", "views_count", "impressions"]))}</span>
+                </div>
+              </div>
             </div>
           );
         };
@@ -86,10 +96,37 @@ function getItemBadge(item) {
   return { label: "Publication", color: "bg-gray-800", icon: "📸" };
 }
 
+function getMetric(item, keys) {
+  for (const key of keys) {
+    const value = Number(item?.[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+}
+
+function formatMetric(value) {
+  const number = Number(value || 0);
+  if (number >= 1000000) return `${(number / 1000000).toFixed(1)}M`;
+  if (number >= 1000) return `${(number / 1000).toFixed(1)}k`;
+  return String(number);
+}
+
+function favoriteCategory(item) {
+  if (item?._kind === "product") return "Produit";
+  if (item?._kind === "style") return "Style";
+  if (item?._kind === "service") return "Service";
+  if (item?._kind === "bundle") return "Forfait";
+  if (item?._kind === "immobilier") return "Immobilier";
+  if (item?._kind === "pro_profile") return "Profil";
+  return "Reel";
+}
+
 function MediaThumb({ item, isRepub = false, showTypeBadge = true, onClick }) {
   const thumb = item.reel_thumbnail || item.thumbnail_url || (item.reel_images && item.reel_images[0]) || (item.images && item.images[0]) || item.image_url;
   const isVideo = item.video_url || (thumb && (thumb.endsWith(".webm") || thumb.endsWith(".mp4")));
   const badge = getItemBadge(item);
+  const likes = getMetric(item, ["likes", "like_count", "likes_count"]);
+  const views = getMetric(item, ["views", "view_count", "views_count", "impressions"]);
 
   return (
     <div
@@ -128,12 +165,16 @@ function MediaThumb({ item, isRepub = false, showTypeBadge = true, onClick }) {
           <Video className="w-2.5 h-2.5 text-white" />
         </div>
       )}
-      {item.likes > 0 && (
-        <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-1.5 py-0.5">
-          <Heart className="w-2.5 h-2.5 text-red-400 fill-red-400" />
-          <span className="text-white text-[9px] font-black">{item.likes >= 1000 ? (item.likes/1000).toFixed(1)+"k" : item.likes}</span>
+      <div className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-1">
+        <div className="flex min-w-0 items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 backdrop-blur-sm">
+          <Heart className="h-2.5 w-2.5 shrink-0 fill-red-400 text-red-400" />
+          <span className="text-[9px] font-black leading-none text-white">{formatMetric(likes)}</span>
         </div>
-      )}
+        <div className="flex min-w-0 items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 backdrop-blur-sm">
+          <Eye className="h-2.5 w-2.5 shrink-0 text-white" />
+          <span className="text-[9px] font-black leading-none text-white">{formatMetric(views)}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -152,6 +193,7 @@ function getPageBg(theme) {
 
 export default function Profil() {
   const { user, profile } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { showAuthModal, authMessage, requireAuth, closeAuthModal } = useAuthGate();
@@ -159,6 +201,13 @@ export default function Profil() {
   const [publications, setPublications] = useState([]);
   const [repubsList, setRepubsList] = useState([]);
   const [favorisList, setFavorisList] = useState([]);
+  const [favoriteCategoryFilter, setFavoriteCategoryFilter] = useState("Tous");
+  const [favoriteSort, setFavoriteSort] = useState("recent");
+  const sharedEmail = new URLSearchParams(location.search).get("email")?.trim() || "";
+  const ownerEmail = sharedEmail || user?.email || "";
+  const isSharedProfile = Boolean(sharedEmail && sharedEmail.toLowerCase() !== user?.email?.toLowerCase());
+  const [sharedProfile, setSharedProfile] = useState(null);
+  const displayUser = isSharedProfile ? { ...sharedProfile, email: ownerEmail } : user;
   const [loading, setLoading] = useState(false);
   // Initialisé depuis le cache : un pro qui revient voit directement la bonne
   // version. `null` = statut pas encore connu (pas de flash, voir hooks/useIsPro.js).
@@ -172,18 +221,30 @@ export default function Profil() {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (!data?.user) {
+      if (!data?.user && !sharedEmail) {
         requireAuth("Connectez-vous pour accéder à votre profil.");
       }
-    }).catch(() => requireAuth("Connectez-vous pour accéder à votre profil."));
-  }, []);
+    }).catch(() => { if (!sharedEmail) requireAuth("Connectez-vous pour accéder à votre profil."); });
+  }, [sharedEmail]);
+
+  useEffect(() => {
+    if (!isSharedProfile || !ownerEmail) {
+      setSharedProfile(null);
+      return undefined;
+    }
+    let active = true;
+    supabase.from("profiles").select("email,username,full_name,bio,avatar_url,cover_url").eq("email", ownerEmail).maybeSingle()
+      .then(({ data }) => { if (active) setSharedProfile(data || { email: ownerEmail }); })
+      .catch(() => { if (active) setSharedProfile({ email: ownerEmail }); });
+    return () => { active = false; };
+  }, [isSharedProfile, ownerEmail]);
 
   useEffect(() => {
     loadData();
-  }, [user?.email]);
+  }, [ownerEmail, user?.email]);
 
   const loadData = async () => {
-    if (!user?.email) return;
+    if (!ownerEmail) return;
     setLoading(true);
     // Note : on ne réinitialise PAS isPro ici — le cache affiche la bonne
     // version immédiatement, loadData revalide en arrière-plan.
@@ -192,12 +253,18 @@ export default function Profil() {
     const today = new Date().toISOString().split("T")[0];
 
     // ── Charger les likes depuis backend ──
-    const dbLikes = await likesApi.getUserLikesAll(user.email).catch(() => []);
+    const dbLikes = user?.email && !isSharedProfile ? await likesApi.getUserLikesAll(user.email).catch(() => []) : [];
 
     const likedReelIds = (dbLikes || []).filter(l => l.target_type === 'reel').map(l => l.target_id);
     const likedServiceIds = (dbLikes || []).filter(l => l.target_type === 'service').map(l => l.target_id);
     const likedStyleIds = (dbLikes || []).filter(l => l.target_type === 'style').map(l => l.target_id);
     const likedImmobilierIds = (dbLikes || []).filter(l => l.target_type === 'immobilier').map(l => String(l.target_id));
+    const likedProfileEmails = (dbLikes || []).filter(l => l.target_type === 'pro_profile').map(l => String(l.target_id));
+    const likedProducts = !isSharedProfile ? getLikedProducts() : [];
+    const favoriteDate = (targetType, targetId) => {
+      const row = (dbLikes || []).find(item => item.target_type === targetType && String(item.target_id) === String(targetId));
+      return row?.created_at || null;
+    };
 
     // Requête Supabase directe — tous les reels publiés, filtrer côté client
     let reels = [];
@@ -211,9 +278,9 @@ export default function Profil() {
       if (reelsErr) {
         console.error('[Profil] Reels query error:', reelsErr);
       } else {
-        const myEmail = (user.email || '').toLowerCase().trim();
-        const myId = user.id || '';
-        const myName = (user.full_name || user.name || '').toLowerCase().trim();
+        const myEmail = ownerEmail.toLowerCase();
+        const myId = !isSharedProfile ? (user?.id || '') : '';
+        const myName = (displayUser?.full_name || displayUser?.name || '').toLowerCase().trim();
 
         // Debug: log exact values
         (reelsData || []).forEach((r, i) => {
@@ -243,7 +310,7 @@ export default function Profil() {
       const { data: repubsData, error: repubsErr } = await supabase
         .from('Repub')
         .select('*')
-        .eq('user_email', user.email)
+        .eq('user_email', ownerEmail)
         .order('created_at', { ascending: false })
         .limit(50);
       if (!repubsErr) repubs = repubsData || [];
@@ -276,17 +343,32 @@ export default function Profil() {
     }
 
     const [profil, commandes, reservations, pointsFidelite] = await Promise.all([
-      entities.ProfilPro.filter({ user_email: user.email }, "-created_at", 1).catch(() => []),
-      entities.Commande.filter({ client_email: user.email }, "-created_at", 100).catch(() => []),
-      entities.Reservation.filter({ client_email: user.email }, "-created_at", 100).catch(() => []),
-      entities.PointsFidelite.filter({ user_email: user.email }, "-created_at", 1).catch(() => []),
+      entities.ProfilPro.filter({ user_email: ownerEmail }, "-created_at", 1).catch(() => []),
+      entities.Commande.filter({ client_email: ownerEmail }, "-created_at", 100).catch(() => []),
+      entities.Reservation.filter({ client_email: ownerEmail }, "-created_at", 100).catch(() => []),
+      entities.PointsFidelite.filter({ user_email: ownerEmail }, "-created_at", 1).catch(() => []),
     ]);
+    const publicationIds = reels.map(reel => String(reel.id)).filter(Boolean);
+    if (publicationIds.length > 0) {
+      const [likeCounts, commentsResult] = await Promise.all([
+        likesApi.getLikeCounts(publicationIds, "reel").catch(() => ({})),
+        supabase.from("reel_comment").select("reel_id").in("reel_id", publicationIds).then(result => result.data || []).catch(() => []),
+      ]);
+      const commentCounts = {};
+      commentsResult.forEach(comment => { const id = String(comment.reel_id); commentCounts[id] = (commentCounts[id] || 0) + 1; });
+      reels = reels.map(reel => ({
+        ...reel,
+        likes: Number(likeCounts[String(reel.id)] ?? reel.likes ?? 0),
+        comments_count: Number(commentCounts[String(reel.id)] ?? reel.comments_count ?? 0),
+        views: Number(reel.views || 0),
+      }));
+    }
     setPublications(reels);
     setRepubsList(repubs);
 
     const likedBundleIds = (dbLikes || []).filter(l => l.target_type === 'bundle').map(l => l.target_id);
 
-    // ── Charger les favoris (reels likés + services likés + styles likés + bundles) depuis la BDD ──
+    // ── Charger les favoris (reels, services, produits, styles, profils, annonces et bundles) ──
     const favs = [];
     if (likedReelIds.length > 0) {
       const likedReels = await Promise.all(
@@ -294,10 +376,12 @@ export default function Profil() {
           entities.Reel.filter({ id: rid }, "-created_at", 1).catch(() => [])
         )
       );
-      likedReels.forEach(res => {
+      likedReels.forEach((res, index) => {
         if (res[0]) {
+          const rid = likedReelIds[index];
           favs.push({
             ...res[0],
+            favorite_created_at: favoriteDate('reel', rid),
             _kind: 'reel',
             _badgeLabel: 'Reel',
             _badgeColor: 'bg-purple-600',
@@ -310,9 +394,10 @@ export default function Profil() {
       const allServices = await entities.Service.filter({ status: "actif" }, "-created_at", 200).catch(() => []);
       const likedSvcs = allServices.filter(s => likedServiceIds.includes(s.id)).map(s => ({
         ...s,
+        favorite_created_at: favoriteDate('service', s.id),
         thumbnail_url: s.image_url,
         title: s.title,
-        likes: 0,
+        likes: Number(s.likes || s.like_count || 0),
         _kind: 'service',
         _badgeLabel: 'Service',
         _badgeColor: 'bg-blue-600',
@@ -324,6 +409,7 @@ export default function Profil() {
       const allStyles = await entities.Style.filter({ status: "publie" }, "-created_at", 200).catch(() => []);
       const likedStyles = allStyles.filter(s => likedStyleIds.includes(s.id)).map(s => ({
         ...s,
+        favorite_created_at: favoriteDate('style', s.id),
         thumbnail_url: s.image_url || (s.images && s.images[0]),
         _kind: 'style',
         _badgeLabel: 'Style',
@@ -347,13 +433,36 @@ export default function Profil() {
         }));
       favs.push(...likedImmobilier);
     }
+    if (likedProfileEmails.length > 0) {
+      const likedProfiles = await Promise.all(
+        likedProfileEmails.map(email => entities.ProfilPro.filter({ user_email: email }, "-created_at", 1).catch(() => []))
+      );
+      likedProfiles.forEach((rows, index) => {
+        const profile = rows[0];
+        const email = likedProfileEmails[index];
+        if (profile) {
+          favs.push({
+            ...profile,
+            id: email,
+            favorite_created_at: favoriteDate('pro_profile', email),
+            title: profile.salon_name || email,
+            thumbnail_url: profile.avatar_url || profile.cover_url,
+            _kind: 'pro_profile',
+            _badgeLabel: 'Profil',
+            _badgeColor: 'bg-orange-500',
+            _badgeIcon: '♥',
+          });
+        }
+      });
+    }
     if (likedBundleIds.length > 0) {
       const allBundles = await entities.ServiceBundle.filter({ is_active: true }, "-created_at", 100).catch(() => []);
       const likedBundles = allBundles.filter(b => likedBundleIds.includes(b.id)).map(b => ({
         ...b,
+        favorite_created_at: favoriteDate('bundle', b.id),
         thumbnail_url: b.image_url || b.banner_url,
         title: b.name,
-        likes: 0,
+        likes: Number(b.likes || b.like_count || 0),
         _kind: 'bundle',
         _badgeLabel: 'Forfait',
         _badgeColor: 'bg-amber-500',
@@ -361,7 +470,80 @@ export default function Profil() {
       }));
       favs.push(...likedBundles);
     }
-    if (favs.length > 0) setFavorisList(favs);
+    if (likedProducts.length > 0) {
+      favs.push(...likedProducts.map(product => ({
+        ...product,
+        favorite_created_at: product.favorite_created_at || product.created_at || null,
+        title: product.name || product.title || "Produit beauté",
+        thumbnail_url: product.img || product.image_url || product.images?.[0]?.url,
+        image_url: product.img || product.image_url || product.images?.[0]?.url,
+        _kind: 'product',
+        _badgeLabel: 'Produit',
+        _badgeColor: 'bg-violet-600',
+        _badgeIcon: '🛍️',
+      })));
+    }
+
+    // Ne perds jamais un like si le contenu associé est momentanément
+    // indisponible ou si son statut a changé : le favori reste visible et
+    // pourra être ouvert dès que la fiche sera à nouveau accessible.
+    const favoriteMeta = {
+      reel: { kind: 'reel', label: 'Reel', color: 'bg-purple-600', icon: '🎬' },
+      service: { kind: 'service', label: 'Service', color: 'bg-blue-600', icon: '✂️' },
+      style: { kind: 'style', label: 'Style', color: 'bg-pink-600', icon: '✨' },
+      immobilier: { kind: 'immobilier', label: 'Immobilier', color: 'bg-emerald-600', icon: '🏠' },
+      pro_profile: { kind: 'pro_profile', label: 'Profil', color: 'bg-orange-500', icon: '♥' },
+      bundle: { kind: 'bundle', label: 'Forfait', color: 'bg-amber-500', icon: '💎' },
+    };
+    const resolvedFavoriteKeys = new Set(favs.map(item => {
+      const key = item._kind === 'pro_profile' ? (item.user_email || item.id) : item.id;
+      return `${item._kind}:${String(key)}`;
+    }));
+    (dbLikes || []).forEach(like => {
+      const meta = favoriteMeta[like.target_type];
+      if (!meta) return;
+      const key = `${meta.kind}:${String(like.target_id)}`;
+      if (resolvedFavoriteKeys.has(key)) return;
+      resolvedFavoriteKeys.add(key);
+      favs.push({
+        id: String(like.target_id),
+        title: `Favori ${meta.label}`,
+        favorite_created_at: like.created_at || null,
+        likes: 0,
+        views: 0,
+        _kind: meta.kind,
+        _badgeLabel: meta.label,
+        _badgeColor: meta.color,
+        _badgeIcon: meta.icon,
+      });
+    });
+    // Recalcule les likes depuis user_like pour chaque catégorie. Les champs
+    // likes présents sur les fiches peuvent être absents ou dénormalisés.
+    const favoriteIdsByType = {};
+    favs.forEach(item => {
+      const targetType = item._kind;
+      const targetId = targetType === 'pro_profile' ? (item.user_email || item.id) : item.id;
+      if (!targetType || !targetId || targetType === 'product') return;
+      if (!favoriteIdsByType[targetType]) favoriteIdsByType[targetType] = new Set();
+      favoriteIdsByType[targetType].add(String(targetId));
+    });
+    const favoriteLikeCounts = {};
+    await Promise.all(Object.entries(favoriteIdsByType).map(async ([targetType, ids]) => {
+      favoriteLikeCounts[targetType] = await likesApi.getLikeCounts([...ids], targetType).catch(() => ({}));
+    }));
+    const favoritesWithMetrics = favs.map(item => {
+      const targetType = item._kind;
+      const targetId = targetType === 'pro_profile' ? (item.user_email || item.id) : item.id;
+      const countedLikes = favoriteLikeCounts[targetType]?.[String(targetId)];
+      return {
+        ...item,
+        likes: countedLikes !== undefined
+          ? Number(countedLikes)
+          : getMetric(item, ['likes', 'like_count', 'likes_count']),
+        views: getMetric(item, ['views', 'view_count', 'views_count', 'impressions']),
+      };
+    });
+    setFavorisList(favoritesWithMetrics.sort((a, b) => new Date(b.favorite_created_at || b.created_at || b.updated_at || 0).getTime() - new Date(a.favorite_created_at || a.created_at || a.updated_at || 0).getTime()));
 
     // Stats réelles pour les quick links
     const rdvAVenir = reservations.filter(r => r.date >= today && r.status !== "annule" && r.status !== "termine").length;
@@ -374,7 +556,7 @@ export default function Profil() {
       solde: soldeDisponible,
     });
 
-    if (user?.role === 'vendeur' || user?.role === 'admin') {
+    if (!isSharedProfile && (user?.role === 'vendeur' || user?.role === 'admin')) {
       setIsPro(true);
       writeIsProCache(true);
     } else {
@@ -382,7 +564,7 @@ export default function Profil() {
       try {
         const { data } = await supabase.from('DemandeProV2')
           .select('statut')
-          .eq('user_email', user.email)
+          .eq('user_email', ownerEmail)
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -398,7 +580,7 @@ export default function Profil() {
 
     // Fetch followers count
     try {
-      const { count } = await supabase.from("user_follow").select("*", { count: "exact", head: true }).eq("followed_email", user.email);
+      const { count } = await supabase.from("user_follow").select("*", { count: "exact", head: true }).eq("followed_email", ownerEmail);
       setFollowersCount(count || 0);
     } catch (e) { console.error("Followers count error:", e); }
 
@@ -407,75 +589,93 @@ export default function Profil() {
   };
 
   const postsCount = publications.length;
-  const totalLikes = favorisList.length;
-  const totalFavoris = favorisList.length;
+  const totalLikes = publications.reduce((sum, item) => sum + getMetric(item, ["likes", "like_count", "likes_count"]), 0);
+  const favoriteCategories = ["Tous", ...new Set(favorisList.map(favoriteCategory))];
+  const filteredFavoris = favorisList
+    .filter(item => favoriteCategoryFilter === "Tous" || favoriteCategory(item) === favoriteCategoryFilter)
+    .sort((a, b) => {
+      if (favoriteSort === "likes") return getMetric(b, ["likes", "like_count", "likes_count"]) - getMetric(a, ["likes", "like_count", "likes_count"]);
+      if (favoriteSort === "views") return getMetric(b, ["views", "view_count", "views_count", "impressions"]) - getMetric(a, ["views", "view_count", "views_count", "impressions"]);
+      if (favoriteSort === "name") return String(a.title || "").localeCompare(String(b.title || ""), "fr", { sensitivity: "base" });
+      return new Date(b.favorite_created_at || b.created_at || b.updated_at || 0).getTime() - new Date(a.favorite_created_at || a.created_at || a.updated_at || 0).getTime();
+    });
 
   // Si la demande est en attente, on reste sur le profil client avec une info
   // Plus de redirect automatique vers profil-pro pour une demande en attente
 
   return (
-    <div className="font-display pb-4 min-h-full" style={{ background: getPageBg(theme) }}>
+    <div className="profile-page font-display pb-4 min-h-full" data-theme={theme} style={{ background: getPageBg(theme) }}>
       <AuthModal open={showAuthModal} onClose={closeAuthModal} message={authMessage} />
 
-      {/* Banner — cliquable pour modifier */}
-      <div className="relative h-48 cursor-pointer" onClick={() => navigate("/modifier-profil-client")}>
-        {user?.cover_url ? (
-          <BeautyImage src={user.cover_url} alt="Bannière" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-b from-orange-100 to-orange-50" />
-        )}
-        <div className="absolute inset-0" style={{ background: getBannerGradient(theme) }} />
+      {(() => {
+        const isDark = theme === "dark" || theme === "night";
+        const actionBg = isDark ? "bg-gray-900/90 border border-gray-700" : "bg-white/90 border border-white/70";
+        const actionIcon = isDark ? "text-gray-100" : "text-gray-800";
+        return (
+          <>
+            {/* Banner — cliquable pour modifier */}
+            <div className="relative h-48 cursor-pointer" onClick={() => !isSharedProfile && navigate("/modifier-profil-client")}>
+              {displayUser?.cover_url ? (
+                <BeautyImage src={displayUser.cover_url} alt="Bannière" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-b from-orange-100 to-orange-50" />
+              )}
+              <div className="absolute inset-0" style={{ background: getBannerGradient(theme) }} />
 
-        {/* Top Buttons */}
-        <div className="absolute top-4 left-0 right-0 px-5 flex items-center justify-center gap-3 z-10">
-          <button onClick={(e) => { e.stopPropagation(); navigate("/abonnements"); }} className="px-6 py-2.5 bg-primary rounded-full flex items-center gap-2 shadow-lg shadow-primary/30 active:scale-95 transition-all">
-            <Star className="w-4 h-4 text-white fill-white" />
-            <span className="text-white text-[12px] font-black uppercase tracking-wider">Abonnements</span>
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setShareOpen(true); }}
-            className="w-10 h-10 bg-gray-400/80 backdrop-blur-sm rounded-full flex items-center justify-center active:scale-95 transition-all">
-            <Share2 className="w-4 h-4 text-white" />
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); navigate("/parametres"); }} className="w-10 h-10 bg-gray-400/80 backdrop-blur-sm rounded-full flex items-center justify-center active:scale-95 transition-all">
-            <Settings className="w-4 h-4 text-white" />
-          </button>
-        </div>
-
-        {/* Profile Photo */}
-        <div className="absolute -bottom-14 left-1/2 -translate-x-1/2">
-          <div className="relative">
-            <div className="w-[100px] h-[100px] rounded-full border-[3px] border-primary shadow-xl overflow-hidden bg-gray-100">
-              <BeautyImage src={user?.avatar_url || PROFILE_IMAGE} alt="Profil" className="w-full h-full object-cover" />
-            </div>
-            <button onClick={(e) => { e.stopPropagation(); navigate("/modifier-profil-client"); }} className="absolute bottom-0 right-0 w-8 h-8 bg-primary rounded-full border-2 border-white flex items-center justify-center shadow active:scale-95 transition-all">
-              <Camera className="w-4 h-4 text-white" />
-            </button>
-            {/* Badge PRO */}
-            {isPro && (
-              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary rounded-full px-2 py-0.5 flex items-center gap-1 shadow-md border-2 border-white whitespace-nowrap">
-                <BadgeCheck className="w-3 h-3 text-white" />
-                <span className="text-white text-[9px] font-black uppercase tracking-widest">PRO</span>
+              {/* Top Buttons */}
+              <div className="absolute top-4 left-0 right-0 px-5 flex items-center justify-center gap-3 z-10">
+                {!isSharedProfile && <button onClick={(e) => { e.stopPropagation(); navigate("/abonnements"); }} className="px-6 py-2.5 bg-primary rounded-full flex items-center gap-2 shadow-lg shadow-primary/30 active:scale-95 transition-all">
+                  <Star className="w-4 h-4 text-white fill-white" />
+                  <span className="text-white text-[12px] font-black uppercase tracking-wider">Abonnements</span>
+                </button>}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShareOpen(true); }}
+                  aria-label="Partager le profil"
+                  className={`w-10 h-10 ${actionBg} backdrop-blur-sm rounded-full flex items-center justify-center shadow-md active:scale-95 transition-all`}>
+                  <Share2 className={`w-4 h-4 ${actionIcon}`} />
+                </button>
+                {!isSharedProfile && <button onClick={(e) => { e.stopPropagation(); navigate("/parametres"); }} aria-label="Ouvrir les paramètres" className={`w-10 h-10 ${actionBg} backdrop-blur-sm rounded-full flex items-center justify-center shadow-md active:scale-95 transition-all`}>
+                  <Settings className={`w-4 h-4 ${actionIcon}`} />
+                </button>}
               </div>
-            )}
-          </div>
-        </div>
-      </div>
 
-      {/* Identity */}
-      <div className="pt-16 px-5 pb-4 flex flex-col items-center text-center gap-1">
-        <h1 className="text-[20px] font-black text-gray-500">@{user?.username || user?.email?.split("@")[0] || "beautybook"}</h1>
-        {user?.bio && (
-          <p className="text-[12px] text-gray-500 font-medium mt-1 max-w-[280px] leading-relaxed">{user.bio.length > 160 ? user.bio.slice(0, 160) + "…" : user.bio}</p>
-        )}
-      </div>
+              {/* Profile Photo */}
+              <div className="absolute -bottom-14 left-1/2 -translate-x-1/2">
+                <div className="relative">
+                  <div className="w-[100px] h-[100px] rounded-full border-[3px] border-primary shadow-xl overflow-hidden bg-gray-100">
+                    <BeautyImage src={displayUser?.avatar_url || PROFILE_IMAGE} alt="Profil" className="w-full h-full object-cover" />
+                  </div>
+                  {!isSharedProfile && <button onClick={(e) => { e.stopPropagation(); navigate("/modifier-profil-client"); }} aria-label="Modifier la photo de profil" className="absolute bottom-0 right-0 w-8 h-8 bg-primary rounded-full border-2 border-white flex items-center justify-center shadow active:scale-95 transition-all">
+                    <Camera className="w-4 h-4 text-white" />
+                  </button>}
+                  {/* Badge PRO */}
+                  {isPro && (
+                    <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary rounded-full px-2 py-0.5 flex items-center gap-1 shadow-md border-2 border-white whitespace-nowrap">
+                      <BadgeCheck className="w-3 h-3 text-white" />
+                      <span className="text-white text-[9px] font-black uppercase tracking-widest">PRO</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Identity */}
+            <div className="pt-16 px-5 pb-4 flex flex-col items-center text-center gap-1">
+              <h1 className="text-[20px] font-black text-gray-500">@{displayUser?.username || displayUser?.email?.split("@")[0] || "beautybook"}</h1>
+              {displayUser?.bio && (
+                <p className="text-[12px] text-gray-500 font-medium mt-1 max-w-[280px] leading-relaxed">{displayUser.bio.length > 160 ? displayUser.bio.slice(0, 160) + "…" : displayUser.bio}</p>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {/* Stats */}
-      <div className="mx-5 bg-gray-50 rounded-2xl px-4 py-4 grid grid-cols-3 divide-x divide-gray-200 mb-4">
+      <div className="mx-5 bg-gray-50 rounded-2xl px-3 py-4 grid grid-cols-3 divide-x divide-gray-200 mb-4">
         {[
           { value: postsCount, label: "PUBLICATIONS" },
-          { value: followersCount, label: "ABONNÉS" },
           { value: totalLikes, label: "LIKES", highlight: true },
+          { value: followersCount, label: "ABONNÉS" },
         ].map((s) => (
           <div key={s.label} className="flex flex-col items-center gap-1 px-2">
             <span className={`text-[22px] font-black ${s.highlight ? "text-primary" : "text-gray-900"}`}>{s.value}</span>
@@ -485,7 +685,7 @@ export default function Profil() {
       </div>
 
       {/* CTA Buttons */}
-      <div className="px-5 flex gap-3 mb-5">
+      {!isSharedProfile && <div className="px-5 flex gap-3 mb-5">
         <button onClick={() => navigate("/modifier-profil-client")}
           className="flex-1 py-3.5 bg-gray-900 rounded-2xl text-white text-[13px] font-black uppercase tracking-widest active:scale-95 transition-all">
           MODIFIER
@@ -509,10 +709,10 @@ export default function Profil() {
             DEVENIR PRO
           </button>
         )}
-      </div>
+      </div>}
 
       {/* Quick Links */}
-      <div className="px-5 flex justify-between mb-5">
+      {!isSharedProfile && <div className="px-5 flex justify-between mb-5">
         {toast && (
           <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[999] bg-gray-900 text-white text-[13px] font-bold px-5 py-3 rounded-2xl shadow-xl max-w-[320px] text-center flex items-center gap-2">
             <span className="text-primary text-[11px]">⏳</span> {toast}
@@ -540,18 +740,26 @@ export default function Profil() {
             </button>
           );
         })}
-      </div>
+      </div>}
 
-      <ShareSheet
-        open={shareOpen}
-        onClose={() => setShareOpen(false)}
-        title={user?.full_name ? `${user.full_name} – BeautyBook` : "Mon Profil BeautyBook"}
-        url={window.location.origin + "/profil"}
-      />
+      {shareOpen && (
+        <DetailShareSheet
+          title={displayUser?.full_name ? `${displayUser.full_name} – BeautyBook` : "Mon Profil BeautyBook"}
+          subtitle={`@${displayUser?.username || displayUser?.email?.split("@")[0] || "beautybook"}`}
+          eyebrow="BeautyBook · profil client"
+          category="Profil client"
+          image={displayUser?.avatar_url || displayUser?.cover_url}
+          description={displayUser?.bio}
+          url={`${window.location.origin}/profil?email=${encodeURIComponent(ownerEmail)}`}
+          showQrCode
+          qrCaption="Scannez ce code pour ouvrir directement le profil client."
+          onClose={() => setShareOpen(false)}
+        />
+      )}
 
       {/* Score de Fiabilité */}
       <div data-tour="profil-score" className="mx-5 mb-5">
-        <ScoreFiabilite userEmail={user?.email} />
+        <ScoreFiabilite userEmail={ownerEmail} />
       </div>
 
       {/* Tabs */}
@@ -590,6 +798,36 @@ export default function Profil() {
           )}
         </div>
 
+        {activeTab === "favoris" && favorisList.length > 0 && (
+          <div className="px-4 pb-3 space-y-2.5">
+            <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-hide" role="tablist" aria-label="Catégories de favoris">
+              <ListFilter className="w-4 h-4 shrink-0 text-primary" aria-hidden="true" />
+              {favoriteCategories.map(category => (
+                <button
+                  key={category}
+                  type="button"
+                  role="tab"
+                  aria-selected={favoriteCategoryFilter === category}
+                  onClick={() => setFavoriteCategoryFilter(category)}
+                  className={`min-h-9 shrink-0 rounded-full px-3 text-[10px] font-black transition-all ${favoriteCategoryFilter === category ? "bg-gray-900 text-white shadow-sm" : "bg-gray-100 text-gray-500"}`}
+                >
+                  {category}{category !== "Tous" && <span className="ml-1 opacity-60">{favorisList.filter(item => favoriteCategory(item) === category).length}</span>}
+                </button>
+              ))}
+            </div>
+            <label className="relative flex items-center gap-2">
+              <ArrowUpDown className="absolute left-3 w-3.5 h-3.5 text-gray-400 pointer-events-none" aria-hidden="true" />
+              <span className="sr-only">Trier les favoris</span>
+              <select value={favoriteSort} onChange={event => setFavoriteSort(event.target.value)} className="min-h-10 w-full appearance-none rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-[11px] font-bold text-gray-600 outline-none focus:border-primary">
+                <option value="recent">Les plus récents</option>
+                <option value="likes">Les plus aimés</option>
+                <option value="views">Les plus vus</option>
+                <option value="name">Nom (A-Z)</option>
+              </select>
+            </label>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="w-8 h-8 border-4 border-gray-200 border-t-primary rounded-full animate-spin" />
@@ -607,7 +845,23 @@ export default function Profil() {
           ) : (
             <div className="grid grid-cols-3 gap-1.5 px-1.5 pb-6">
               {publications.map((r) => (
-                <MediaThumb key={r.id} item={r} onClick={() => navigate("/reels")} />
+                <div key={r.id} className="min-w-0">
+                  <MediaThumb item={r} onClick={() => navigate(`/reels?reelId=${encodeURIComponent(r.id)}`)} />
+                  {!isSharedProfile && (
+                    <div className={`mt-1.5 rounded-xl border px-1.5 py-1.5 ${theme === "light" ? "border-gray-100 bg-white" : theme === "dark" ? "border-gray-700 bg-gray-800" : "border-gray-800 bg-[#0a0a0a]"}`}>
+                      <p className={`truncate px-1 text-[9px] font-bold ${theme === "light" ? "text-gray-600" : "text-gray-200"}`} title={r.title || "Publication"}>{r.title || "Publication"}</p>
+                      <button
+                        type="button"
+                        onClick={(event) => { event.stopPropagation(); navigate(`/pro/publication-analytics?reel=${encodeURIComponent(r.id)}`); }}
+                        aria-label={`Voir les données analytiques de ${r.title || "cette publication"}`}
+                        className={`mt-1 flex min-h-7 w-full items-center justify-center gap-1 rounded-lg px-1.5 text-[8px] font-black uppercase tracking-wide transition-transform active:scale-95 ${theme === "light" ? "bg-orange-50 text-orange-600 hover:bg-orange-100" : theme === "dark" ? "bg-orange-500/15 text-orange-300 hover:bg-orange-500/25" : "bg-orange-500/20 text-orange-300 hover:bg-orange-500/30"}`}
+                      >
+                        <BarChart3 className="h-3 w-3" />
+                        Données
+                      </button>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )
@@ -634,11 +888,16 @@ export default function Profil() {
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <Bookmark className="w-12 h-12 text-gray-200" />
               <p className="text-[12px] text-gray-400 font-medium">Aucun favori pour l'instant</p>
-              <p className="text-[11px] text-gray-300 font-medium text-center px-8">Likez des réels, styles, services ou annonces immobilières pour les voir ici</p>
+              <p className="text-[11px] text-gray-300 font-medium text-center px-8">Ajoutez des produits, profils, styles, services ou annonces à vos favoris pour les retrouver ici</p>
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-1.5 px-1.5 pb-6">
-              {favorisList.map((r) => (
+              {filteredFavoris.length === 0 ? (
+                <div className="col-span-3 flex flex-col items-center justify-center py-14 gap-2">
+                  <ListFilter className="w-10 h-10 text-gray-200" />
+                  <p className="text-[12px] text-gray-400 font-medium">Aucun favori dans cette catégorie</p>
+                </div>
+              ) : filteredFavoris.map((r) => (
                 <MediaThumb key={r.id} item={r} onClick={() => {
                   if (r._kind === 'bundle' || r.bundle_price !== undefined) {
                     // Bundle
@@ -651,6 +910,10 @@ export default function Profil() {
                     navigate(`/style/${r.id}`, { state: { id: r.id, title: r.title, cover: r.image_url, images: r.images || [], category: r.category, description: r.description, likes: r.likes } });
                   } else if (r._kind === 'immobilier') {
                     navigate(`/immobilier/${r.id}`, { state: r });
+                  } else if (r._kind === 'pro_profile') {
+                    navigate(`/pro/vue-client?email=${encodeURIComponent(r.user_email || r.id)}`);
+                  } else if (r._kind === 'product') {
+                    navigate(`/produit?id=${encodeURIComponent(r.id)}`);
                   } else {
                     // Reel / publication
                     navigate("/reels");

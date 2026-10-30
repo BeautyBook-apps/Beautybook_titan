@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect } from "react";
-import { X, Scissors, Play, Pause, Check, Zap, Music, Volume2, VolumeX, ChevronRight, ChevronLeft } from "lucide-react";
-import { entities, uploadFile } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
+import { useState, useRef } from "react";
+import { X, Scissors, Play, Check, Zap } from "lucide-react";
+import { uploadFile } from '@/api/entities';
 
 const CUT_MODES = [
   { id: "silence", label: "Couper les silences", desc: "Supprime automatiquement les passages silencieux", icon: "🔇", color: "bg-blue-500/20 text-blue-400" },
@@ -13,6 +12,7 @@ const CUT_MODES = [
 export default function AutoCut({ onClose, onDone }) {
   const [video, setVideo] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
   const [mode, setMode] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -30,11 +30,18 @@ export default function AutoCut({ onClose, onDone }) {
     const file = e.target.files[0];
     if (!file) return;
     setUploading(true);
+    setError("");
     const localUrl = URL.createObjectURL(file);
     setVideo({ localUrl, file_url: null });
-    const { file_url } = await uploadFile({ file });
-    setVideo({ localUrl, file_url });
-    setUploading(false);
+    try {
+      const { file_url } = await uploadFile({ file });
+      setVideo({ localUrl, file_url });
+    } catch (uploadError) {
+      setError(uploadError?.message || "Impossible d'importer cette vidéo.");
+      setVideo(null);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const togglePlay = () => {
@@ -45,7 +52,7 @@ export default function AutoCut({ onClose, onDone }) {
   };
 
   const handleProcess = async () => {
-    if (!mode || !video) return;
+    if (!mode || !video || !duration) return;
     setProcessing(true);
     // Simulation du traitement IA (2s)
     await new Promise(r => setTimeout(r, 2000));
@@ -90,6 +97,7 @@ export default function AutoCut({ onClose, onDone }) {
         )}
         {!processed && <div className="w-20" />}
       </div>
+      {error && <p role="alert" className="mx-5 mb-2 rounded-xl bg-red-500/15 px-3 py-2 text-center text-[11px] font-bold text-red-300">{error}</p>}
 
       {/* Video preview */}
       <div className="flex-1 flex items-center justify-center bg-black mx-4 rounded-3xl overflow-hidden relative" onClick={video ? togglePlay : undefined}>
@@ -218,7 +226,7 @@ export default function AutoCut({ onClose, onDone }) {
             {/* Bouton lancer */}
             <button
               onClick={handleProcess}
-              disabled={!mode || !video || processing}
+              disabled={!mode || !video || !duration || uploading || processing}
               className="w-full bg-primary text-white font-black text-[14px] uppercase tracking-widest py-4 rounded-2xl shadow-lg shadow-primary/30 active:scale-95 disabled:opacity-40 flex items-center justify-center gap-2"
             >
               {processing ? (

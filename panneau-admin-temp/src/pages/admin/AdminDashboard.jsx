@@ -27,11 +27,13 @@ import AdminPaiement from "@/components/admin/AdminPaiement";
 import AdminAppearance from "@/components/admin/AdminAppearance";
 import AdminMessages from "@/components/admin/AdminMessages";
 import AdminFidelite from "@/components/admin/AdminFidelite";
+import AdminAICredits from "@/components/admin/AdminAICredits";
+import AdminFranchise from "@/components/admin/AdminFranchise";
 import {
   LayoutDashboard, Video, Users, Scissors, ShoppingBag,
   CalendarCheck, Megaphone, LogOut, Menu, X, PlusSquare,
   Radio, Palette, UserCheck, Bell, Star, Home, ChevronRight,
-  BookOpen, Truck, Building2, Compass, Store, ShoppingBasket, CreditCard, Type, MessageSquare, Gift, ShieldCheck, Globe2
+  BookOpen, Truck, Building2, Compass, Store, ShoppingBasket, CreditCard, Type, MessageSquare, Gift, ShieldCheck, Globe2, Sparkles
 } from "lucide-react";
 
 const NAV_GROUPS = [
@@ -74,6 +76,8 @@ const NAV_GROUPS = [
       { id: "immobilier", label: "Immobilier", icon: Building2 },
       { id: "siteweb", label: "Créateur de site web", icon: Globe2 },
       { id: "vendeurs", label: "Panneau Vendeurs", icon: Store },
+      { id: "ai_credits", label: "Crédits génération IA", icon: Sparkles },
+      { id: "franchise", label: "Développez votre business", icon: BookOpen },
     ]
   },
   {
@@ -120,6 +124,8 @@ const COMPONENTS = {
   paiement: AdminPaiement,
   appearance: AdminAppearance,
   fidelite: AdminFidelite,
+  ai_credits: AdminAICredits,
+  franchise: AdminFranchise,
 };
 
 const TAB_DESCRIPTIONS = {
@@ -127,6 +133,8 @@ const TAB_DESCRIPTIONS = {
   home: "Personnalisez le contenu de votre page d'accueil",
   styles: "Gérez les styles publiés sur Services & Salons",
   pros: "Approuvez ou rejetez les demandes de profils professionnels",
+  ai_credits: "Gérez les quotas, packs, coûts et la rentabilité de AI Styliste et AI HairChanger",
+  franchise: "Modifiez le contenu, les modules et les vidéos de la page Développez Votre Business",
   notifications: "Envoyez des notifications push à vos utilisateurs",
   avis: "Modérez les avis et commentaires de la plateforme",
 };

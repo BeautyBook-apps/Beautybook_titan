@@ -1,5 +1,5 @@
 import {useState,useEffect,useCallback} from 'react';
-import {Store,Users,CalendarDays,Package,RefreshCw,ShieldCheck,FileText,Activity,ArrowUpRight,Building2,Home,Scissors,BarChart3,Clock3,CheckCircle2,TrendingUp,Layers3,CreditCard} from 'lucide-react';
+import {Store,Users,CalendarDays,Package,RefreshCw,ShieldCheck,FileText,Activity,ArrowUpRight,Building2,Home,Scissors,BarChart3,Clock3,CheckCircle2,TrendingUp,Layers3,CreditCard,Gift} from 'lucide-react';
 import {AreaChart,Area,BarChart,Bar,CartesianGrid,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend,PieChart,Pie,Cell} from 'recharts';
 import api from '@/lib/apiClient';
 
@@ -42,6 +42,17 @@ const number = value => Number(value || 0).toLocaleString('fr-FR');
 const percent = (value, total) => total ? `${Math.round((value / total) * 100)}%` : '0%';
 const rowsFrom = result => Array.isArray(result) ? result : result?.data?.results || result?.data || [];
 const statusOf = row => String(row?.status || row?.statut || '').toLowerCase();
+const normalizeActivityType = value => String(value || '')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+const profileKind = profile => {
+  const type = normalizeActivityType(profile?.type_activite || profile?.profil_type);
+  if (['particulier', 'independant', 'freelance', 'prestataire', 'domicile'].some(value => type.includes(value))) return 'particulier';
+  if (['salon', 'professionnel', 'etablissement', 'institut'].some(value => type.includes(value))) return 'salon';
+  return null;
+};
+const profileEmail = profile => String(profile?.email || profile?.user_email || '').trim().toLowerCase();
+const nonClientRoles = new Set(['admin', 'administrator', 'owner', 'support', 'moderator', 'vendeur', 'seller', 'pro', 'professionnel', 'salon']);
 const dateOf = row => row?.created_at || row?.created_date || row?.updated_at || row?.date_creation;
 const PLAN_PRICES = { gratuit: 0, free: 0, basique: 0, beautyplus: 9.99, 'beauty plus': 9.99, premium: 19, gold: 49 };
 const planOf = row => String(row?.plan_name || row?.plan_id || row?.abonnement || 'Gratuit').trim() || 'Gratuit';
@@ -89,14 +100,17 @@ export function Overview(){
      adminApi.getStats(),
      adminApi.listUsers(),
      adminApi.listProfilsPro(),
-     adminApi.listAnnonces(),
+      // Le KPI « Annonces immobilières » doit utiliser la même source que
+      // la page Immobilier, et non les annonces publicitaires (Annonce).
+      adminApi.listImmobilier(),
      adminApi.listReservations(),
      adminApi.listServices(),
      adminApi.listStyles(),
+     adminApi.listBundles(),
      adminApi.listCommandes(),
      adminApi.listSubscriptions(),
    ]);
-   const [statsResult, usersResult, professionalsResult, listingsResult, reservationsResult, servicesResult, stylesResult, ordersResult, subscriptionsResult] = requests;
+   const [statsResult, usersResult, professionalsResult, listingsResult, reservationsResult, servicesResult, stylesResult, bundlesResult, ordersResult, subscriptionsResult] = requests;
    const stats = statsResult.status === 'fulfilled' ? statsResult.value || {} : {};
    const users = usersResult.status === 'fulfilled' ? rowsFrom(usersResult.value) : [];
    const professionals = professionalsResult.status === 'fulfilled' ? rowsFrom(professionalsResult.value) : [];
@@ -104,15 +118,44 @@ export function Overview(){
    const reservations = reservationsResult.status === 'fulfilled' ? rowsFrom(reservationsResult.value) : [];
    const services = servicesResult.status === 'fulfilled' ? rowsFrom(servicesResult.value) : [];
    const styles = stylesResult.status === 'fulfilled' ? rowsFrom(stylesResult.value) : [];
+   const bundles = bundlesResult.status === 'fulfilled' ? rowsFrom(bundlesResult.value) : [];
    const orders = ordersResult.status === 'fulfilled' ? rowsFrom(ordersResult.value) : [];
    const subscriptions = subscriptionsResult.status === 'fulfilled' ? rowsFrom(subscriptionsResult.value) : [];
-   const activeServices = services.filter(row => ['actif', 'active', 'publie', 'published'].includes(statusOf(row)));
+    const activeServices = services.filter(row => ['actif', 'active', 'publie', 'published'].includes(statusOf(row)));
+   const activeBundles = bundles.filter(row => row.is_active !== false && !['inactive', 'pause', 'deleted', 'supprime'].includes(statusOf(row)));
    const publishedStyles = styles.filter(row => ['publie', 'published', 'active'].includes(statusOf(row)));
    const activeListings = listings.filter(row => !['archive', 'supprime', 'deleted', 'inactive', 'pause'].includes(statusOf(row)));
    const pendingReservations = reservations.filter(row => ['en_attente', 'pending', 'requested'].includes(statusOf(row)));
    const pendingProfessionals = professionals.filter(row => ['en_attente', 'pending', 'pending_review'].includes(statusOf(row)));
-   const professionalCount = professionals.length || Number(stats.professionals || 0);
-   const individualCount = Math.max(0, (users.length || Number(stats.users || 0)) - professionalCount);
+    const profilesByOwner = new Map();
+    professionals.forEach(profile => {
+      const owner = String(profile.user_email || profile.email || profile.id || '').trim().toLowerCase();
+      if (!owner) return;
+      const current = profilesByOwner.get(owner);
+      const currentActive = current && ['actif', 'active', 'approved', 'approuve', 'approuvee'].includes(statusOf(current));
+      const nextActive = ['actif', 'active', 'approved', 'approuve', 'approuvee'].includes(statusOf(profile));
+      if (!current || (!currentActive && nextActive) || new Date(dateOf(profile) || 0) > new Date(dateOf(current) || 0)) {
+        profilesByOwner.set(owner, profile);
+      }
+    });
+    const classifiedProfiles = [...profilesByOwner.values()];
+    const professionalProfiles = classifiedProfiles.filter(profile => profileKind(profile) === 'salon');
+    const individualProfiles = classifiedProfiles.filter(profile => profileKind(profile) === 'particulier');
+    const professionalCount = professionalsResult.status === 'fulfilled'
+      ? professionalProfiles.length
+      : Number(stats.professionals || 0);
+    const professionalOwners = new Set(classifiedProfiles
+      .filter(profile => profileKind(profile) === 'salon')
+      .map(profileEmail)
+      .filter(Boolean));
+    const clientUsers = users.filter(user => {
+      const role = normalizeActivityType(user.role).replace(/\s+/g, '_');
+      const email = profileEmail(user);
+      return !nonClientRoles.has(role) && !professionalOwners.has(email);
+    });
+    const individualCount = professionalsResult.status === 'fulfilled'
+      ? individualProfiles.length
+      : 0;
    const activeSubscriptions = subscriptions.filter(activeSubscription);
    const paidSubscriptions = subscriptions.filter(row => row.payment_status ? paidRecord(row) : planPriceOf(row) > 0 && activeSubscription(row));
    const subscriptionRevenue = paidSubscriptions.reduce((sum, row) => sum + planPriceOf(row), 0);
@@ -126,7 +169,7 @@ export function Overview(){
      const key = String(row.user_email || row.user_id || row.id);
      if (!currentByUser.has(key)) currentByUser.set(key, row);
    });
-   const profilePlans = [...professionals, ...users].reduce((acc, row) => {
+   const profilePlans = [...professionals, ...clientUsers].reduce((acc, row) => {
      const key = planOf(row);
      if (!acc[key]) acc[key] = {name: key, professionnels: 0, utilisateurs: 0, revenus: 0};
      const isProfessional = professionals.includes(row);
@@ -155,14 +198,14 @@ export function Overview(){
      date.setMonth(date.getMonth() - (11 - index));
      const month = date.toLocaleDateString('fr-FR', {month: 'short'}).replace('.', '');
      const sameMonth = row => { const raw = dateOf(row); const value = raw ? new Date(raw) : null; return value && !Number.isNaN(value.valueOf()) && value.getMonth() === date.getMonth() && value.getFullYear() === date.getFullYear(); };
-     return {month, utilisateurs: users.filter(sameMonth).length, styles: styles.filter(sameMonth).length, réservations: reservations.filter(sameMonth).length, annonces: listings.filter(sameMonth).length};
+     return {month, utilisateurs: clientUsers.filter(sameMonth).length, styles: styles.filter(sameMonth).length, réservations: reservations.filter(sameMonth).length, annonces: listings.filter(sameMonth).length};
    });
    const categoryMap = styles.reduce((acc, style) => { const key = style.category || 'Sans catégorie'; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
    const categoryData = Object.entries(categoryMap).sort(([,a],[,b]) => b - a).slice(0, 7).map(([name, value]) => ({name, value}));
    const reservationStatusMap = reservations.reduce((acc, row) => { const key = statusOf(row) || 'non renseigné'; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
    const reservationStatusData = Object.entries(reservationStatusMap).map(([name, value]) => ({name: name.replaceAll('_', ' '), value}));
    const dataSourcesFailed = requests.filter(result => result.status === 'rejected').length;
-   setData({stats, users, professionals, listings, reservations, services, styles, orders, subscriptions, activeServices, publishedStyles, activeListings, pendingReservations, pendingProfessionals, professionalCount, individualCount, activeSubscriptions, currentSubscribers: currentByUser.size, paidSubscriptions, paidOrders, paidReservations, subscriptionRevenue, orderRevenue, reservationRevenue, revenue, recurringRevenue, planData, revenueActivity, activity, categoryData, reservationStatusData, dataSourcesFailed});
+   setData({stats, users, clientUsers, professionals, listings, reservations, services, styles, bundles, orders, subscriptions, activeServices, activeBundles, publishedStyles, activeListings, pendingReservations, pendingProfessionals, professionalCount, individualCount, activeSubscriptions, currentSubscribers: currentByUser.size, paidSubscriptions, paidOrders, paidReservations, subscriptionRevenue, orderRevenue, reservationRevenue, revenue, recurringRevenue, planData, revenueActivity, activity, categoryData, reservationStatusData, dataSourcesFailed});
    setError(dataSourcesFailed ? `${dataSourcesFailed} source(s) n’ont pas pu être chargée(s). Les indicateurs disponibles restent affichés.` : '');
    setLoading(false);
  },[]);
@@ -173,7 +216,7 @@ export function Overview(){
    const timer=setInterval(refresh,30000);
    return()=>{window.removeEventListener('focus',refresh);clearInterval(timer);};
  },[load]);
- const totalUsers = data?.users.length || data?.stats?.users || 0;
+ const totalUsers = data?.clientUsers?.length ?? data?.stats?.users ?? 0;
  const totalStyles = data?.styles.length || data?.stats?.styles || 0;
  const totalReservations = data?.reservations.length || data?.stats?.reservations || 0;
  const reservationStatus = data?.reservationStatusData || [];
@@ -184,12 +227,14 @@ export function Overview(){
    <ErrorBox error={error} retry={load}/>
 
    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-     <DashboardKpi label="Comptes utilisateurs" value={number(totalUsers)} hint={`${number(data?.individualCount)} particuliers estimés`} Icon={Users} tone="indigo" />
-     <DashboardKpi label="Salons professionnels" value={number(data?.professionalCount)} hint={`${number(data?.pendingProfessionals.length)} demande(s) en attente`} Icon={Building2} tone="orange" />
+     <DashboardKpi label="Comptes utilisateurs" value={number(totalUsers)} hint="Profils clients synchronisés" Icon={Users} tone="indigo" />
+     <DashboardKpi label="Particuliers" value={number(data?.individualCount)} hint="Comptes ProfilPro — statut particulier" Icon={Users} tone="slate" />
+     <DashboardKpi label="Salons professionnels" value={number(data?.professionalCount)} hint="Comptes ProfilPro — statut professionnel" Icon={Building2} tone="orange" />
      <DashboardKpi label="Annonces immobilières" value={number(data?.activeListings.length || data?.stats?.listings)} hint={`${number(data?.listings.length)} annonces au total`} Icon={Home} tone="emerald" />
      <DashboardKpi label="Réservations" value={number(totalReservations)} hint={`${number(data?.pendingReservations.length)} rendez-vous à traiter`} Icon={CalendarDays} tone="rose" />
      <DashboardKpi label="Styles publiés" value={number(data?.publishedStyles.length || data?.stats?.styles)} hint={`${percent(data?.publishedStyles.length, totalStyles)} du catalogue`} Icon={Scissors} tone="orange" />
      <DashboardKpi label="Services actifs" value={number(data?.activeServices.length || data?.stats?.services)} hint={`${number(data?.services.length)} services référencés`} Icon={Package} tone="indigo" />
+     <DashboardKpi label="Bundles actifs" value={number(data?.activeBundles.length)} hint={`${number(data?.bundles.length)} bundles synchronisés avec l’app`} Icon={Gift} tone="rose" />
      <DashboardKpi label="Réels publiés" value={number(data?.stats?.reels)} hint="Contenus visibles dans le fil" Icon={Activity} tone="emerald" />
      <DashboardKpi label="Lives actifs" value={number(data?.stats?.lives_actifs)} hint="Sessions en direct maintenant" Icon={ArrowUpRight} tone="slate" />
      <DashboardKpi label="Chiffre d’affaires total" value={money(data?.revenue)} hint="Abonnements, commandes et réservations payés" Icon={CreditCard} tone="emerald" />

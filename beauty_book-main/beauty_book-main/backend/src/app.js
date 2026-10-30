@@ -19,7 +19,9 @@ import {commerce} from './services/commerce.js';
 import {sellerPayments} from './services/seller-payments.js';
 import {partnerCheckout} from './services/partner-commerce.js';
 import {imageJobs} from './services/image-jobs.js';
+import {aiCredits} from './services/ai-credits.js';
 import {imageSearch} from './services/image-search.js';
+import { chatCompletion } from './services/xai.js';
 import {inspectSchema} from './services/readiness.js';
 import contentRoutes from './routes/content.routes.js';
 import mapsRoutes from './routes/maps.routes.js';
@@ -31,6 +33,8 @@ export function createApp() {
   app.use(cors(corsOptions()));
   app.post('/api/webhooks/stripe',express.raw({type:'application/json',limit:'1mb'}),asyncRoute(async(req,res)=>{
     const event=verifyStripeEvent(req.body,req.headers['stripe-signature']);
+    const aiCreditEvent=await aiCredits.handleEvent(event);
+    if(aiCreditEvent)return res.json(aiCreditEvent);
     const orderEvent=event.type.startsWith('checkout.session.')&&event.data.object.metadata?.order_id;
     res.json(await (orderEvent?commerce.handleEvent(event):handleStripeEvent(event)));
   }));
@@ -56,6 +60,19 @@ export function createApp() {
   // dedicated limit because the AI provider is an external paid dependency.
   app.post('/api/ai/image-search', rateLimit({max:20}), asyncRoute(async(req,res)=>res.json(await imageSearch(req.body))));
 
+  // Public proxy used by Maria and the embeddable salon widget. The xAI key
+  // stays on the backend; tool access is read-only and salon-scoped.
+  app.post('/api/xai-chat', rateLimit({max:30}), asyncRoute(async(req,res)=>{
+    res.json(await chatCompletion({
+      messages: req.body?.messages,
+      system: req.body?.system,
+      model: req.body?.model,
+      max_tokens: req.body?.max_tokens,
+      enable_tools: req.body?.enable_tools === true,
+      salon_email: req.body?.tool_context?.pro_email,
+    }));
+  }));
+
   app.post('/api/auth/admin/register',(req,res)=>res.status(403).json({error:'Les administrateurs sont habilités par un responsable autorisé.',code:'ADMIN_INVITATION_REQUIRED'}));
   app.post('/api/auth/admin/login',authRate,asyncRoute(async(req,res)=>{
     const {email,password}=req.body;
@@ -78,6 +95,8 @@ export function createApp() {
   app.post('/api/commandes/:id/refund',asyncRoute(async(req,res)=>res.json(await commerce.requestRefund(req.user,req.params.id))));
   app.post('/api/admin/commandes/:id/refund',requirePermission('orders:write'),asyncRoute(async(req,res)=>res.json(await commerce.requestRefund(req.user,req.params.id,{admin:true,requestId:req.requestId}))));
   app.post('/api/payments/booking-checkout',asyncRoute(async(req,res)=>res.json(await bookingCheckout(req.user,req.body.reservation_id))));
+  app.get('/api/ai/credits',asyncRoute(async(req,res)=>res.json(await aiCredits.summary(req.user.id,Number(process.env.AI_IMAGE_FREE_DAILY_LIMIT||process.env.AI_IMAGE_DAILY_LIMIT||5)))));
+  app.post('/api/ai/credits/checkout',asyncRoute(async(req,res)=>res.json(await aiCredits.checkout(req.user,req.body.package_id,req.body.request_key||req.headers['idempotency-key'],req.body.return_path))));
   app.get('/api/capabilities',(req,res)=>res.json({
     ai:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY),speech:Boolean(process.env.OPENAI_API_KEY),images:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY),
     phone:false,
@@ -87,6 +106,8 @@ export function createApp() {
 
   app.get('/api/admin/session',requirePermission(),(req,res)=>res.json({user_id:req.user.id,...req.admin}));
   app.get('/api/admin/stats',requirePermission('operations:read'),asyncRoute(async(req,res)=>res.json(await adminStats())));
+  app.get('/api/admin/ai-credits',requirePermission('configuration:read'),asyncRoute(async(req,res)=>res.json(await aiCredits.adminOverview())));
+  app.put('/api/admin/ai-credits',requirePermission('configuration:write'),asyncRoute(async(req,res)=>res.json(await aiCredits.updateAdminConfig(req.user.id,req.body,req.requestId))));
   app.put('/api/admin/reservations/:id',requirePermission('bookings:write'),asyncRoute(async(req,res)=>res.json({reservation:await updateBooking(req.user,req.params.id,req.body,{admin:true,requestId:req.requestId})})));
   app.get('/api/admin/memberships',requirePermission('access:write'),asyncRoute(async(req,res)=>res.json({memberships:(await db.query('SELECT user_id,role,active,permissions FROM public.bb_admin_memberships')).rows})));
   app.put('/api/admin/memberships/:id',requirePermission('access:write'),asyncRoute(async(req,res)=>res.json({membership:await updateMembership(req.user,req.params.id,req.body,req.requestId)})));

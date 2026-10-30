@@ -48,7 +48,7 @@ export async function databaseFixture({schemaMode=process.env.BEAUTYBOOK_TEST_SC
    await pg.query("INSERT INTO public.profiles(id,email,role) VALUES($1,$2,'user')",[user.id,user.email]);
   }
   const dir=new URL('../../../../supabase/migrations/',import.meta.url);
-  for(const name of ['202609170000_schema_alignment.sql','202609170001_secure_backend.sql','202609180001_payments.sql','202609180002_data_ownership.sql','202609180003_outbox.sql','202609180004_commerce.sql','202609190001_receptionist.sql','202609190002_reviews_media.sql','202609190003_image_jobs.sql'])await pg.exec(await fs.readFile(new URL(name,dir),'utf8'));
+  for(const name of ['202609170000_schema_alignment.sql','202609170001_secure_backend.sql','202609180001_payments.sql','202609180002_data_ownership.sql','202609180003_outbox.sql','202609180004_commerce.sql','202609190001_receptionist.sql','202609190002_reviews_media.sql','202609190003_image_jobs.sql','202610100002_style_engagement_metrics.sql','202610300001_ai_credits.sql','202610300002_ai_credit_admin.sql','202610300003_reel_analytics.sql','202610300004_professional_profile_views.sql','202610300005_style_engagement_counters.sql'])await pg.exec(await fs.readFile(new URL(name,dir),'utf8'));
   return {
    pg,query:(sql,p)=>pg.query(sql,p),transaction:work=>pg.transaction(tx=>work(tx)),close:()=>pg.close(),
    async as(user){await pg.exec('RESET ROLE');await pg.query("SELECT set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claims',$2,false)",[user.id,JSON.stringify({email:user.email})]);await pg.exec('SET ROLE authenticated');},

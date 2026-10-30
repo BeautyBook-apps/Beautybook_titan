@@ -4,8 +4,10 @@ import { assert } from '../lib/errors.js';
 export const RESOURCES = {
   profiles: { permission: 'users', fields: ['full_name','avatar_url','cover_url'] },
   ProfilPro: { permission: 'professionals', fields: ['salon_name','bio','status','verified','city','address','phone','specialites','ouverture','horaires','conges','seats_count','timezone','avatar_url','cover_url'] },
+  MembreEquipe: { permission: 'professionals', fields: [], readOnly: true },
   DemandeProV2: { permission: 'professionals', fields: ['statut','status','admin_notes'] },
   Service: { permission: 'services', fields: ['name','title','description','price','duration','duration_min','category','subcategory','images','status','addons','tags','pro_email','promo_price','promo_ends_at'] },
+  ServiceBundle: { permission: 'content', fields: ['pro_email','name','description','service_ids','style_ids','bundle_price','discount_percent','image_url','cover_url','banner_url','is_active','is_group','min_persons','max_persons','bundle_price_per_person','category','bonus'] },
   Produit: { permission: 'products', fields: ['name','description','price','old_price','images','category','brand','stock','status','tags','pro_email','min_qty','delivery_time','free_shipping','return_policy'] },
   Style: { permission: 'content', fields: ['title','description','images','image_url','video_url','category','subcategory','status','featured','tags','produits_utilises','outils_utilises','author_email','author_name','author_avatar','pro_email','type_cheveux','type_peau','type_prestation','temps_moyen','niveau_difficulte','mots_cles'] },
   Reel: { permission: 'content', fields: ['title','description','video_url','thumbnail_url','images','category','status','tags','author_email','author_name','author_avatar'] },

@@ -231,6 +231,7 @@ export const entities = {
   RoutineBeaute:      createEntity('RoutineBeaute'),
   SoldeBeautyPay:     createEntity('SoldeBeautyPay'),
   UserSubscription:   createEntity('UserSubscription'),
+  ServiceBundle:      createEntity('ServiceBundle'),
   Panier:             createEntity('Panier'),
   UserMemory:         createEntity('UserMemory'),
   VerificationCode:   createEntity('VerificationCode'),

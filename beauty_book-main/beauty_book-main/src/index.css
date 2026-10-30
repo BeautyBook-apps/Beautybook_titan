@@ -4,6 +4,40 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Pages qui suivent explicitement le thème choisi dans Paramètres. */
+html.dark .profile-page .bg-white,
+html.dark .analytics-page .bg-white { background-color: #1f2937 !important; }
+html.dark .profile-page .bg-gray-50,
+html.dark .analytics-page .bg-slate-50 { background-color: #1a1a2e !important; }
+html.dark .profile-page .bg-gray-100 { background-color: #374151 !important; }
+html.dark .profile-page .text-gray-900,
+html.dark .analytics-page .text-slate-950 { color: #f9fafb !important; }
+html.dark .profile-page .text-gray-800,
+html.dark .analytics-page .text-slate-800 { color: #e5e7eb !important; }
+html.dark .profile-page .text-gray-700,
+html.dark .analytics-page .text-slate-700 { color: #d1d5db !important; }
+html.dark .profile-page .text-gray-600,
+html.dark .analytics-page .text-slate-600 { color: #d1d5db !important; }
+html.dark .profile-page .text-gray-500,
+html.dark .analytics-page .text-slate-500 { color: #9ca3af !important; }
+html.dark .profile-page .text-gray-400,
+html.dark .analytics-page .text-slate-400 { color: #9ca3af !important; }
+html.dark .profile-page .border-gray-100,
+html.dark .analytics-page .border-slate-100 { border-color: #374151 !important; }
+html.dark .profile-page .border-gray-200,
+html.dark .analytics-page .border-slate-200 { border-color: #4b5563 !important; }
+
+html[data-bb-theme="night"] .profile-page .bg-white,
+html[data-bb-theme="night"] .analytics-page .bg-white { background-color: #0a0a0a !important; }
+html[data-bb-theme="night"] .profile-page .bg-gray-50,
+html[data-bb-theme="night"] .analytics-page .bg-slate-50 { background-color: #000000 !important; }
+html[data-bb-theme="night"] .profile-page .bg-gray-100 { background-color: #141414 !important; }
+html[data-bb-theme="night"] .profile-page .border-gray-100,
+html[data-bb-theme="night"] .analytics-page .border-slate-100 { border-color: #1a1a1a !important; }
+
+html[data-bb-theme="dark"] .analytics-page .hover\:bg-slate-50:hover,
+html[data-bb-theme="night"] .analytics-page .hover\:bg-slate-50:hover { background-color: rgba(255,255,255,.06) !important; }
+
 @layer base {
   :root {
     --font-display: 'Plus Jakarta Sans', sans-serif;

@@ -65,7 +65,7 @@ export const getStyleEngagementStats = async (req, res) => {
 // Engagement counters are updated server-side so clients cannot overwrite
 // another style's metrics through the regular CRUD API.
 export const trackStyleEngagement = async (req, res) => {
-  const { styleId, kind } = req.body || {};
+  const { styleId, kind, viewerKey, viewerEmail } = req.body || {};
   if (typeof styleId !== 'string' || !styleId.trim() || !engagementColumns.has(kind)) {
     return res.status(400).json({ error: 'styleId et kind sont requis.' });
   }
@@ -80,6 +80,22 @@ export const trackStyleEngagement = async (req, res) => {
     if (readError) throw readError;
     if (!style) return res.status(404).json({ error: 'Style introuvable.' });
 
+    let shouldIncrement = true;
+    if (kind === 'views' && typeof viewerKey === 'string' && viewerKey.trim().length >= 8) {
+      const { data: event, error: eventError } = await supabaseAdmin
+        .from('style_view_event')
+        .upsert({
+          style_id: styleId.trim(),
+          viewer_key: viewerKey.trim().slice(0, 180),
+          viewer_email: String(viewerEmail || '').trim().toLowerCase().slice(0, 320) || null,
+        }, { onConflict: 'style_id,viewer_key', ignoreDuplicates: true })
+        .select('id');
+      // Si la table événement n'est pas encore déployée, le compteur
+      // historique reste fonctionnel ; la migration active l'idempotence.
+      if (!eventError) shouldIncrement = (event || []).length === 1;
+    }
+    if (!shouldIncrement) return res.json({ tracked: true, styleId: style.id, kind, value: Number(style[column] || 0), duplicate: true });
+
     const nextValue = Number(style[column] || 0) + 1;
     const { error: updateError } = await supabaseAdmin
       .from('Style')
@@ -92,6 +108,45 @@ export const trackStyleEngagement = async (req, res) => {
     // A deployment without the engagement migration must not break the feed.
     console.error('trackStyleEngagement error:', error.message);
     return res.status(200).json({ tracked: false });
+  }
+};
+
+// Vue de Reel idempotente : un même profil/appareil ne compte qu'une fois
+// par publication, y compris pour les visiteurs non connectés.
+export const trackReelView = async (req, res) => {
+  const reelId = String(req.body?.reelId || '').trim();
+  const viewerSession = String(req.body?.viewerSession || '').trim().slice(0, 160);
+  const viewerEmail = String(req.body?.viewerEmail || '').trim().toLowerCase().slice(0, 320);
+  if (!reelId || viewerSession.length < 8) {
+    return res.status(400).json({ error: 'reelId et viewerSession sont requis.' });
+  }
+
+  try {
+    const { data: reel, error: readError } = await supabaseAdmin
+      .from('Reel').select('id,views').eq('id', reelId).maybeSingle();
+    if (readError) throw readError;
+    if (!reel) return res.status(404).json({ error: 'Reel introuvable.' });
+
+    const { data: event, error: eventError } = await supabaseAdmin
+      .from('reel_view_event')
+      .upsert({ reel_id: reelId, session_key: viewerSession, viewer_email: viewerEmail || null }, {
+        onConflict: 'reel_id,session_key',
+        ignoreDuplicates: true,
+      })
+      .select('id');
+    const shouldIncrement = eventError ? true : (event || []).length === 1;
+    if (!shouldIncrement) {
+      return res.json({ tracked: true, reelId: reel.id, value: Number(reel.views || 0), duplicate: true });
+    }
+
+    const nextValue = Number(reel.views || 0) + 1;
+    const { error: updateError } = await supabaseAdmin
+      .from('Reel').update({ views: nextValue }).eq('id', reelId);
+    if (updateError) throw updateError;
+    return res.json({ tracked: true, reelId: reel.id, value: nextValue });
+  } catch (error) {
+    console.error('trackReelView error:', error.message);
+    return res.status(200).json({ tracked: false, value: 0 });
   }
 };
 

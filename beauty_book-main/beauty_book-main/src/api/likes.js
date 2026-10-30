@@ -74,9 +74,15 @@ export const likesApi = {
   async getUserLikesAll(userEmail, targetType) {
     if (!userEmail) return [];
     try {
-      let query = supabase.from('user_like').select('target_id, target_type').eq('user_email', userEmail);
+      let query = supabase.from('user_like').select('target_id, target_type, created_at').eq('user_email', userEmail);
       if (targetType) query = query.eq('target_type', targetType);
-      const { data } = await query;
+      const result = await query;
+      if (!result.error) return result.data || [];
+      // Compatibilité avec les anciennes tables user_like qui n'avaient pas
+      // encore la colonne created_at.
+      let fallback = supabase.from('user_like').select('target_id, target_type').eq('user_email', userEmail);
+      if (targetType) fallback = fallback.eq('target_type', targetType);
+      const { data } = await fallback;
       return data || [];
     } catch { return []; }
   },

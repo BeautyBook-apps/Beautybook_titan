@@ -144,6 +144,7 @@ export const adminApi = {
 
   // Produits
   listProduits: () => entities.Produit.list("-created_at", 200),
+  listBundles: () => entities.ServiceBundle.list("-created_at", 500),
   filterProduits: (filters, orderBy, limit) => entities.Produit.filter(filters, orderBy, limit),
   createProduit: (data) => entities.Produit.create(data),
   updateProduit: (id, data) => entities.Produit.update(id, data),

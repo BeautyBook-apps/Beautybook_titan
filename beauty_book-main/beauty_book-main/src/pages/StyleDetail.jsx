@@ -1,15 +1,31 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, Share2, Heart, Clock, Star, MapPin, Sparkles, MessageSquare, Send, X, ShoppingCart, Scissors, ChevronLeft, ChevronRight, Eye, Bookmark } from "lucide-react";
+import { ArrowLeft, Share2, Heart, Clock, Star, MapPin, Sparkles, MessageSquare, Send, X, ShoppingCart, Scissors, Eye, Quote, MessageCircle, Instagram, Music2, Link2, Mail, Check } from "lucide-react";
 import VueClient from "@/pages/pro/VueClient";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import { entities } from '@/api/entities';
-import { likesApi } from '@/api/likes';
 import { supabase } from '@/api/supabaseClient';
+import { likesApi } from '@/api/likes';
 import apiClient from '@/lib/apiClient';
 import { useAuth } from "@/lib/AuthContext";
 import { readPageCache, mergePageCache } from "@/hooks/usePageCache";
+
+let styleViewerKey = null;
+
+function getStyleViewerKey() {
+  try {
+    const storageKey = "bb_style_viewer_key";
+    const existing = localStorage.getItem(storageKey);
+    if (existing) return existing;
+    const created = `device-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+    localStorage.setItem(storageKey, created);
+    return created;
+  } catch {
+    styleViewerKey ||= `volatile-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return styleViewerKey;
+  }
+}
 
 
 
@@ -245,43 +261,91 @@ function CommentsSheet({ styleId, onClose }) {
 }
 
 // ── Share Sheet ───────────────────────────────────────────────────────────────
-function ShareSheet({ title, styleId, onClose }) {
+function ShareSheet({ title, styleId, image, category, onClose }) {
   const [copied, setCopied] = useState(false);
   const url = window.location.href;
   const options = [
-    { label: "WhatsApp", color: "bg-green-500", emoji: "💬", href: `https://wa.me/?text=${encodeURIComponent(title + ' ' + url)}` },
-    { label: "Instagram", color: "bg-gradient-to-br from-purple-500 to-pink-500", emoji: "📸", href: null },
-    { label: "TikTok", color: "bg-black", emoji: "🎵", href: null },
-    { label: "Copier lien", color: "bg-gray-700", emoji: "🔗", href: null },
-    { label: "Message", color: "bg-blue-500", emoji: "✉️", href: `sms:?body=${encodeURIComponent(title + ' ' + url)}` },
+    { label: "WhatsApp", tone: "bg-[#eafaf1] text-[#16a34a]", Icon: MessageCircle, href: `https://wa.me/?text=${encodeURIComponent(title + ' ' + url)}` },
+    { label: "Instagram", tone: "bg-gradient-to-br from-[#fff0f8] to-[#f0eaff] text-[#c026d3]", Icon: Instagram, href: null },
+    { label: "TikTok", tone: "bg-slate-950 text-white", Icon: Music2, href: null },
+    { label: "Copier le lien", tone: "bg-[#fff5ea] text-orange-600", Icon: Link2, href: null },
+    { label: "Message", tone: "bg-[#edf5ff] text-blue-600", Icon: Mail, href: `sms:?body=${encodeURIComponent(title + ' ' + url)}` },
   ];
-  const handle = (opt) => {
+  const handle = async (opt) => {
     const recordShare = () => {
       if (styleId) apiClient.post('/content/styles/engagement', { styleId: String(styleId), kind: 'shares' }).catch(() => {});
     };
-    if (opt.label === "Copier lien") {
+    if (opt.label === "Copier le lien") {
       navigator.clipboard.writeText(url).catch(() => {});
       recordShare();
       setCopied(true);
       setTimeout(() => { setCopied(false); onClose(); }, 1200);
-    } else if (opt.href) { recordShare(); window.open(opt.href, "_blank"); onClose(); }
-    else { onClose(); }
+    } else if (opt.href) { recordShare(); window.open(opt.href, "_blank", "noopener,noreferrer"); onClose(); }
+    else if (navigator.share) {
+      try {
+        await navigator.share({ title, text: `Découvre ce style sur BeautyBook : ${title}`, url });
+        recordShare();
+        onClose();
+      } catch (error) {
+        if (error?.name !== "AbortError") onClose();
+      }
+    } else {
+      await navigator.clipboard?.writeText(url).catch(() => {});
+      recordShare();
+      setCopied(true);
+      setTimeout(() => { setCopied(false); onClose(); }, 1200);
+    }
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
-      <div className="bg-white rounded-t-3xl w-full max-w-md pb-10 px-6 pt-5" onClick={e => e.stopPropagation()}>
-        <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
-        <h3 className="text-[16px] font-black text-gray-900 text-center mb-5">Partager ce style</h3>
-        <div className="grid grid-cols-5 gap-3">
+    <div className="fixed inset-0 z-[400] flex items-end justify-center bg-slate-950/60 backdrop-blur-[2px]" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="share-style-title"
+        className="relative z-[401] w-full max-w-md overflow-hidden rounded-t-[2rem] border-t border-white/80 bg-[#fffdfb] px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4 shadow-[0_-18px_50px_-24px_rgba(15,23,42,0.45)]"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-200" aria-hidden="true" />
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-amber-400 text-white shadow-lg shadow-orange-500/20">
+              <Share2 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Inspiration beauté</p>
+              <h3 id="share-style-title" className="mt-0.5 text-[18px] font-black tracking-tight text-slate-950">Partager ce style</h3>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Fermer le partage" className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-slate-200 active:scale-95">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mb-5 flex items-center gap-3 rounded-2xl border border-orange-100 bg-gradient-to-r from-orange-50 to-amber-50 p-3">
+          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-orange-100">
+            {image ? <BeautyImage src={image} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-orange-400"><Sparkles className="h-5 w-5" /></div>}
+          </div>
+          <div className="min-w-0">
+            {category && <p className="mb-1 text-[9px] font-black uppercase tracking-[0.16em] text-orange-600">{category}</p>}
+            <p className="truncate text-[14px] font-black text-slate-950">{title || "Une inspiration BeautyBook"}</p>
+            <p className="mt-0.5 text-[11px] font-medium text-slate-500">Faites découvrir cette inspiration</p>
+          </div>
+        </div>
+
+        <p className="mb-3 px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Choisir un canal</p>
+        <div className="grid grid-cols-3 gap-2.5">
           {options.map(opt => (
-            <button key={opt.label} onClick={() => handle(opt)} className="flex flex-col items-center gap-2 active:scale-95">
-              <div className={`w-12 h-12 ${opt.color} rounded-2xl flex items-center justify-center text-[22px] shadow`}>{opt.emoji}</div>
-              <span className="text-[10px] font-black text-gray-500 text-center leading-tight">
-                {opt.label === "Copier lien" && copied ? "Copié !" : opt.label}
+            <button key={opt.label} onClick={() => handle(opt)} className="group flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-2xl border border-slate-100 bg-white px-2 py-3 shadow-sm transition-all hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-md active:scale-[0.97]">
+              <div className={`flex h-11 w-11 items-center justify-center rounded-2xl shadow-sm transition-transform group-hover:scale-105 ${opt.tone}`}>
+                {opt.label === "Copier le lien" && copied ? <Check className="h-5 w-5" /> : <opt.Icon className="h-5 w-5" />}
+              </div>
+              <span className="text-center text-[10px] font-black leading-tight text-slate-600">
+                {opt.label === "Copier le lien" && copied ? "Lien copié" : opt.label}
               </span>
             </button>
           ))}
         </div>
+        <p className="mt-5 text-center text-[10px] font-medium text-slate-400">Le lien ouvre directement ce style dans BeautyBook.</p>
       </div>
     </div>
   );
@@ -532,8 +596,51 @@ export default function StyleDetail() {
   useEffect(() => {
     if (!styleId || trackedViewRef.current === String(styleId)) return;
     trackedViewRef.current = String(styleId);
-    apiClient.post('/content/styles/engagement', { styleId: String(styleId), kind: 'views' }).catch(() => {});
-  }, [styleId]);
+    const viewerKey = user?.id
+      ? `user-${user.id}`
+      : user?.email
+        ? `email-${user.email.toLowerCase()}`
+        : getStyleViewerKey();
+    supabase.rpc("record_style_view", {
+      style_uuid: String(styleId),
+      viewer_key_value: viewerKey,
+      viewer_email_value: user?.email || null,
+    }).then(({ data, error }) => {
+      if (error) throw error;
+      if (Number.isFinite(Number(data))) {
+        setStyle(current => {
+          if (!current) return current;
+          const next = { ...current, views: Number(data) };
+          mergePageCache(`style_${styleId}`, { style: next });
+          return next;
+        });
+      }
+    }).catch(() => {
+      // Compatibilité avec une instance backend qui n'a pas encore reçu la
+      // migration RPC : le serveur historique reste un filet de sécurité.
+      apiClient.post('/content/styles/engagement', {
+        styleId: String(styleId),
+        kind: 'views',
+        viewerKey,
+        viewerEmail: user?.email || null,
+      }).catch(() => {});
+    });
+  }, [styleId, user?.email, user?.id]);
+
+  useEffect(() => {
+    if (!styleId) return;
+    let active = true;
+    Promise.all([
+      likesApi.getLikeCounts([styleId], 'style'),
+      user?.email ? likesApi.getUserLikes(user.email, [styleId], 'style') : Promise.resolve([]),
+    ]).then(([counts, userLikes]) => {
+      if (!active) return;
+      const count = Number(counts?.[String(styleId)] ?? 0);
+      setLikesCount(count);
+      setLiked(Array.isArray(userLikes) && userLikes.some(row => String(row.target_id) === String(styleId)));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [styleId, user?.email]);
 
   // 1. Charger le style réel depuis la DB si pas dans state
   // Quand l'id change : afficher le cache du nouveau style (ou les données de
@@ -693,6 +800,7 @@ export default function StyleDetail() {
       } else {
         await likesApi.removeLike(userEmail, String(sid), 'style');
       }
+      setStyle(current => current ? { ...current, likes: newLiked ? likesCount + 1 : Math.max(0, likesCount - 1) } : current);
     } catch (e) {
       console.error('[StyleDetail.handleLike]', e);
       setLiked(!newLiked);
@@ -788,13 +896,39 @@ export default function StyleDetail() {
 
         {/* Détails du Style */}
         {st.description && (
-          <div>
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-1 h-6 bg-primary rounded-full" />
-              <h2 className="text-[20px] font-black text-gray-900">Détails du Style</h2>
+          <section className="relative overflow-hidden rounded-[2rem] border border-orange-100/90 bg-gradient-to-br from-[#fff7ee] via-white to-[#fffaf2] p-5 shadow-[0_14px_36px_-24px_rgba(234,88,12,0.55)]">
+            <div className="pointer-events-none absolute -right-14 -top-16 h-40 w-40 rounded-full bg-orange-200/35 blur-3xl" aria-hidden="true" />
+            <div className="pointer-events-none absolute -bottom-16 -left-10 h-32 w-32 rounded-full bg-amber-100/70 blur-3xl" aria-hidden="true" />
+
+            <div className="relative flex items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[1.1rem] bg-gradient-to-br from-orange-500 to-amber-400 text-white shadow-lg shadow-orange-500/20">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="h-1.5 w-8 rounded-full bg-orange-500" aria-hidden="true" />
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Signature du style</p>
+                </div>
+                <h2 className="mt-1 text-[20px] font-black tracking-tight text-slate-950">L’histoire de cette création</h2>
+              </div>
             </div>
-            <p className="text-[14px] text-gray-600 leading-relaxed pl-4">{st.description}</p>
-          </div>
+
+            <div className="relative mt-5 overflow-hidden rounded-[1.5rem] border border-orange-100/90 bg-white px-5 py-5 shadow-[0_8px_24px_-18px_rgba(15,23,42,0.45)]">
+              <Quote className="absolute -right-1 -top-1 h-16 w-16 rotate-180 text-orange-100" aria-hidden="true" />
+              <div className="relative flex items-start gap-3">
+                <div className="mt-1 h-full min-h-12 w-1 shrink-0 rounded-full bg-gradient-to-b from-orange-500 via-amber-400 to-orange-200" aria-hidden="true" />
+                <p lang="fr" className="text-justify [text-align:justify] [text-justify:inter-word] text-[15px] font-medium leading-[1.85] tracking-[-0.01em] text-slate-700">
+                {String(st.description).split(/\n+/).map((paragraph, index) => (
+                  <span key={index} className={index > 0 ? "mt-3 block" : "block"}>{paragraph}</span>
+                ))}
+                </p>
+              </div>
+              <div className="relative mt-4 flex items-center gap-2 border-t border-orange-100/80 pt-3">
+                <span className="h-1.5 w-1.5 rounded-full bg-orange-500" aria-hidden="true" />
+                <span className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Inspiration BeautyBook</span>
+              </div>
+            </div>
+          </section>
         )}
 
         {/* Produits utilisés — depuis style.produits_utilises */}
@@ -896,9 +1030,30 @@ export default function StyleDetail() {
 
       {/* Modals */}
       {lightboxOpen && <ImageLightbox media={mediaList} initialIndex={lightboxIndex} onClose={() => setLightboxOpen(false)} />}
-      {showAIModal && <FiltreAIModal styleTitle={st.title} onClose={() => setShowAIModal(false)} />}
+      {showAIModal && (
+        <FiltreAIModal
+          styleTitle={st.title}
+          initialStyle={{
+            id: st.id,
+            label: st.title,
+            img: st.images?.[0] || st.thumbnail_url || st.image_url || st.cover || mediaList.find(url => !/\.(mp4|webm|mov)(\?|$)/i.test(url)),
+            allImages: (st.images || [st.thumbnail_url || st.image_url || st.cover].filter(Boolean)).filter(url => !/\.(mp4|webm|mov)(\?|$)/i.test(url)),
+            author: st.author_name || st.author || null,
+            category: st.category || null,
+          }}
+          onClose={() => setShowAIModal(false)}
+        />
+      )}
       {showComments && <CommentsSheet styleId={st.id} onClose={() => setShowComments(false)} />}
-      {showShare && <ShareSheet title={st.title} styleId={st.id} onClose={() => setShowShare(false)} />}
+      {showShare && (
+        <ShareSheet
+          title={st.title}
+          styleId={st.id}
+          image={mediaList.find(url => !/\.(mp4|webm|mov)(\?|$)/i.test(url))}
+          category={st.category || st.badge}
+          onClose={() => setShowShare(false)}
+        />
+      )}
     </div>
   );
 }

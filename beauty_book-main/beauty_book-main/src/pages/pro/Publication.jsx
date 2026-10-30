@@ -8,21 +8,20 @@ import { useAuth } from "@/lib/AuthContext";
 import PageHeader from "@/components/layout/PageHeader";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import {
-  ArrowLeft, Plus, Heart, Trash2, X, Music,
-  SlidersHorizontal, Wand2, RotateCcw, AlignJustify,
+  Plus, Heart, Trash2, X, Music,
+  Wand2,
   Play, Pause, Globe, Lock, ShoppingBag, CheckCircle2,
-  Video, Camera, Clock, Sun, Contrast, Droplets,
+  Video, Camera, Sun, Contrast, Droplets,
   Check, Upload, ChevronLeft, ChevronRight, Star,
-  Square, Timer, LayoutGrid, Sparkles, Lightbulb,
-  ScanLine, Maximize2, Type, MessageSquare, Share2,
-  Scissors, BookOpen, RefreshCw, Scan, Clapperboard, GripVertical, Images,
-  Hourglass, Grid3x3, Palette, Crop, MoveVertical, Feather,
-  Zap, Aperture, Focus, Circle, Box, Film
+  Timer, Sparkles, Lightbulb,
+  Type, MessageSquare, Share2,
+  BookOpen, RefreshCw, Clapperboard, GripVertical, Images,
+  Hourglass, Grid3x3, Palette, Crop, Feather,
+  Film
 } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 
 
-import apiClient from '@/lib/apiClient';
 import { supabase } from '@/api/supabaseClient';
 import VideoEditor from "@/components/studio/VideoEditor";
 import SoundLibrary from "@/components/studio/SoundLibrary";
@@ -111,11 +110,13 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
   const mapPubToForm = (pub) => {
     if (!pub) return null;
     const categoryToPubType = { "Réels": "reel", "Tutos": "tuto", "Conseils": "conseil" };
+    const toolStyle = pub.style && typeof pub.style === "object" ? pub.style : {};
+    const images = pub.images || (pub.image_url ? [pub.image_url] : (pub.thumbnail_url ? [pub.thumbnail_url] : []));
     return {
       title: pub.title || "",
-      caption: pub.description || pub.title || "",
+      caption: pub.caption || pub.description || pub.title || "",
       category: pub.category || "Coiffure",
-      images: pub.images || (pub.thumbnail_url ? [pub.thumbnail_url] : []),
+      images,
       hashtags: pub.hashtags || [],
       pubType: categoryToPubType[pub.category] || pub.pub_type || "reel",
       visibility: pub.visibility || "public",
@@ -124,11 +125,11 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
       soundDuration: pub.sound_duration || 0,
       soundTrimStart: pub.sound_trim_start || 0,
       soundTrimEnd: pub.sound_trim_end || 1,
-      brightness: pub.brightness || 100,
-      contrast: pub.contrast || 100,
-      saturation: pub.saturation || 100,
-      filter: pub.filter || null,
-      rotation: pub.rotation || 0,
+      brightness: pub.brightness ?? toolStyle.brightness ?? 100,
+      contrast: pub.contrast ?? toolStyle.contrast ?? 100,
+      saturation: pub.saturation ?? toolStyle.saturation ?? 100,
+      filter: pub.filter ?? toolStyle.filter ?? null,
+      rotation: pub.rotation ?? toolStyle.rotation ?? 0,
       duration: pub.duration || 15,
       script: pub.script || "",
       video_url: pub.video_url || null,
@@ -2234,6 +2235,7 @@ export default function Publication() {
   const [mainTab, setMainTab] = useState("publier"); // "live" | "publier" | "creer"
   const [activeTool, setActiveTool] = useState(null); // "editeur" | "autocut" | "legendes" | "detourage"
   const [editingPub, setEditingPub] = useState(null); // publication being edited
+  const [toolResult, setToolResult] = useState(null);
   const [showVideoEditorDirect, setShowVideoEditorDirect] = useState(false);
   const [directVideoUrl, setDirectVideoUrl] = useState(null);
 
@@ -2246,11 +2248,20 @@ export default function Publication() {
   const handleWizardClose = () => {
     setShowWizard(false);
     setEditingPub(null);
+    setToolResult(null);
     try { setHasDraft(!!localStorage.getItem(DRAFT_KEY)); } catch { setHasDraft(false); }
   };
 
   const editPub = (pub) => {
+    setToolResult(null);
     setEditingPub(pub);
+    setShowWizard(true);
+  };
+
+  const handleToolDone = (result) => {
+    setActiveTool(null);
+    setEditingPub(null);
+    setToolResult(result || null);
     setShowWizard(true);
   };
 
@@ -2355,6 +2366,7 @@ export default function Publication() {
         });
       }
       setEditingPub(null);
+      setToolResult(null);
       setShowWizard(false);
     } catch (err) {
       alert("Erreur lors de la publication : " + err.message);
@@ -2409,6 +2421,7 @@ export default function Publication() {
         });
       }
       setEditingPub(null);
+      setToolResult(null);
       setShowWizard(false);
     } catch (err) {
       alert("Erreur: " + err.message);
@@ -2571,7 +2584,7 @@ export default function Publication() {
           onClose={handleWizardClose}
           onPublish={handlePublish}
           onDraft={handleDraft}
-          editData={editingPub}
+          editData={editingPub || toolResult}
         />
       )}
 
@@ -2579,25 +2592,25 @@ export default function Publication() {
       {activeTool === "editeur" && (
         <EditeurPhotos
           onClose={() => setActiveTool(null)}
-          onDone={(result) => { setActiveTool(null); setShowWizard(true); }}
+          onDone={handleToolDone}
         />
       )}
       {activeTool === "autocut" && (
         <AutoCut
           onClose={() => setActiveTool(null)}
-          onDone={(result) => { setActiveTool(null); setShowWizard(true); }}
+          onDone={handleToolDone}
         />
       )}
       {activeTool === "legendes" && (
         <Legendes
           onClose={() => setActiveTool(null)}
-          onDone={(result) => { setActiveTool(null); setShowWizard(true); }}
+          onDone={handleToolDone}
         />
       )}
       {activeTool === "detourage" && (
         <Detourage
           onClose={() => setActiveTool(null)}
-          onDone={(result) => { setActiveTool(null); setShowWizard(true); }}
+          onDone={handleToolDone}
         />
       )}
 

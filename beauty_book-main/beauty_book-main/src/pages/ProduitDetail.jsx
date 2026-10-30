@@ -1,17 +1,17 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { fetchShopifyProducts } from "@/api/shopifyClient";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { entities } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
 import {
   ArrowLeft, Share2, Heart, ShoppingCart, Star, ChevronRight,
-  Truck, Shield, RotateCcw, ChevronDown, ChevronUp, Check, ZoomIn, CreditCard, Lock, X, Wand2,
-  MapPin, MessageCircle, Phone, Clock, Headphones, Package, RefreshCw, ArrowUp, Store
+  Truck, ChevronDown, ChevronUp, Check, ZoomIn, CreditCard, X, Wand2,
+  MessageCircle, Clock, Headphones, Package, RefreshCw, ArrowUp
 } from "lucide-react";
 import { useCartSync } from "@/hooks/useCartSync";
 import { useLikedProducts } from "@/hooks/useLikedProducts";
 import { readPageCache, writePageCache, mergePageCache } from "@/hooks/usePageCache";
+import DetailShareSheet from "@/components/share/DetailShareSheet";
 
 // Couleurs courantes utilisées par les variantes Shopify. Les valeurs non
 // présentes dans cette palette restent affichées comme des boutons texte.
@@ -336,6 +336,7 @@ export default function ProduitDetail() {
   const [selectedOptions, setSelectedOptions] = useState({});
   const { toggle: toggleLike, isLiked } = useLikedProducts();
   const [addedToCart, setAddedToCart] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   const { addToCart, error: cartError } = useCartSync();
   const [vendorProducts, setVendorProducts] = useState(initialCache.vendorProducts || []);
@@ -432,12 +433,25 @@ export default function ProduitDetail() {
 
   return (
     <div ref={scrollRef} className="font-display bg-white min-h-screen pb-32">
+      {showShare && (
+        <DetailShareSheet
+          title={product.title || product.name}
+          subtitle={product.vendor || "Boutique BeautyBook"}
+          eyebrow="BeautyBook · boutique"
+          category={product.category || product.vendor || "Produit beauté"}
+          image={activeProductImg}
+          price={displayPrice ? `${parseFloat(displayPrice).toFixed(2)} €` : null}
+          description={product.description}
+          onClose={() => setShowShare(false)}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-white sticky top-0 z-20 border-b border-gray-100">
         <button onClick={() => navigate(-1)} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 transition-all"><ArrowLeft className="w-4 h-4 text-gray-700" /></button>
         <span className="text-[14px] font-black text-gray-900 uppercase tracking-wide line-clamp-1 flex-1 text-center mx-3">{product.category || product.vendor || "PRODUIT"}</span>
         <div className="flex items-center gap-2">
-          <button onClick={async () => { if (navigator.share) { try { await navigator.share({ title: product?.title, url: window.location.href }); } catch {} } else { navigator.clipboard.writeText(window.location.href); } }} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 transition-all"><Share2 className="w-4 h-4 text-gray-600" /></button>
+          <button onClick={() => setShowShare(true)} aria-label="Partager ce produit" className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 transition-all"><Share2 className="w-4 h-4 text-gray-600" /></button>
           <button onClick={() => toggleLike({ id: product?.id, name: product?.title, brand: product?.vendor || "", price: product?.price, img: product?.image_url, category: product?.category })} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 transition-all"><Heart className={`w-4 h-4 transition-all ${isLiked(product?.id) ? "fill-red-500 text-red-500" : "text-gray-600"}`} /></button>
         </div>
       </div>

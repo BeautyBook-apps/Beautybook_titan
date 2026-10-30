@@ -1,11 +1,11 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import PhotoAnalysis from '@/components/maria/PhotoAnalysis';
+import AICreditsCard from '@/components/ai/AICreditsCard';
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, ArrowUp, Shield, Download, Heart, Check, Search, Sparkles, ImageIcon, GalleryHorizontalEnd, Loader2, Camera, Scissors } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronUp, Shield, Download, Heart, Check, Search, Sparkles, ImageIcon, GalleryHorizontalEnd, Loader2, Camera, Scissors } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
 import { apiClient } from '@/lib/apiClient';
 import { analyzePhotoWithGrok } from '@/lib/grokService';
 
@@ -30,13 +30,16 @@ const GUIDE_TIPS = [
 
 
 
-export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favoriteStyles = [] }) {
+export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose, onResultSaved, favoriteStyles = [] }) {
   const navigate = useNavigate();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(() => (initialStyle?.id || initialStyle?.label ? 2 : 1));
+  const [guideReturnStep, setGuideReturnStep] = useState(null);
+  const [guidePage, setGuidePage] = useState(1);
   const [userPhoto, setUserPhoto] = useState(null);
   const [userPhotoUrl, setUserPhotoUrl] = useState(null);
   const [userPhotoUploadedUrl, setUserPhotoUploadedUrl] = useState(null);
-  const [selectedStyle, setSelectedStyle] = useState(null);
+  const [selectedStyle, setSelectedStyle] = useState(() => initialStyle);
+  const [stylesExpanded, setStylesExpanded] = useState(() => !initialStyle);
   const [result, setResult] = useState(null);
   const [progress, setProgress] = useState(0);
   const [progressMsg, setProgressMsg] = useState("");
@@ -97,16 +100,27 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
   const visibleStyles = filteredStyles.slice(0, visibleCount);
   useEffect(() => { setVisibleCount(12); }, [styleSearch]);
 
-  // Pre-select style from parent
+  // Pre-select the exact style sent by the detail page. We keep the local
+  // payload visible immediately, then enrich it with the canonical gallery
+  // record as soon as the published styles arrive.
   useEffect(() => {
-    if (styleTitle && styles.length > 0) {
-      const match = styles.find(r =>
-        styleTitle.toLowerCase().includes(r.id) ||
-        r.label.toLowerCase().includes(styleTitle.toLowerCase().split(" ")[0])
-      );
-      setSelectedStyle(match || styles[0]);
+    if (initialStyle?.id) {
+      const canonical = styles.find(r => String(r.id) === String(initialStyle.id));
+      if (canonical) {
+        setSelectedStyle(current => {
+          if (current && String(current.id) !== String(initialStyle.id)) return current;
+          return { ...initialStyle, ...canonical, allImages: canonical.allImages?.length ? canonical.allImages : initialStyle.allImages };
+        });
+      }
+      return;
     }
-  }, [styleTitle, styles]);
+    if (styleTitle && styles.length > 0) {
+      const title = styleTitle.toLowerCase();
+      const match = styles.find(r => r.label.toLowerCase() === title)
+        || styles.find(r => r.label.toLowerCase().includes(title) || title.includes(r.label.toLowerCase()));
+      if (match) setSelectedStyle(match);
+    }
+  }, [initialStyle, styleTitle, styles]);
 
   const handleCompareMove = (clientX) => {
     if (!compareRef.current) return;
@@ -197,12 +211,18 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
         ? 'Le service de simulation IA n’est pas encore configuré sur le serveur.'
         : e.code === 'DATABASE_NOT_CONFIGURED'
           ? 'Le serveur de simulation n’est pas encore connecté à sa base de données.'
+          : e.code === 'AI_QUOTA_REACHED'
+            ? 'Votre quota gratuit du jour est épuisé. Achetez un pack de crédits pour continuer.'
           : ['AUTH_REQUIRED', 'SESSION_INVALID'].includes(e.code)
           ? 'Connectez-vous pour lancer une simulation de coiffure.'
           : e.code === 'AI_PROVIDER_ERROR'
             ? 'Le service Grok n’a pas pu traiter cette photo. Réessayez dans quelques instants.'
           : e.message || 'La simulation n’a pas pu être générée.';
       setErrorMsg(message);
+      if (e.code === 'AI_QUOTA_REACHED') {
+        setStep(2);
+        return;
+      }
       setResult({
         error: message,
         errorCode: e.code,
@@ -241,21 +261,32 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
         {/* Header */}
         <div className="sticky top-0 bg-white px-5 py-4 border-b border-gray-100 flex items-center justify-between z-10">
           <button
-            onClick={() => step > 1 && step < 3 ? setStep(step - 1) : onClose()}
+            onClick={() => {
+              if (step === 1 && guidePage > 1) {
+                setGuidePage(page => page - 1);
+              } else if (step === 1 && guideReturnStep) {
+                setStep(guideReturnStep);
+                setGuideReturnStep(null);
+              } else if (step > 1 && step < 3) {
+                setStep(step - 1);
+              } else {
+                onClose();
+              }
+            }}
             className="w-8 h-8 flex items-center justify-center text-gray-600"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="text-center">
             <h2 className="text-[17px] font-black text-gray-900">
-              {step === 1 && "Guide Photo"}
+              {step === 1 && `Guide Photo · ${guidePage}/3`}
               {step === 2 && "Choisir un Style"}
               {step === 3 && "Génération IA…"}
               {step === 4 && "Votre Simulation"}
             </h2>
             <div className="flex items-center justify-center gap-1.5 mt-1">
-              {[1, 2, 3, 4].map(s => (
-                <div key={s} className={`h-1 rounded-full transition-all ${s === step ? "w-6 bg-primary" : s < step ? "w-3 bg-primary/40" : "w-3 bg-gray-200"}`} />
+              {(step === 1 ? [1, 2, 3] : [1, 2, 3, 4]).map(s => (
+                <div key={s} className={`h-1 rounded-full transition-all ${step === 1 ? (s === guidePage ? "w-6 bg-primary" : s < guidePage ? "w-3 bg-primary/40" : "w-3 bg-gray-200") : (s === step ? "w-6 bg-primary" : s < step ? "w-3 bg-primary/40" : "w-3 bg-gray-200")}`} />
               ))}
             </div>
           </div>
@@ -267,40 +298,79 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
           {/* ── STEP 1: Guide ── */}
           {step === 1 && (
             <div className="space-y-5">
-              <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-3xl p-6 text-center">
-                <span className="text-[52px]">✨</span>
-                <h3 className="text-[24px] font-black text-gray-900 mt-3">AI Hairstyle</h3>
-                <p className="text-[22px] font-black text-primary">Changer</p>
-                <p className="text-[13px] text-gray-600 mt-3 leading-relaxed">
-                  Notre IA Grok génère une <strong>vraie photo de vous</strong> avec la coiffure choisie en quelques secondes.
-                </p>
-                <div className="mt-3 flex items-center justify-center gap-1.5 bg-white/70 rounded-2xl px-3 py-2">
-                  <Sparkles className="w-3.5 h-3.5 text-primary" />
-                  <span className="text-[11px] font-black text-primary">Propulsé par Grok</span>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {GUIDE_TIPS.map((tip, i) => (
-                  <div key={i} className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                    <span className="text-[28px] shrink-0">{tip.icon}</span>
-                    <div>
-                      <p className="text-[14px] font-black text-gray-900">{tip.title}</p>
-                      <p className="text-[12px] text-gray-500 mt-0.5">{tip.desc}</p>
+              {guidePage === 1 && (
+                <>
+                  <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-3xl p-6 text-center">
+                    <span className="text-[52px]">✨</span>
+                    <h3 className="text-[24px] font-black text-gray-900 mt-3">AI Hairstyle</h3>
+                    <p className="text-[22px] font-black text-primary">Changer</p>
+                    <p className="text-[13px] text-gray-600 mt-3 leading-relaxed">
+                      Notre IA Grok génère une <strong>vraie photo de vous</strong> avec la coiffure choisie en quelques secondes.
+                    </p>
+                    <div className="mt-3 flex items-center justify-center gap-1.5 bg-white/70 rounded-2xl px-3 py-2">
+                      <Sparkles className="w-3.5 h-3.5 text-primary" />
+                      <span className="text-[11px] font-black text-primary">Propulsé par Grok</span>
                     </div>
                   </div>
-                ))}
-              </div>
+                  <div className="space-y-3">
+                    {GUIDE_TIPS.map((tip, i) => (
+                      <div key={i} className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                        <span className="text-[28px] shrink-0">{tip.icon}</span>
+                        <div>
+                          <p className="text-[14px] font-black text-gray-900">{tip.title}</p>
+                          <p className="text-[12px] text-gray-500 mt-0.5">{tip.desc}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {guidePage === 2 && (
+                <div className="space-y-4">
+                  <div className="rounded-3xl bg-blue-50 p-7 text-center border border-blue-100">
+                    <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-white shadow-sm"><Camera className="h-10 w-10 text-blue-500" /></div>
+                    <p className="mt-5 text-[11px] font-black uppercase tracking-[0.18em] text-blue-600">Étape 2</p>
+                    <h3 className="mt-2 text-[22px] font-black text-gray-900">Importez votre photo</h3>
+                    <p className="mt-3 text-[13px] leading-relaxed text-gray-600">Choisissez une photo nette, bien éclairée, avec votre visage et vos cheveux visibles.</p>
+                  </div>
+                  <div className="space-y-3">
+                    {[
+                      "Utilisez une photo récente et de bonne qualité",
+                      "Gardez la tête droite face à l’objectif",
+                      "Évitez les filtres et les visages masqués",
+                    ].map(text => <div key={text} className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-[13px] font-bold text-gray-700"><Check className="h-5 w-5 shrink-0 text-green-600" />{text}</div>)}
+                  </div>
+                </div>
+              )}
+
+              {guidePage === 3 && (
+                <div className="space-y-4">
+                  <div className="rounded-3xl bg-purple-50 p-7 text-center border border-purple-100">
+                    {selectedStyle?.img ? <BeautyImage src={selectedStyle.img} alt={selectedStyle.label} className="mx-auto h-36 w-36 rounded-3xl object-cover shadow-lg" /> : <div className="mx-auto flex h-36 w-36 items-center justify-center rounded-3xl bg-white shadow-sm"><GalleryHorizontalEnd className="h-12 w-12 text-purple-500" /></div>}
+                    <p className="mt-5 text-[11px] font-black uppercase tracking-[0.18em] text-purple-600">Étape 3</p>
+                    <h3 className="mt-2 text-[22px] font-black text-gray-900">Choisissez votre style</h3>
+                    <p className="mt-3 text-[13px] leading-relaxed text-gray-600">Sélectionnez une coiffure de la galerie, puis lancez votre simulation personnalisée.</p>
+                    {selectedStyle && <p className="mt-3 rounded-xl bg-white/80 px-3 py-2 text-[12px] font-black text-purple-700">Style prêt : {selectedStyle.label}</p>}
+                  </div>
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-center text-[12px] leading-relaxed text-blue-700"><Shield className="mx-auto mb-2 h-5 w-5 text-blue-500" />Vos images sont transmises de manière sécurisée au service IA.</div>
+                </div>
+              )}
+
               <div
                 className="sticky bottom-0 z-10 -mx-1 mt-1 border-t border-orange-100 bg-white/95 px-1 pt-3 backdrop-blur-md"
                 style={{ paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}
               >
                 <button
                   type="button"
-                  onClick={() => setStep(2)}
-                  aria-label="Commencer le guide photo"
+                  onClick={() => {
+                    if (guidePage < 3) setGuidePage(page => page + 1);
+                    else { setGuideReturnStep(null); setStep(2); }
+                  }}
+                  aria-label={guidePage < 3 ? "Passer à l'étape suivante" : "Accéder à l'essayage"}
                   className="group flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-[14px] font-black uppercase tracking-[0.12em] text-white shadow-[0_12px_28px_rgba(232,115,42,0.28)] transition-all hover:bg-primary/90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25"
                 >
-                  <span>COMMENCER</span>
+                  <span>{guidePage < 3 ? "SUIVANT" : "ACCÉDER À L’ESSAYAGE"}</span>
                   <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" aria-hidden="true" />
                 </button>
               </div>
@@ -310,6 +380,16 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
           {/* ── STEP 2: Photo + Style ── */}
           {step === 2 && (
             <div className="space-y-6">
+              <button
+                type="button"
+                onClick={() => { setGuidePage(1); setGuideReturnStep(2); setStep(1); }}
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-primary transition-all active:scale-[0.98]"
+              >
+                <ImageIcon className="h-4 w-4" /> VOIR LE GUIDE PHOTO · 3 ÉTAPES
+              </button>
+
+              <AICreditsCard compact returnPath="/maria" />
+
               {/* Photo upload — grande zone */}
               <div>
                 <h3 className="text-[15px] font-black text-gray-900 mb-3 flex items-center gap-2"><ImageIcon className="w-4 h-4 text-primary" strokeWidth={1.5} /> Votre photo</h3>
@@ -354,86 +434,102 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
 
               {/* Style selector */}
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3 gap-3">
                   <h3 className="text-[15px] font-black text-gray-900 flex items-center gap-2"><GalleryHorizontalEnd className="w-4 h-4 text-primary" strokeWidth={1.5} /> Choisir un style</h3>
+                  <button
+                    type="button"
+                    onClick={() => setStylesExpanded(value => !value)}
+                    aria-expanded={stylesExpanded}
+                    className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl border border-orange-200 bg-orange-50 px-3 text-[10px] font-black uppercase tracking-wider text-primary transition-all active:scale-95"
+                  >
+                    {stylesExpanded ? "Replier" : "Modifier"}
+                    {stylesExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
-
-                <div className="flex items-center gap-2 bg-gray-100 rounded-2xl px-3 py-2.5 mb-3">
-                  <Search className="w-4 h-4 text-gray-400 shrink-0" />
-                  <input
-                    value={styleSearch}
-                    onChange={e => setStyleSearch(e.target.value)}
-                    placeholder="Rechercher un style..."
-                    className="flex-1 bg-transparent text-[13px] text-gray-700 outline-none placeholder:text-gray-400 font-medium"
-                  />
-                  {styleSearch && (
-                    <button onClick={() => setStyleSearch("")} className="text-gray-400 text-[14px]">✕</button>
-                  )}
-                </div>
-
-                {loadingStyles ? (
-                  <div className="flex justify-center py-6">
-                    <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : (
-                  <>
-                    {!styleSearch && favStylesList.length > 0 && (
-                      <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-2">❤️ Mes favoris</p>
-                    )}
-                    <div className="grid grid-cols-4 gap-2">
-                      {visibleStyles.map(ref => (
-                        <button
-                          key={ref.id}
-                          onClick={() => setSelectedStyle(ref)}
-                          className="relative flex flex-col items-center gap-1 active:scale-95 transition-all"
-                        >
-                          <div className={`w-full aspect-square rounded-xl overflow-hidden border-2 transition-all ${selectedStyle?.id === ref.id ? "border-primary shadow-md shadow-primary/20 scale-105" : "border-transparent"}`}>
-                            <BeautyImage src={ref.img} alt={ref.label} className="w-full h-full object-cover" />
-                          </div>
-                          {favIds.has(ref.id) && !styleSearch && (
-                            <div className="absolute top-1 left-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
-                              <Heart className="w-2 h-2 text-white fill-white" />
-                            </div>
-                          )}
-                          {selectedStyle?.id === ref.id && (
-                            <div className="absolute top-1 right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center border-2 border-white">
-                              <Check className="w-2.5 h-2.5 text-white" />
-                            </div>
-                          )}
-                          <span className="text-[9px] font-black text-gray-500 uppercase tracking-tight text-center leading-tight">{ref.label}</span>
-                        </button>
-                      ))}
-                      {filteredStyles.length === 0 && (
-                        <div className="col-span-4 text-center py-6 text-[13px] text-gray-400">
-                          {loadingStyles ? "" : styleSearch ? "Aucun style trouvé" : "Aucun style publié pour le moment"}
-                        </div>
-                      )}
-                    </div>
-                    {/* Voir plus : 12 styles par série */}
-                    {visibleCount < filteredStyles.length && (
-                      <button
-                        onClick={() => setVisibleCount(c => c + 12)}
-                        className="w-full mt-3 py-3.5 rounded-2xl border-2 border-primary/30 bg-primary/5 text-primary font-black text-[12px] uppercase tracking-widest active:scale-95 transition-all"
-                      >
-                        Voir plus ({filteredStyles.length - visibleCount} restants)
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
 
               {selectedStyle && (
                 <div className="bg-orange-50 border border-orange-100 rounded-2xl p-3 flex items-center gap-3">
-                  <BeautyImage src={selectedStyle.img} alt={selectedStyle.label} className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                  <BeautyImage src={selectedStyle.img} alt={selectedStyle.label} className="w-14 h-14 rounded-xl object-cover shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-black text-gray-900">Style sélectionné : {selectedStyle.label}</p>
+                    <p className="text-[12px] font-black text-gray-900">
+                      {initialStyle ? "Style choisi depuis le détail" : "Style sélectionné"} : {selectedStyle.label}
+                    </p>
                     {selectedStyle.author && (
                       <p className="text-[10px] text-primary font-bold">✦ Publié par {selectedStyle.author}</p>
                     )}
                     <p className="text-[11px] text-gray-500">Grok va générer votre photo avec ce style</p>
                   </div>
+                  {!stylesExpanded && <Check className="h-5 w-5 shrink-0 text-green-600" aria-label="Style actif" />}
                 </div>
               )}
+
+                {stylesExpanded && (
+                  <>
+                    <div className="flex items-center gap-2 bg-gray-100 rounded-2xl px-3 py-2.5 mb-3">
+                      <Search className="w-4 h-4 text-gray-400 shrink-0" />
+                      <input
+                        value={styleSearch}
+                        onChange={e => setStyleSearch(e.target.value)}
+                        placeholder="Rechercher un style..."
+                        className="flex-1 bg-transparent text-[13px] text-gray-700 outline-none placeholder:text-gray-400 font-medium"
+                      />
+                      {styleSearch && (
+                        <button onClick={() => setStyleSearch("")} className="text-gray-400 text-[14px]" aria-label="Effacer la recherche">✕</button>
+                      )}
+                    </div>
+
+                    {loadingStyles ? (
+                      <div className="flex justify-center py-6">
+                        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    ) : (
+                      <>
+                        {!styleSearch && favStylesList.length > 0 && (
+                          <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-2">❤️ Mes favoris</p>
+                        )}
+                        <div className="grid grid-cols-4 gap-2">
+                          {visibleStyles.map(ref => (
+                            <button
+                              key={ref.id}
+                              onClick={() => setSelectedStyle(ref)}
+                              className="relative flex flex-col items-center gap-1 active:scale-95 transition-all"
+                            >
+                              <div className={`w-full aspect-square rounded-xl overflow-hidden border-2 transition-all ${selectedStyle?.id === ref.id ? "border-primary shadow-md shadow-primary/20 scale-105" : "border-transparent"}`}>
+                                <BeautyImage src={ref.img} alt={ref.label} className="w-full h-full object-cover" />
+                              </div>
+                              {favIds.has(ref.id) && !styleSearch && (
+                                <div className="absolute top-1 left-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
+                                  <Heart className="w-2 h-2 text-white fill-white" />
+                                </div>
+                              )}
+                              {selectedStyle?.id === ref.id && (
+                                <div className="absolute top-1 right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center border-2 border-white">
+                                  <Check className="w-2.5 h-2.5 text-white" />
+                                </div>
+                              )}
+                              <span className="text-[9px] font-black text-gray-500 uppercase tracking-tight text-center leading-tight">{ref.label}</span>
+                            </button>
+                          ))}
+                          {filteredStyles.length === 0 && (
+                            <div className="col-span-4 text-center py-6 text-[13px] text-gray-400">
+                              {loadingStyles ? "" : styleSearch ? "Aucun style trouvé" : "Aucun style publié pour le moment"}
+                            </div>
+                          )}
+                        </div>
+                        {/* Voir plus : 12 styles par série */}
+                        {visibleCount < filteredStyles.length && (
+                          <button
+                            onClick={() => setVisibleCount(c => c + 12)}
+                            className="w-full mt-3 py-3.5 rounded-2xl border-2 border-primary/30 bg-primary/5 text-primary font-black text-[12px] uppercase tracking-widest active:scale-95 transition-all"
+                          >
+                            Voir plus ({filteredStyles.length - visibleCount} restants)
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
 
               <div className="bg-blue-50 rounded-2xl p-3 flex items-start gap-2 border border-blue-100">
                 <Shield className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
@@ -442,17 +538,30 @@ export default function FiltreAIModal({ styleTitle, onClose, onResultSaved, favo
                 </p>
               </div>
 
-              <button
-                onClick={startSimulation}
-                disabled={!userPhoto || !selectedStyle}
-                className={`w-full font-black py-4 rounded-2xl flex items-center justify-center gap-2 uppercase tracking-widest active:scale-95 transition-all ${
-                  userPhoto && selectedStyle
-                    ? "bg-primary text-white shadow-lg shadow-primary/30"
-                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                }`}
-              >
-                <Sparkles className="w-4 h-4" strokeWidth={1.5} /> GÉNÉRER MA COIFFURE
-              </button>
+              <div className="sticky bottom-0 z-20 -mx-5 border-t border-orange-100 bg-white/95 px-5 pt-3 backdrop-blur-md" style={{ paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))" }}>
+                <button
+                  onClick={startSimulation}
+                  disabled={!userPhoto || !selectedStyle}
+                  aria-label={userPhoto && selectedStyle ? "Générer ma coiffure" : "Ajoutez une photo et choisissez un style"}
+                  className={`group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl px-5 py-3 text-left transition-all duration-200 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 ${
+                    userPhoto && selectedStyle
+                      ? "bg-gradient-to-r from-orange-500 via-primary to-amber-500 text-white shadow-[0_12px_28px_rgba(232,115,42,0.34)] hover:shadow-[0_16px_34px_rgba(232,115,42,0.42)]"
+                      : "cursor-not-allowed bg-slate-100 text-slate-400"
+                  }`}
+                >
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${userPhoto && selectedStyle ? "bg-white/20" : "bg-slate-200"}`}>
+                    <Sparkles className="h-5 w-5" strokeWidth={1.8} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-black uppercase tracking-[0.09em]">Générer ma coiffure</span>
+                    <span className={`mt-0.5 block text-[10px] font-semibold ${userPhoto && selectedStyle ? "text-white/80" : "text-slate-400"}`}>
+                      {userPhoto && selectedStyle ? "Créer mon aperçu personnalisé" : "Ajoutez une photo et choisissez un style"}
+                    </span>
+                  </span>
+                  {userPhoto && selectedStyle && <ArrowRight className="h-5 w-5 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />}
+                </button>
+                <p className="mt-2 text-center text-[10px] font-medium text-slate-400">1 génération · votre résultat sera enregistré dans votre historique privé</p>
+              </div>
             </div>
           )}
 

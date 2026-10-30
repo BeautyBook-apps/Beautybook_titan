@@ -848,6 +848,24 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
       // of truth, then enrich likes from the server when available. This also
       // keeps the feed usable when the optional aggregate endpoint is down.
       let counts = Object.fromEntries(styleIds.map(id => [id, Number(mapped.find(style => String(style.id) === id)?.likes || 0)]));
+      // `Style.likes` peut être un ancien compteur dénormalisé. La source
+      // canonique des likes est `user_like`, donc on la lit directement dès
+      // que Supabase répond, y compris en développement sans backend proxy.
+      try {
+        const { data: likeRows, error: likeRowsError } = await supabase
+          .from('user_like')
+          .select('target_id')
+          .eq('target_type', 'style')
+          .in('target_id', styleIds);
+        if (!likeRowsError) {
+          const directCounts = Object.fromEntries(styleIds.map(id => [id, 0]));
+          (likeRows || []).forEach(row => {
+            const id = String(row.target_id);
+            if (id in directCounts) directCounts[id] += 1;
+          });
+          counts = directCounts;
+        }
+      } catch {}
       // En développement sans backend configuré, les compteurs de likes
       // présents dans les lignes Style restent la source locale fiable.
       // Ne pas appeler le proxy Vite (qui renverrait 500 si le backend n'est
@@ -1098,7 +1116,7 @@ function StylesTab({ activeCategory, quickFilter, onQuickFilterConsumed, returnC
             )}
             <StyleCard
               styleId={style.id}
-              style={style} liked={liked.includes(style.id)} likeCount={likeCounts[style.id] || 0}
+              style={style} liked={liked.includes(style.id)} likeCount={likeCounts[style.id] ?? style.likes ?? 0}
               followed={followed.includes(style.author_email)}
               onFollow={(e) => handleFollow(e, style.author_email)}
               onLike={(e) => handleLike(e, style.id)}
