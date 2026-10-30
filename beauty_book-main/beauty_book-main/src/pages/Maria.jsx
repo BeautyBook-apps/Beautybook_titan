@@ -7,8 +7,8 @@ import {
   X, Plus, Sparkles, Search,
   Wand2, ArrowLeft, Bot, Send, Mic,
   Scissors, Lightbulb, Heart, Clock, Star, Paperclip,
-  FileText, Volume2, CheckCircle, MessageSquare, Calendar, ExternalLink,
-  Instagram, Facebook, Globe, TrendingUp, Megaphone
+  FileText, CheckCircle, MessageSquare, Calendar, ExternalLink,
+  Globe, TrendingUp, Megaphone
 } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
@@ -29,6 +29,7 @@ import AuthModal from "@/components/ui/AuthModal";
 import { grokChat } from "@/lib/grok";
 import { dictationErrorMessage, isDictationSupported } from "@/lib/dictation";
 import { getProActivityStats, formatStatsForMaria } from "@/lib/proStats";
+import { getMariaAudio, stopMariaAudio } from "@/lib/mariaSpeech";
 
 const SCAN_IMG = "https://images.unsplash.com/photo-1620331311520-246422fd82f9?q=80&w=400";
 const STYLE_IMG = "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?q=80&w=400";
@@ -711,21 +712,40 @@ export default function Maria() {
   };
 
   // ── Synthèse vocale via OpenAI TTS (fallback: Web Speech API) ──
-  const voiceAudioRef = useRef(null);
+  // Le lecteur est partagé entre les modes vocaux, mais il est arrêté quand
+  // la page Maria est quittée.
+  const voiceAudioRef = useRef(getMariaAudio());
   const microsoftTTSAbortRef = useRef(null);
+  const mariaMountedRef = useRef(true);
+
+  useEffect(() => {
+    mariaMountedRef.current = true;
+    return () => {
+      mariaMountedRef.current = false;
+      window.speechSynthesis?.cancel();
+      microsoftTTSAbortRef.current?.abort();
+      microsoftTTSAbortRef.current = null;
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current);
+        typingIntervalRef.current = null;
+      }
+      stopMariaAudio();
+    };
+  }, []);
 
   const speakResponse = (text, msgIndex, withTyping = false, voiceUrl = null) => {
-    if (muted) return;
+    if (muted || !mariaMountedRef.current) return;
     setSpeaking(true);
     if (withTyping) startTypingEffect(text, msgIndex ?? -1);
 
     // 1. Si on a une URL Voicebox, l'utiliser
     if (voiceUrl) {
       if (voiceAudioRef.current) {
-        voiceAudioRef.current.pause();
-        voiceAudioRef.current.src = "";
+        stopMariaAudio();
       }
-      const audio = new Audio(voiceUrl);
+      const audio = getMariaAudio();
+      if (!audio) return;
+      audio.src = voiceUrl;
       voiceAudioRef.current = audio;
       audio.onended = () => {
         setSpeaking(false);
@@ -741,6 +761,7 @@ export default function Maria() {
   };
 
   const speakMicrosoftTTS = async (text, msgIndex, withTyping) => {
+    if (!mariaMountedRef.current) return;
     const clean = text
       .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, "")
       .replace(/\*\*/g, "").replace(/\*/g, "").replace(/#{1,6}\s/g, "")
@@ -759,36 +780,44 @@ export default function Maria() {
         signal: microsoftTTSAbortRef.current.signal,
       });
 
+      if (!mariaMountedRef.current) return;
+
       if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
 
       if (voiceAudioRef.current) {
-        voiceAudioRef.current.pause();
-        voiceAudioRef.current.src = "";
+        stopMariaAudio();
       }
 
-      const audio = new Audio(url);
+      const audio = getMariaAudio();
+      if (!audio) return;
+      audio.src = url;
+      audio.dataset.mariaObjectUrl = url;
       voiceAudioRef.current = audio;
       audio.onended = () => {
         URL.revokeObjectURL(url);
+        delete audio.dataset.mariaObjectUrl;
         setSpeaking(false);
         if (withTyping) { setTypingText(text); setTypingIndex(null); }
       };
       audio.onerror = () => {
         URL.revokeObjectURL(url);
+        delete audio.dataset.mariaObjectUrl;
         speakWithWebSpeech(text, msgIndex, withTyping);
       };
       audio.play().catch(() => speakWithWebSpeech(text, msgIndex, withTyping));
       console.log('[Maria TTS] OpenAI TTS playing');
     } catch (err) {
+      if (!mariaMountedRef.current || err?.name === 'AbortError') return;
       console.log('[Maria TTS] OpenAI TTS failed:', err.message, '→ falling back to Web Speech API');
       speakWithWebSpeech(text, msgIndex, withTyping);
     }
   };
 
   const speakWithWebSpeech = (text, msgIndex, withTyping) => {
+    if (!mariaMountedRef.current) return;
     const clean = text
       .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, "")
       .replace(/\*\*/g, "").replace(/\*/g, "").replace(/#{1,6}\s/g, "")
@@ -831,8 +860,7 @@ export default function Maria() {
       microsoftTTSAbortRef.current = null;
     }
     if (voiceAudioRef.current) {
-      voiceAudioRef.current.pause();
-      voiceAudioRef.current.src = "";
+      stopMariaAudio();
     }
     setSpeaking(false);
     if (typingIntervalRef.current) {
