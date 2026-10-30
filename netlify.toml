@@ -1,0 +1,10 @@
+[build]
+  base = "beauty_book-main/beauty_book-main"
+  command = "npm install --include=dev && npm run build"
+  publish = "dist"
+
+# SPA fallback: serve index.html for all client-side routes
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
