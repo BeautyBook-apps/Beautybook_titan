@@ -50,22 +50,12 @@ export default function SoundLibrary({ onClose, onPick, onImport, current, music
     suggestTimer.current = setTimeout(async () => {
       const out = [];
       try {
-        const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&country=FR&limit=6`);
+        const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&country=FR&limit=10`);
         const d = await r.json();
         (d.results || []).forEach((tr, i) => {
           if (tr.previewUrl) out.push({
             id: "sg-it-" + (tr.trackId || i), title: tr.trackName, artist: tr.artistName,
             artwork: tr.artworkUrl60 || tr.artworkUrl100, previewUrl: tr.previewUrl,
-          });
-        });
-      } catch {}
-      try {
-        const r = await fetch(`https://api.deezer.com/search?q=${encodeURIComponent(term)}&limit=6`);
-        const d = await r.json();
-        (d.data || []).forEach((t) => {
-          if (t.preview) out.push({
-            id: "sg-dz-" + t.id, title: t.title, artist: t.artist?.name || "",
-            artwork: t.album?.cover_small || t.album?.cover_medium, previewUrl: t.preview,
           });
         });
       } catch {}
@@ -75,12 +65,12 @@ export default function SoundLibrary({ onClose, onPick, onImport, current, music
     return () => clearTimeout(suggestTimer.current);
   }, [q]);
 
-  // Tendances : Top iTunes France + Top Deezer (sans clé)
+  // Tendances : Top iTunes France (sans clé, sans CORS)
   const loadTrending = async () => {
     setLoadingTop(true);
-    const it = [], dz = [];
+    const it = [];
     try {
-      const r = await fetch("https://itunes.apple.com/fr/rss/topsongs/limit=25/json");
+      const r = await fetch("https://itunes.apple.com/fr/rss/topsongs/limit=40/json");
       const j = await r.json();
       (j.feed?.entry || []).forEach((e, i) => {
         const links = Array.isArray(e.link) ? e.link : [e.link].filter(Boolean);
@@ -92,25 +82,11 @@ export default function SoundLibrary({ onClose, onPick, onImport, current, music
         });
       });
     } catch {}
-    try {
-      const r = await fetch("https://api.deezer.com/chart/0/tracks?limit=25");
-      const j = await r.json();
-      (j.data || []).forEach((t) => {
-        if (t.preview) dz.push({
-          id: "dz-top-" + t.id, title: t.title, artist: t.artist?.name || "",
-          artwork: t.album?.cover_medium, previewUrl: t.preview,
-        });
-      });
-    } catch {}
-    // Alterne les deux sources pour varier
-    const mixed = [];
-    const n = Math.max(it.length, dz.length);
-    for (let i = 0; i < n; i++) { if (it[i]) mixed.push(it[i]); if (dz[i]) mixed.push(dz[i]); }
-    setTrending(mixed.slice(0, 40));
+    setTrending(it);
     setLoadingTop(false);
   };
 
-  // Recherche combinée iTunes + Deezer
+  // Recherche iTunes
   const search = async (termOverride) => {
     const term = (termOverride ?? q).trim();
     if (!term) return;
@@ -119,22 +95,12 @@ export default function SoundLibrary({ onClose, onPick, onImport, current, music
     setSearching(true); setSearched(true);
     const out = [];
     try {
-      const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&country=FR&limit=20`);
+      const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&country=FR&limit=25`);
       const d = await r.json();
       (d.results || []).forEach((tr, i) => {
         if (tr.previewUrl) out.push({
           id: "it-" + (tr.trackId || i), title: tr.trackName, artist: tr.artistName,
           artwork: tr.artworkUrl100, previewUrl: tr.previewUrl, durationMs: tr.trackTimeMillis,
-        });
-      });
-    } catch {}
-    try {
-      const r = await fetch(`https://api.deezer.com/search?q=${encodeURIComponent(term)}&limit=20`);
-      const d = await r.json();
-      (d.data || []).forEach((t) => {
-        if (t.preview) out.push({
-          id: "dz-" + t.id, title: t.title, artist: t.artist?.name || "",
-          artwork: t.album?.cover_medium, previewUrl: t.preview, durationMs: (t.duration || 30) * 1000,
         });
       });
     } catch {}

@@ -17,7 +17,7 @@ import {
   Type, MessageSquare, Share2,
   BookOpen, RefreshCw, Clapperboard, GripVertical, Images,
   Hourglass, Grid3x3, Palette, Crop, Feather,
-  Film
+  Film, MapPin, Tag
 } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 
@@ -112,9 +112,16 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
     const categoryToPubType = { "Réels": "reel", "Tutos": "tuto", "Conseils": "conseil" };
     const toolStyle = pub.style && typeof pub.style === "object" ? pub.style : {};
     const images = pub.images || (pub.image_url ? [pub.image_url] : (pub.thumbnail_url ? [pub.thumbnail_url] : []));
+    let callouts = pub.callouts || [];
+    if (!callouts.length && (pub.description || pub.caption)) {
+      const match = (pub.description || pub.caption || "").match(/<!--CALLOUTS:(.*?)-->/);
+      if (match) {
+        try { callouts = JSON.parse(match[1]); } catch {}
+      }
+    }
     return {
       title: pub.title || "",
-      caption: pub.caption || pub.description || pub.title || "",
+      caption: (pub.caption || pub.description || pub.title || "").replace(/<!--CALLOUTS:.*?-->/g, "").trim(),
       category: pub.category || "Coiffure",
       images,
       hashtags: pub.hashtags || [],
@@ -138,6 +145,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
       product_img: pub.product_img || null,
       service_id: pub.service_id || null,
       service_name: pub.service_name || null,
+      callouts: Array.isArray(callouts) ? callouts : [],
     };
   };
 
@@ -172,6 +180,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
     product_img: null,
     service_id: null,
     service_name: null,
+    callouts: [],
   });
 
   const [activePanel, setActivePanel] = useState(null);
@@ -192,6 +201,11 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
   const [cameraFacing, setCameraFacing] = useState("environment");
   const [showVideoEditor, setShowVideoEditor] = useState(false);
   const [videoThumb, setVideoThumb] = useState(null); // thumbnail capturée de la vidéo importée
+  const [selectedCalloutPhotoIdx, setSelectedCalloutPhotoIdx] = useState(0);
+  const [pendingCalloutPoint, setPendingCalloutPoint] = useState(null); // { x, y, imageIndex }
+  const [calloutModalOpen, setCalloutModalOpen] = useState(false);
+  const [calloutForm, setCalloutForm] = useState({ label: "", targetType: "service", targetId: "", targetName: "" });
+  const [previewCalloutsVisible, setPreviewCalloutsVisible] = useState(true);
   const fileInputRef = useRef(null);
   const photoInputRef = useRef(null);
   const videoInputRef = useRef(null);
@@ -1856,15 +1870,42 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
             <video src={form.video_url} autoPlay loop playsInline muted={false}
               className="w-full h-full" style={{ objectFit: form.objectFit || "cover", ...getImageStyle() }} />
           ) : form.images.length > 0 ? (
-            <>
+            <div className="relative w-full h-full" onClick={() => setPreviewCalloutsVisible(v => !v)}>
               <BeautyImage src={form.images[previewIdx]} alt="" className="w-full h-full object-cover" style={getImageStyle()} />
+              {/* Callouts sur cette image de prévisualisation */}
+              {previewCalloutsVisible && (form.callouts || []).filter(c => (c.imageIndex ?? 0) === previewIdx).map((c, i) => (
+                <div
+                  key={c.id || i}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-auto"
+                  style={{ left: `${c.x}%`, top: `${c.y}%` }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (c.targetType === "service" && c.targetId) {
+                      navigate(`/service/${c.targetId}`);
+                    } else if (c.targetType === "produit" && c.targetId) {
+                      navigate(`/produit?id=${encodeURIComponent(c.targetId)}`);
+                    }
+                  }}
+                >
+                  <div className="relative flex items-center justify-center cursor-pointer">
+                    <span className="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-white opacity-40"></span>
+                    <div className="w-6 h-6 rounded-full bg-primary text-white border-2 border-white shadow-xl flex items-center justify-center text-[10px] font-black">
+                      {i + 1}
+                    </div>
+                  </div>
+                  <div className="mt-1 bg-black/85 backdrop-blur-md text-white text-[11px] font-black px-2.5 py-1 rounded-full shadow-2xl whitespace-nowrap flex items-center gap-1.5 border border-white/20 active:scale-95 transition-all">
+                    <span>{c.targetType === "service" ? "✂️" : "🧴"} {c.label || c.targetName}</span>
+                    <span className="text-[10px] text-white/50">↗</span>
+                  </div>
+                </div>
+              ))}
               {form.images.length > 1 && (
                 <>
-                  <button onClick={() => setPreviewIdx(i => Math.max(0, i - 1))}
+                  <button onClick={(e) => { e.stopPropagation(); setPreviewIdx(i => Math.max(0, i - 1)); }}
                     className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 rounded-full flex items-center justify-center z-10">
                     <ChevronLeft className="w-5 h-5 text-white" />
                   </button>
-                  <button onClick={() => setPreviewIdx(i => Math.min(form.images.length - 1, i + 1))}
+                  <button onClick={(e) => { e.stopPropagation(); setPreviewIdx(i => Math.min(form.images.length - 1, i + 1)); }}
                     className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 rounded-full flex items-center justify-center z-10">
                     <ChevronRight className="w-5 h-5 text-white" />
                   </button>
@@ -1876,7 +1917,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
                   </div>
                 </>
               )}
-            </>
+            </div>
           ) : (
             <div className="w-full h-full bg-[#1a1a2e]" />
           )}
@@ -2129,15 +2170,269 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
           </div>
         )}
 
-        {/* Sélection actuelle */}
+        {/* Sélection globale actuelle */}
         {(form.product_name || form.service_name) && (
           <div className="rounded-2xl p-4 flex items-center gap-3" style={{ background: stepIsDark ? "rgba(34,197,94,0.1)" : "#f0fdf4", border: `1px solid ${stepIsDark ? "rgba(34,197,94,0.2)" : "#dcfce7"}` }}>
             <CheckCircle2 className="w-6 h-6 text-green-500 shrink-0" />
             <div className="flex-1">
-              {form.product_name && <p className={`text-[12px] font-black ${stepIsDark ? "text-white" : "text-gray-900"}`}>Produit : {form.product_name}</p>}
-              {form.service_name && <p className={`text-[12px] font-black ${stepIsDark ? "text-white" : "text-gray-900"}`}>Service : {form.service_name}</p>}
+              {form.product_name && <p className={`text-[12px] font-black ${stepIsDark ? "text-white" : "text-gray-900"}`}>Produit global : {form.product_name}</p>}
+              {form.service_name && <p className={`text-[12px] font-black ${stepIsDark ? "text-white" : "text-gray-900"}`}>Service global : {form.service_name}</p>}
               <button onClick={() => setForm(f => ({ ...f, product_id: null, product_name: null, product_img: null, service_id: null, service_name: null }))}
-                className="text-[11px] text-red-400 font-bold mt-0.5">Retirer le lien</button>
+                className="text-[11px] text-red-400 font-bold mt-0.5">Retirer le lien global</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Section Callouts sur Photo ── */}
+        {form.images && form.images.length > 0 && (
+          <div className="space-y-3 pt-3 border-t border-gray-100 dark:border-white/10">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-primary" />
+                  <h3 className={`text-[16px] font-black ${stepIsDark ? "text-white" : "text-gray-900"}`}>Repères & Références sur photo</h3>
+                </div>
+                <p className={`text-[12px] font-medium mt-0.5 ${stepIsDark ? "text-white/50" : "text-gray-500"}`}>
+                  Touchez l'image pour placer un repère (ex: coiffure, habit, maquillage, tatouage) lié à un service ou produit.
+                </p>
+              </div>
+            </div>
+
+            {/* Sélecteur de photo si plusieurs photos */}
+            {form.images.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto hide-scrollbar py-1">
+                {form.images.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedCalloutPhotoIdx(idx)}
+                    className={`relative shrink-0 w-16 h-20 rounded-xl overflow-hidden border-2 transition-all ${selectedCalloutPhotoIdx === idx ? "border-primary scale-105 shadow-md shadow-primary/30" : "border-transparent opacity-60"}`}
+                  >
+                    <BeautyImage src={img} alt="" className="w-full h-full object-cover" />
+                    <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">
+                      #{idx + 1}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Zone photo interactive cliquable */}
+            <div
+              className="relative w-full rounded-2xl overflow-hidden cursor-crosshair border select-none bg-black"
+              style={{ maxHeight: "380px", aspectRatio: "3/4" }}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+                const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+                setPendingCalloutPoint({ x, y, imageIndex: selectedCalloutPhotoIdx });
+                setCalloutForm({ label: "", targetType: "service", targetId: "", targetName: "" });
+                setCalloutModalOpen(true);
+              }}
+            >
+              <BeautyImage
+                src={form.images[selectedCalloutPhotoIdx] || form.images[0]}
+                alt=""
+                className="w-full h-full object-cover pointer-events-none"
+              />
+
+              {/* Callouts déjà posés sur cette image */}
+              {(form.callouts || []).filter(c => (c.imageIndex ?? 0) === selectedCalloutPhotoIdx).map((c, i) => (
+                <div
+                  key={c.id || i}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 z-10 group"
+                  style={{ left: `${c.x}%`, top: `${c.y}%` }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm(`Supprimer le repère "${c.label || c.targetName}" ?`)) {
+                      setForm(f => ({ ...f, callouts: (f.callouts || []).filter(item => item !== c) }));
+                    }
+                  }}
+                >
+                  <div className="relative flex items-center justify-center">
+                    <span className="animate-ping absolute inline-flex h-7 w-7 rounded-full bg-white opacity-40"></span>
+                    <div className="w-6 h-6 rounded-full bg-primary text-white border-2 border-white shadow-xl flex items-center justify-center text-[10px] font-black">
+                      {i + 1}
+                    </div>
+                  </div>
+                  <div className="mt-1 bg-black/85 backdrop-blur-md text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-lg whitespace-nowrap flex items-center gap-1 border border-white/20">
+                    <span>{c.label || c.targetName}</span>
+                    <span className="text-[8px] text-red-400 ml-1 opacity-70">✕</span>
+                  </div>
+                </div>
+              ))}
+
+              {/* Badge indicatif */}
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-md text-white text-[11px] font-black px-3 py-1.5 rounded-full pointer-events-none border border-white/10 flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-primary" />
+                <span>Touchez pour ajouter un repère</span>
+              </div>
+            </div>
+
+            {/* Liste des callouts existants avec bouton supprimer */}
+            {(form.callouts || []).length > 0 && (
+              <div className="space-y-1.5 pt-2">
+                <p className={`text-[11px] font-black uppercase tracking-widest ${stepIsDark ? "text-white/40" : "text-gray-400"}`}>
+                  Repères créés ({(form.callouts || []).length})
+                </p>
+                {(form.callouts || []).map((c, idx) => (
+                  <div
+                    key={c.id || idx}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl border text-[12px]"
+                    style={{ background: stepIsDark ? "rgba(255,255,255,0.05)" : "#f9fafb", borderColor: stepIsDark ? "rgba(255,255,255,0.1)" : "#e5e7eb" }}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center text-[10px] font-black shrink-0">
+                        {idx + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <p className={`font-black truncate ${stepIsDark ? "text-white" : "text-gray-900"}`}>{c.label || c.targetName}</p>
+                        <p className="text-[10px] text-gray-400 truncate">
+                          {c.targetType === "service" ? "✂️ Service" : "🧴 Produit"} : {c.targetName} (Photo #{(c.imageIndex ?? 0) + 1})
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setForm(f => ({ ...f, callouts: (f.callouts || []).filter((_, i) => i !== idx) }))}
+                      className="text-red-400 p-1 hover:text-red-500 shrink-0"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Modal création de callout */}
+        {calloutModalOpen && pendingCalloutPoint && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className={`w-full max-w-md rounded-3xl p-5 space-y-4 shadow-2xl ${stepIsDark ? "bg-[#161622] text-white" : "bg-white text-gray-900"}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-black">
+                    <MapPin className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-[16px] font-black leading-tight">Nouveau repère</h3>
+                    <p className="text-[11px] text-gray-400">Position : {pendingCalloutPoint.x}%, {pendingCalloutPoint.y}% (Photo #{pendingCalloutPoint.imageIndex + 1})</p>
+                  </div>
+                </div>
+                <button onClick={() => { setCalloutModalOpen(false); setPendingCalloutPoint(null); }} className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Libellé du repère */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block mb-1.5">Nom du repère (ex: Coupe Dégradée, Robe, Tatouage Bras)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Coiffure Afro, Sérum hydratant..."
+                  value={calloutForm.label}
+                  onChange={(e) => setCalloutForm(f => ({ ...f, label: e.target.value }))}
+                  className={`w-full px-4 py-3 rounded-2xl border text-[13px] font-medium outline-none ${stepIsDark ? "bg-white/5 border-white/10 text-white placeholder:text-white/30" : "bg-gray-50 border-gray-200 text-gray-900"}`}
+                />
+              </div>
+
+              {/* Type de référence */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block mb-1.5">Lier à</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCalloutForm(f => ({ ...f, targetType: "service", targetId: "", targetName: "" }))}
+                    className={`flex-1 py-2.5 rounded-xl border-2 text-[12px] font-black flex items-center justify-center gap-2 transition-all ${calloutForm.targetType === "service" ? "border-primary bg-primary/10 text-primary" : "border-gray-200 dark:border-white/10 text-gray-400"}`}
+                  >
+                    <Star className="w-4 h-4" /> Service
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCalloutForm(f => ({ ...f, targetType: "produit", targetId: "", targetName: "" }))}
+                    className={`flex-1 py-2.5 rounded-xl border-2 text-[12px] font-black flex items-center justify-center gap-2 transition-all ${calloutForm.targetType === "produit" ? "border-primary bg-primary/10 text-primary" : "border-gray-200 dark:border-white/10 text-gray-400"}`}
+                  >
+                    <ShoppingBag className="w-4 h-4" /> Produit
+                  </button>
+                </div>
+              </div>
+
+              {/* Sélection de l'élément cible */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block mb-1.5">
+                  Sélectionnez {calloutForm.targetType === "service" ? "le service associé" : "le produit associé"}
+                </label>
+                <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                  {calloutForm.targetType === "service" ? (
+                    services.length === 0 ? (
+                      <p className="text-[12px] text-gray-400 py-3 text-center">Aucun service créé.</p>
+                    ) : (
+                      services.map(s => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setCalloutForm(f => ({ ...f, targetId: s.id, targetName: s.title || s.name, label: f.label || s.title || s.name }))}
+                          className={`w-full flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all ${calloutForm.targetId === s.id ? "border-primary bg-primary/10" : "border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-white/5"}`}
+                        >
+                          <div className="w-8 h-8 rounded-lg overflow-hidden bg-gray-200 shrink-0">
+                            {s.image_url ? <BeautyImage src={s.image_url} alt="" className="w-full h-full object-cover" /> : <Star className="w-4 h-4 m-auto text-primary" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12px] font-black truncate">{s.title || s.name}</p>
+                            <p className="text-[10px] text-primary font-bold">{s.price}€</p>
+                          </div>
+                          {calloutForm.targetId === s.id && <Check className="w-4 h-4 text-primary shrink-0" />}
+                        </button>
+                      ))
+                    )
+                  ) : (
+                    produits.length === 0 ? (
+                      <p className="text-[12px] text-gray-400 py-3 text-center">Aucun produit disponible.</p>
+                    ) : (
+                      produits.map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setCalloutForm(f => ({ ...f, targetId: p.id, targetName: p.name, label: f.label || p.name }))}
+                          className={`w-full flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all ${calloutForm.targetId === p.id ? "border-primary bg-primary/10" : "border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-white/5"}`}
+                        >
+                          <div className="w-8 h-8 rounded-lg overflow-hidden bg-gray-200 shrink-0">
+                            {p.image_url ? <BeautyImage src={p.image_url} alt="" className="w-full h-full object-cover" /> : <ShoppingBag className="w-4 h-4 m-auto text-primary" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12px] font-black truncate">{p.name}</p>
+                            <p className="text-[10px] text-primary font-bold">{p.price}€</p>
+                          </div>
+                          {calloutForm.targetId === p.id && <Check className="w-4 h-4 text-primary shrink-0" />}
+                        </button>
+                      ))
+                    )
+                  )}
+                </div>
+              </div>
+
+              {/* Bouton Valider */}
+              <button
+                type="button"
+                disabled={!calloutForm.targetId}
+                onClick={() => {
+                  const newCallout = {
+                    id: `callout_${Date.now()}`,
+                    x: pendingCalloutPoint.x,
+                    y: pendingCalloutPoint.y,
+                    imageIndex: pendingCalloutPoint.imageIndex,
+                    label: calloutForm.label || calloutForm.targetName,
+                    targetType: calloutForm.targetType,
+                    targetId: calloutForm.targetId,
+                    targetName: calloutForm.targetName,
+                  };
+                  setForm(f => ({ ...f, callouts: [...(f.callouts || []), newCallout] }));
+                  setCalloutModalOpen(false);
+                  setPendingCalloutPoint(null);
+                }}
+                className="w-full py-3.5 bg-primary text-white rounded-2xl font-black text-[13px] uppercase tracking-widest active:scale-[0.98] transition-all disabled:opacity-50"
+              >
+                Ajouter le repère ✦
+              </button>
             </div>
           </div>
         )}
@@ -2324,11 +2619,20 @@ export default function Publication() {
         if (generatedThumb) thumbnail = generatedThumb;
       }
 
+      // Pour les publications photos sans vidéo, fournir une chaîne vide pour respecter la contrainte NOT NULL SQL
+      const resolvedVideoUrl = form.video_url || "";
+
+      // Encoder les callouts dans la description sous forme de métadonnées invisibles si présents
+      let finalDescription = form.caption || "";
+      if (form.callouts && form.callouts.length > 0) {
+        finalDescription = `${finalDescription}\n\n<!--CALLOUTS:${JSON.stringify(form.callouts)}-->`;
+      }
+
       const payload = {
         title: form.caption || "Ma publication",
-        description: form.caption,
+        description: finalDescription,
         images: form.images.length > 0 ? form.images : (thumbnail ? [thumbnail] : []),
-        video_url: form.video_url || undefined,
+        video_url: resolvedVideoUrl,
         thumbnail_url: thumbnail,
         author_email: user?.email || "",
         author_name: user?.full_name || "",
@@ -2379,11 +2683,15 @@ export default function Publication() {
     const editId = form._editId || null;
     try {
       const pubTypeToCategory = { reel: "Réels", tuto: "Tutos", conseil: "Conseils" };
+      let finalDescription = form.caption || "Brouillon";
+      if (form.callouts && form.callouts.length > 0) {
+        finalDescription = `${finalDescription}\n\n<!--CALLOUTS:${JSON.stringify(form.callouts)}-->`;
+      }
       const payload = {
         title: form.caption || "Brouillon",
-        description: form.caption,
+        description: finalDescription,
         images: form.images,
-        video_url: form.video_url || undefined,
+        video_url: form.video_url || "",
         thumbnail_url: form.images[0] || "",
         author_email: user?.email || "",
         author_name: user?.full_name || "",

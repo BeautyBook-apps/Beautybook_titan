@@ -58,7 +58,7 @@ function MariaProfileSkeleton({ isDark }) {
 }
 
 // ─── Side Drawer ──────────────────────────────────────────────────────────────
-function SideDrawer({ open, onClose, onNewChat, onOpenChat, recentChats, savedSimulations, onOpenSimulator, onScanCapillaire, onStylisteIA, isPro }) {  const navigate = useNavigate();
+function SideDrawer({ open, onClose, onNewChat, onOpenChat, recentChats, savedSimulations, onOpenSimulator, onScanCapillaire, onStylisteIA, isPro, isDark }) {  const navigate = useNavigate();
   const [recentQuery, setRecentQuery] = useState("");
   // Normalise l'historique (anciennes entrées = simples chaînes)
   const normRecents = (recentChats || []).map((c, i) =>
@@ -69,10 +69,10 @@ function SideDrawer({ open, onClose, onNewChat, onOpenChat, recentChats, savedSi
   return (
     <>
       {open && <div className="absolute inset-0 bg-black/30 z-40 backdrop-blur-sm" onClick={onClose} />}
-      <div className={`absolute inset-y-0 left-0 w-[85%] bg-white z-50 flex flex-col transition-transform duration-300 ${open ? "translate-x-0" : "-translate-x-full"}`}>
+      <div className={`absolute inset-y-0 left-0 w-[85%] z-50 flex flex-col transition-transform duration-300 ${isDark ? "bg-gray-950" : "bg-white"} ${open ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="flex items-center justify-between px-5 pt-5 pb-4">
-          <h2 className="text-[20px] font-black text-gray-900">Maria AI</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-gray-500">
+          <h2 className={`text-[20px] font-black ${isDark ? "text-gray-100" : "text-gray-900"}`}>Maria AI</h2>
+          <button onClick={onClose} className={`w-8 h-8 flex items-center justify-center ${isDark ? "text-gray-400" : "text-gray-500"}`}>
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -1265,7 +1265,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
   if (view === "chat") {
     return (
       <div className={`font-display flex flex-col h-full relative overflow-hidden ${isDark ? "bg-gray-950" : "bg-white"}`}>
-        <SideDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onNewChat={handleNewChat} onOpenChat={openRecentChat} recentChats={recentChats} savedSimulations={savedSimulations} onOpenSimulator={() => setShowSimulator(true)} onScanCapillaire={() => navigate("/scan-capillaire")} onStylisteIA={() => navigate("/sh-ai")} isPro={isPro} />
+        <SideDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onNewChat={handleNewChat} onOpenChat={openRecentChat} recentChats={recentChats} savedSimulations={savedSimulations} onOpenSimulator={() => setShowSimulator(true)} onScanCapillaire={() => navigate("/scan-capillaire")} onStylisteIA={() => navigate("/sh-ai")} isPro={isPro} isDark={isDark} />
         {showSimulator && <FiltreAIModal styleTitle="" onClose={() => setShowSimulator(false)} onResultSaved={handleSimulationSaved} />}
 
         <div className={`px-4 pt-5 pb-4 flex items-center justify-between border-b ${headerBorder}`} style={{ background: headerBg }}>
@@ -1498,7 +1498,7 @@ Si l'utilisateur dit "Salut" → réponds normalement SANS action JSON.`;
   return (
     <div className={`font-display flex flex-col h-full relative overflow-hidden ${homeBodyBg}`}>
       <AuthModal open={showAuthModal} onClose={closeAuthModal} message={authMessage} />
-      <SideDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onNewChat={handleNewChat} onOpenChat={openRecentChat} recentChats={recentChats} savedSimulations={savedSimulations} onOpenSimulator={() => setShowSimulator(true)} onScanCapillaire={() => navigate("/scan-capillaire")} onStylisteIA={() => navigate("/sh-ai")} isPro={isPro} />
+      <SideDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onNewChat={handleNewChat} onOpenChat={openRecentChat} recentChats={recentChats} savedSimulations={savedSimulations} onOpenSimulator={() => setShowSimulator(true)} onScanCapillaire={() => navigate("/scan-capillaire")} onStylisteIA={() => navigate("/sh-ai")} isPro={isPro} isDark={isDark} />
       {showSimulator && <FiltreAIModal styleTitle="" onClose={() => setShowSimulator(false)} onResultSaved={handleSimulationSaved} />}
 
       <div className={`px-4 pt-5 pb-3 flex items-center justify-between border-b ${homeHeaderBg}`}>

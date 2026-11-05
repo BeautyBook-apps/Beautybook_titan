@@ -193,8 +193,20 @@ const AuthenticatedApp = () => {
   const wasAuthenticatedRef = useRef(isAuthenticated);
   const hasCheckedInitialAuth = useRef(false);
 
+  const navigate = useNavigate();
+
   const isSpecialRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/vendeur');
   const isAuthPage = location.pathname === '/connexion' || location.pathname === '/onboarding' || location.pathname.startsWith('/auth/callback');
+
+  // Si le retour OAuth ou un code arrive sur '/', rediriger immédiatement vers '/auth/callback'
+  useEffect(() => {
+    if (location.pathname === '/' && (location.search.includes('code=') || location.hash.includes('access_token='))) {
+      navigate(`/auth/callback${location.search}${location.hash}`, { replace: true });
+    } else if (location.pathname === '/' && (location.search.includes('error=') || location.hash.includes('error='))) {
+      // Nettoyer les paramètres d'erreur OAuth obsolètes de la barre d'adresse
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [location, navigate]);
 
   // Detect logout: transition from authenticated → not authenticated (skip first render)
   useEffect(() => {

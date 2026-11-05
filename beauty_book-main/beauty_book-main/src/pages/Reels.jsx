@@ -577,12 +577,25 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
   const [showSpeed, setShowSpeed] = useState(false);
   const [showOfferOverlay, setShowOfferOverlay] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const [calloutsVisible, setCalloutsVisible] = useState(false);
   const keepAliveTimer = useRef(null);
   const lastPositionRef = useRef(0);
 
+  // Extrait les callouts si encodés dans la description
+  const parsedCallouts = (() => {
+    const raw = reel.description || "";
+    const match = raw.match(/<!--CALLOUTS:(.*?)-->/);
+    if (match) {
+      try { return JSON.parse(match[1]); } catch {}
+    }
+    return [];
+  })();
+  const cleanDescription = (reel.description || "").replace(/<!--CALLOUTS:.*?-->/g, "").trim();
+
   // Découpe la description en phrases ; aperçu = 2 premières phrases + "Voir plus"
   const descSentences = (() => {
-    const t = (reel.description || "").trim();
+    const t = cleanDescription;
     if (!t) return [];
     const m = t.match(/[^.!?…]+[.!?…]+["»\s]*/g);
     return (m ? m.map(s => s.trim()).filter(Boolean) : [t]);
@@ -710,7 +723,7 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
       {/* Audio externe (piste musicale) */}
       {hasMusicTrack && <audio ref={audioRef} loop />}
 
-      {/* Media */}
+      {/* Media : Vidéo OU Album Photos avec callouts interactifs */}
       {media ? (
         <>
           <video ref={videoRef} src={media} className="absolute inset-0 w-full h-full object-cover object-[center_55%]" loop playsInline onTimeUpdate={handleTimeUpdate} onClick={togglePlay} style={{ pointerEvents: 'auto' }} />
@@ -723,7 +736,80 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
           )}
         </>
       ) : (
-          <BeautyImage src={thumb} alt={reel.title} className="absolute inset-0 w-full h-full object-cover object-[center_55%]" />
+        <div className="relative w-full h-full" onClick={() => setCalloutsVisible(v => !v)}>
+          {/* Image active */}
+          <BeautyImage
+            src={(reel.images && reel.images.length > 0) ? (reel.images[photoIdx] || reel.images[0]) : thumb}
+            alt={reel.title}
+            className="absolute inset-0 w-full h-full object-cover object-[center_55%]"
+          />
+
+          {/* Callouts interactifs */}
+          {calloutsVisible && parsedCallouts.filter(c => (c.imageIndex ?? 0) === photoIdx).map((c, i) => (
+            <div
+              key={c.id || i}
+              className="absolute -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-auto"
+              style={{ left: `${c.x}%`, top: `${c.y}%` }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (c.targetType === "service" && c.targetId) {
+                  navigate(`/service/${c.targetId}`);
+                } else if (c.targetType === "produit" && c.targetId) {
+                  navigate(`/produit?id=${encodeURIComponent(c.targetId)}`);
+                }
+              }}
+            >
+              <div className="relative flex items-center justify-center cursor-pointer">
+                <span className="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-white opacity-50"></span>
+                <div className="w-6 h-6 rounded-full bg-primary text-white border-2 border-white shadow-2xl flex items-center justify-center text-[10px] font-black">
+                  {i + 1}
+                </div>
+              </div>
+              <div className="mt-1 bg-black/85 backdrop-blur-md text-white text-[11px] font-black px-3 py-1 rounded-full shadow-2xl whitespace-nowrap flex items-center gap-1.5 border border-white/20 active:scale-95 transition-all">
+                <span>{c.targetType === "service" ? "✂️" : "🧴"} {c.label || c.targetName}</span>
+                <span className="text-[10px] text-white/60">↗</span>
+              </div>
+            </div>
+          ))}
+
+          {/* Bouton indice si des callouts sont présents */}
+          {parsedCallouts.length > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setCalloutsVisible(v => !v); }}
+              className="absolute top-20 right-4 z-20 bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-full text-[11px] font-black border border-white/20 flex items-center gap-1.5 active:scale-95 transition-all"
+            >
+              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              <span>{calloutsVisible ? "Masquer repères" : "Voir repères"}</span>
+            </button>
+          )}
+
+          {/* Navigation slider si plusieurs photos */}
+          {reel.images && reel.images.length > 1 && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); setPhotoIdx(i => Math.max(0, i - 1)); }}
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/40 backdrop-blur-md rounded-full flex items-center justify-center z-20 active:scale-90 text-white font-black text-[22px]"
+              >
+                ‹
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setPhotoIdx(i => Math.min(reel.images.length - 1, i + 1)); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/40 backdrop-blur-md rounded-full flex items-center justify-center z-20 active:scale-90 text-white font-black text-[22px]"
+              >
+                ›
+              </button>
+              {/* Pagination Dots */}
+              <div className="absolute top-16 left-0 right-0 flex justify-center gap-1.5 z-20">
+                {reel.images.map((_, i) => (
+                  <div
+                    key={i}
+                    className={`rounded-full transition-all ${i === photoIdx ? "w-5 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/40"}`}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/30 pointer-events-none" />
@@ -858,7 +944,7 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
         <p className="text-white text-[15px] font-bold leading-tight">{reel.title}</p>
         {reel.description && (
           <div className="text-white/90 text-[13px] leading-snug">
-            <span>{descExpanded || !descHasMore ? reel.description : descPreview}</span>
+            <span>{descExpanded || !descHasMore ? cleanDescription : descPreview}</span>
             {descHasMore && (
               <button
                 onClick={(e) => { e.stopPropagation(); setDescExpanded(v => !v); }}
@@ -1283,7 +1369,7 @@ export default function Reels() {
     author_email: r.author_email || "",
     thumbnail_url: r.thumbnail_url || (r.images && r.images[0]) || "",
     images: r.images || [], video_url: r.video_url || null,
-    title: r.title, sound: r.sound || null,
+    title: r.title, description: r.description || String(), sound: r.sound || null,
     sound_preview_url: r.sound_preview_url || null,
     likes: reelLikeCounts[String(r.id)] ?? reelLikeCounts[r.id] ?? r.likes ?? 0,
     realLikes: reelLikeCounts[String(r.id)] ?? reelLikeCounts[r.id] ?? r.likes ?? 0,

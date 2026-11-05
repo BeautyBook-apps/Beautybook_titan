@@ -22,7 +22,7 @@ export default function ProfilSheet({ profil, onClose }) {
 
   const sheet = (
     <div className="absolute inset-0 z-[9999] flex flex-col bg-[#f5f5f5] overflow-y-auto hide-scrollbar">
-      <VueClient onClose={onClose} proEmail={proEmail} />
+      <VueClient onClose={onClose} proEmail={proEmail} profil={profil} />
     </div>
   );
 

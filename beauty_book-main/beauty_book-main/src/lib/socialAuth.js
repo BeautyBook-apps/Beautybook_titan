@@ -31,12 +31,11 @@ export async function getSocialProviders(client, fetchImpl = fetch) {
 export async function startSocialAuth(client, provider, { mode = 'login', origin, storage, redirect, fetchImpl } = {}) {
   if (!['google','apple'].includes(provider)) throw new Error('Connexion non prise en charge.');
   
-  // Normalize origin for local development: never send https://localhost:5173 to avoid SSL handshake error
-  let safeOrigin = origin || window.location.origin;
+  // Force HTTP pour localhost — Google OAuth autorise explicitement http://localhost
+  let safeOrigin = origin || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173');
   if (safeOrigin.includes('localhost:') || safeOrigin.includes('127.0.0.1:')) {
     safeOrigin = safeOrigin.replace(/^https:/i, 'http:');
   }
-
   const callback = new URL('/auth/callback', safeOrigin);
   if (storage) {
     storage.setItem(OAUTH_INTENT_KEY, JSON.stringify({ provider, mode, createdAt: Date.now() }));

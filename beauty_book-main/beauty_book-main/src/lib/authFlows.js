@@ -49,7 +49,9 @@ async function findAvailableUsername(client, value, userId = null) {
 export function createAuthFlows(client) {
   async function ensureProfile(user) {
     if (!user?.id) throw new Error('Votre session a expiré. Reconnectez-vous.');
-    const { data } = await client.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    const initialProfile = await client.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    const { data, error: initialError } = initialProfile;
+    if (initialError) throw new Error('Impossible de vérifier votre profil.');
     if (data) {
       if (data.username) return data;
       const username = await findAvailableUsername(client, user.user_metadata?.username || user.user_metadata?.full_name || user.email?.split('@')[0], user.id).catch(() => 'user_' + user.id.slice(0, 8));
@@ -67,18 +69,25 @@ export function createAuthFlows(client) {
     
     try {
       const result = await client.from('profiles').upsert(record, { onConflict: 'id' }).select('*').maybeSingle();
-      if (result.data) return result.data;
+      if (!result.error && result.data) return result.data;
     } catch (e) {
       console.warn('Profile upsert warning:', e);
     }
 
-    let existing = null;
+    // Some projects do not expose upsert through the configured client or have
+    // an older profile policy. Fall back to a direct insert so onboarding can
+    // still complete when the auth trigger has not created the row.
     try {
-      const res = await client.from('profiles').select('*').eq('id', user.id).maybeSingle();
-      existing = res.data;
-    } catch { existing = null; }
-    if (existing) return existing;
-    return record;
+      const result = await client.from('profiles').insert(record).select('*').single();
+      if (!result.error && result.data) return result.data;
+    } catch (e) {
+      console.warn('Profile insert warning:', e);
+    }
+
+    const res = await client.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    if (res.error) throw new Error('Impossible de créer votre profil.');
+    if (res.data) return res.data;
+    throw new Error('Impossible de créer votre profil.');
   }
 
   async function signup(form, storage, redirectTo) {
@@ -89,7 +98,7 @@ export function createAuthFlows(client) {
     if (error) throw error;
     if (data?.user?.identities?.length === 0) throw new Error('Un compte existe déjà. Connectez-vous ou réinitialisez votre mot de passe.');
     saveSignupDraft(storage, { prenom: form.prenom.trim(), nom: form.nom.trim(), email, mode: 'email' });
-    if (data?.session?.user) await ensureProfile(data.session.user).catch(() => {});
+    if (data?.session?.user) await ensureProfile(data.session.user);
     return { verified: Boolean(data?.session?.user) };
   }
 
@@ -102,9 +111,11 @@ export function createAuthFlows(client) {
     if (draft.mode === 'phone') {
       result = await client.auth.verifyOtp({ phone, token: code, type: 'sms' });
     } else {
-      result = await client.auth.verifyOtp({ email, token: code, type: 'signup' });
+      // Supabase email confirmation codes use the `email` OTP type. Keep the
+      // legacy `signup` type as a compatibility fallback for older projects.
+      result = await client.auth.verifyOtp({ email, token: code, type: 'email' });
       if (result.error) {
-        const retry = await client.auth.verifyOtp({ email, token: code, type: 'email' });
+        const retry = await client.auth.verifyOtp({ email, token: code, type: 'signup' });
         if (!retry.error && retry.data) result = retry;
       }
     }
@@ -112,11 +123,13 @@ export function createAuthFlows(client) {
     if (result.error) throw new Error('Code incorrect ou expiré. Demandez un nouveau code.');
     let session = result.data?.session;
     if (!session) {
-      const { data: currentSess } = await client.auth.getSession();
-      session = currentSess?.session;
+      if (typeof client.auth.getSession === 'function') {
+        const { data: currentSess } = await client.auth.getSession();
+        session = currentSess?.session;
+      }
     }
     if (!session?.user) throw new Error('La vérification n’a pas ouvert de session. Reconnectez-vous.');
-    await ensureProfile(session.user).catch(() => {});
+    await ensureProfile(session.user);
     return session;
   }
 

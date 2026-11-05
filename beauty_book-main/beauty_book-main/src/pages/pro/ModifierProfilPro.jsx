@@ -336,15 +336,22 @@ export default function ModifierProfilPro() {
         saveError = error;
       } else {
         const { user: authUser } = await supabase.auth.getUser();
-        const { error } = await supabase.from('ProfilPro').insert({ ...core, user_email: user.email, created_by_id: authUser?.id || null });
+        const { data: insertedProfile, error } = await supabase
+          .from('ProfilPro')
+          .insert({ ...core, user_email: user.email, created_by_id: authUser?.id || null })
+          .select('id')
+          .single();
         saveError = error;
+        if (!error && insertedProfile?.id) {
+          existingId = insertedProfile.id;
+          setProfileId(insertedProfile.id);
+        }
       }
       if (saveError) throw saveError;
 
-      // NOTE : les colonnes pauses, menu_restaurant, menu_bar et additional_services
-      // n'existent pas dans la table ProfilPro — ne pas les inclure ici,
-      // sinon la requête échoue et la sauvegarde affiche une erreur.
-      // Les pauses sont déjà stockées dans ouverture/horaires (pause_start/pause_end par jour).
+      // Les pauses sont stockées dans ouverture/horaires (pause_start/pause_end par jour).
+      // Les menus et services additionnels sont persistés en JSONB sur ProfilPro
+      // et sont relus directement par la vue client.
       const extra = {
         seats_count: data.seats,
         specialites: data.specialites,
@@ -352,6 +359,9 @@ export default function ModifierProfilPro() {
         ouverture: { ...data.hours, conges: data.conges },
         horaires: { ...data.hours, conges: data.conges },
         galerie_urls: data.galerie_urls || [],
+        menu_restaurant: data.menu_restaurant || [],
+        menu_bar: data.menu_bar || [],
+        additional_services: data.additional_services || [],
         updated_at: new Date().toISOString(),
       };
       if (existingId) {

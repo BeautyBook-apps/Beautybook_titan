@@ -15,6 +15,7 @@ import { useAuthGate } from "@/hooks/useAuthGate";
 import { useAuth } from "@/lib/AuthContext";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import AuthModal from "@/components/ui/AuthModal";
+import { useTheme, useThemeBg } from "@/hooks/useTheme";
 
 const DAYS_FR = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 const MONTHS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
@@ -253,7 +254,6 @@ function CalendarView({ reservations, onEventClick }) {
             <div className="bg-white rounded-2xl p-6 text-center border border-gray-100 shadow-sm">
               <p className="text-[13px] text-gray-400 font-medium">Aucun RDV à venir 🌸</p>
               <p className="text-[11px] text-gray-400 font-medium mt-1">Réservé par téléphone ? Utilisez votre ID de réservation.</p>
-              <button onClick={() => setShowAddBooking(true)} className="mt-3 inline-block bg-primary text-white text-[11px] font-black uppercase tracking-widest px-5 py-2.5 rounded-2xl shadow-md shadow-primary/30 active:scale-95 transition-all">Ajouter un ID de réservation</button>
             </div>
           ) : (
             allEvents
@@ -330,6 +330,9 @@ function EventCard({ event, onClick }) {
 }
 
 export default function RendezVous() {
+  const { theme } = useTheme();
+  const themeBg = useThemeBg();
+  const isDark = theme === "dark" || theme === "night";
   const [activeTab, setActiveTab] = useState(0);
   const [reviewModal, setReviewModal] = useState(null);
   const [selectedReservation, setSelectedReservation] = useState(null);
@@ -540,7 +543,7 @@ export default function RendezVous() {
   })[0] || null;
 
   return (
-    <div className="font-display pb-28">
+    <div className={`font-display pb-28 ${isDark ? "text-gray-100" : "text-gray-900"}`} style={{ backgroundColor: themeBg }}>
       <AuthModal open={showAuthModal} onClose={closeAuthModal} message={authMessage} />
       <ReservationClientInfo reservation={nextUpcoming} mode="client" autoOnly />
 
@@ -567,7 +570,7 @@ export default function RendezVous() {
       {showAddMenu && (
         <div className="fixed inset-0 z-[200] flex items-end" onClick={() => setShowAddMenu(false)}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-          <div className="relative bg-white w-full rounded-t-3xl px-5 pt-4 z-10" onClick={e => e.stopPropagation()} style={{ paddingBottom: "calc(90px + env(safe-area-inset-bottom, 16px))" }}>
+          <div className={`relative w-full rounded-t-3xl px-5 pt-4 z-10 ${isDark ? "bg-gray-950" : "bg-white"}`} onClick={e => e.stopPropagation()} style={{ paddingBottom: "calc(90px + env(safe-area-inset-bottom, 16px))" }}>
             <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
             <h3 className="text-[18px] font-black text-gray-900 mb-1">Ajouter</h3>
             <p className="text-[13px] text-gray-400 font-medium mb-5">Que souhaitez-vous créer ?</p>
@@ -612,7 +615,7 @@ export default function RendezVous() {
           <button
             data-tour="rdv-routines"
             onClick={() => setShowRoutineDashboard(true)}
-            className="w-10 h-10 bg-white border border-gray-200 rounded-2xl flex items-center justify-center shadow-sm active:scale-95 transition-all"
+            className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-sm active:scale-95 transition-all ${isDark ? "bg-gray-800 border border-gray-700" : "bg-white border border-gray-200"}`}
           >
             <LayoutGrid className="w-5 h-5 text-gray-600" />
           </button>
@@ -636,7 +639,7 @@ export default function RendezVous() {
             className={`shrink-0 px-4 py-2 rounded-full text-[11px] font-black uppercase tracking-wide transition-all ${
               activeTab === i
                 ? "bg-primary text-white shadow-md shadow-primary/30"
-                : "bg-white text-gray-400 border border-gray-100"
+                : `${isDark ? "bg-gray-800 text-gray-300 border border-gray-700" : "bg-white text-gray-400 border border-gray-100"}`
             }`}
           >
             {tab}
@@ -677,7 +680,6 @@ export default function RendezVous() {
               </div>
               <p className="text-[15px] font-black text-gray-400">Aucun RDV à venir</p>
               <p className="text-[12px] text-gray-400 font-medium mt-1 mb-1">Réservé par téléphone ? Retrouvez votre RDV avec votre ID.</p>
-              <button onClick={() => setShowAddBooking(true)} className="mt-3 inline-block bg-primary text-white text-[11px] font-black uppercase tracking-widest px-5 py-2.5 rounded-2xl active:scale-95 transition-all">Ajouter un ID de réservation</button>
             </div>
           ) : groupReservationsByDate(upcoming).map(({ date, rdvs }) => (
             <div key={date}>
@@ -1318,7 +1320,7 @@ export default function RendezVous() {
       >
         <button
           onClick={() => setShowAddBooking(true)}
-          className="w-full py-4 bg-gray-900 text-white rounded-2xl text-[12px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl shadow-gray-900/30 active:scale-[0.98] transition-all"
+          className="w-full py-4 bg-primary text-white rounded-2xl text-[12px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl shadow-primary/30 active:scale-[0.98] transition-all"
         >
           <Hash className="w-4 h-4" />
           Ajouter un ID de réservation

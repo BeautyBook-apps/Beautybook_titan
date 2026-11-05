@@ -476,17 +476,17 @@ function MosaicGrid({ publications, navigate }) {
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
-export default function VueClient({ onClose, proEmail: proEmailProp, proPhone }) {
+export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, profil: initialProfil }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
   const { theme } = useTheme();
   const { startCall } = useCall() || {};
   // Priorité : prop → state de navigation → email user courant
-  const proEmailFromState = location?.state?.proEmail || location?.state?.email;
+  const proEmailFromState = location?.state?.proEmail || location?.state?.email || location?.state?.profil?.user_email;
   const proEmailFromUrl = new URLSearchParams(location?.search || "").get("email");
   // Priorité stricte : prop → state de navigation — JAMAIS user courant (évite d'ouvrir son propre profil)
-  const targetEmail = proEmailProp || proEmailFromState || proEmailFromUrl || null;
+  const targetEmail = proEmailProp || initialProfil?.user_email || proEmailFromState || proEmailFromUrl || null;
   const isOwnProfile = user?.email?.toLowerCase() === targetEmail?.toLowerCase();
 
   // Cache « vue client » par salon : affichage direct des dernières données
@@ -509,7 +509,7 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
   const [bundles, setBundles] = useState(vueCacheInitial.bundles || []);
   const [catalogueOptions, setCatalogueOptions] = useState(vueCacheInitial.catalogueOptions || []);
   const [proInfo, setProInfo] = useState(() => {
-    let p = vueCacheInitial.proInfo || null;
+    let p = initialProfil || location?.state?.profil || vueCacheInitial.proInfo || null;
     // Pour son propre profil, le cache pro (dernières modifications) prime,
     // avec la même règle de fusion que le chargement frais (non-vide gagne).
     if (isOwnProfile) {
@@ -598,7 +598,7 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
       } catch { return null; }
     };
     const fetchProfil = async () => {
-      const { data: profiles, error } = await supabase.from('ProfilPro').select('id, user_email, salon_name, phone, address, city, bio, avatar_url, cover_url, status, galerie_urls, followers, views, ouverture, horaires, travail_nuit, rating, reviews_count, se_deplace, specialites, commodites, latitude, longitude, type_activite, postal_code, seats_count').eq('user_email', targetEmail).order('created_at', { ascending: false });
+      const { data: profiles, error } = await supabase.from('ProfilPro').select('id, user_email, salon_name, phone, address, city, bio, avatar_url, cover_url, status, galerie_urls, followers, ouverture, horaires, travail_nuit, rating, reviews_count, se_deplace, specialites, commodites, latitude, longitude, type_activite, postal_code, seats_count').eq('user_email', targetEmail).order('created_at', { ascending: false });
       if (error || !profiles || profiles.length === 0) return null;
       // Priority: 1) actif with images, 2) actif, 3) any with images, 4) latest
       const activeWithImages = profiles.find(p => p.status === 'actif' && (p.avatar_url || p.cover_url));
@@ -979,12 +979,11 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone })
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-0 mt-4 border-t border-gray-100 pt-4">
+        <div className="grid grid-cols-3 gap-0 mt-4 border-t border-gray-100 pt-4">
           {[
             { value: stats.abonnes, label: "ABONNÉS" },
             { value: stats.services, label: "SERVICES" },
             { value: stats.avis, label: "AVIS" },
-            { value: stats.views, label: "VUES" },
           ].map(({ value, label }) => (
             <div key={label} className="flex flex-col items-center">
               <span className="text-[22px] font-black text-gray-900">{value}</span>

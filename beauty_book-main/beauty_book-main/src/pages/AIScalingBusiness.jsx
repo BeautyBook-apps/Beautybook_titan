@@ -1,4 +1,4 @@
-import { grokChat } from '@/lib/grok';
+﻿import { grokChat } from '@/lib/grok';
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -7,7 +7,7 @@ import {
   Rocket, Bot, LayoutDashboard, Magnet, PhoneCall, MessageSquareText,
   Share2, Smartphone, Globe, Crown, Flame, Lightbulb, Star,
   ArrowUpRight, Wallet, Repeat, UserPlus, Scissors, Settings2, BadgeCheck,
-  CircleAlert, PartyPopper, Check, CalendarDays, ListChecks
+  CircleAlert, PartyPopper, Check, CalendarDays, ListChecks, Info, Milestone, AlertTriangle, ShieldCheck
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -672,6 +672,60 @@ export default function AIScalingBusiness() {
     try { if (email) localStorage.setItem(`bb_goals_${email}`, JSON.stringify(next)); } catch {}
     setShowGoalModal(false);
   };
+
+  /* ── Système d'objectifs progressifs par palier basé sur le CA actuel ── */
+  const benchmarkCA = useMemo(() => {
+    // Si la pro a du CA ce mois-ci ou sur la période, on se base dessus.
+    // Sinon panier moyen x 15 RDV minimum pour démarrer le palier 1.
+    const baseline = Math.max(revenueCur, forecast.mtd, forecast.projected);
+    if (baseline > 100) return baseline;
+    const fallbackTicket = objectivePlan.avgTicket > 0 ? objectivePlan.avgTicket : 45;
+    return Math.max(300, Math.round(fallbackTicket * 10));
+  }, [revenueCur, forecast, objectivePlan.avgTicket]);
+
+  const realisticMilestones = useMemo(() => {
+    const base = Math.max(500, Math.round(benchmarkCA));
+    return [
+      {
+        id: "step1",
+        step: 1,
+        title: "Palier 1 : Consolidation (+15%)",
+        ca: Math.round((base * 1.15) / 50) * 50,
+        desc: "Sécuriser le carnet de rendez-vous et stabiliser les clients réguliers.",
+        badge: "Conseillé",
+        badgeColor: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        growth: "+15%"
+      },
+      {
+        id: "step2",
+        step: 2,
+        title: "Palier 2 : Accélération (+35%)",
+        ca: Math.round((base * 1.35) / 50) * 50,
+        desc: "Augmenter le panier moyen avec des soins complémentaires et relancer les inactifs.",
+        badge: "Ambitieux",
+        badgeColor: "bg-blue-50 text-blue-700 border-blue-200",
+        growth: "+35%"
+      },
+      {
+        id: "step3",
+        step: 3,
+        title: "Palier 3 : Expansion (+60%)",
+        ca: Math.round((base * 1.60) / 100) * 100,
+        desc: "Optimiser les créneaux creux, lancer des offres bundles et fidéliser.",
+        badge: "Capacité max",
+        badgeColor: "bg-purple-50 text-purple-700 border-purple-200",
+        growth: "+60%"
+      }
+    ];
+  }, [benchmarkCA]);
+
+  const caRatio = useMemo(() => {
+    const target = Number(goalDraft?.ca) || 0;
+    if (!target || benchmarkCA <= 0) return 1;
+    return target / benchmarkCA;
+  }, [goalDraft?.ca, benchmarkCA]);
+
+  const isExcessiveGoal = caRatio > 2.5 && Number(goalDraft?.ca) > (benchmarkCA + 1500);
 
   const openGoalModal = (draft = objectives) => {
     const focus = draft.focus || (draft.ca ? "ca" : "clients");
@@ -1357,35 +1411,118 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
               <h3 id="goal-modal-title" className="text-[17px] font-black">Personnaliser mes objectifs</h3>
               <button aria-label="Fermer" onClick={() => setShowGoalModal(false)} className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-500 font-bold">✕</button>
             </div>
-            <p className="text-[12.5px] text-gray-500 font-medium mb-5">Des objectifs clairs et suivis chaque jour par l'IA.</p>
-            <div className="space-y-4">
+            <p className="text-[12.5px] text-gray-500 font-medium mb-3">
+              Définissez des objectifs graduels étudiés selon votre rythme actuel pour assurer une progression solide et tenable.
+            </p>
+
+            {/* Diagnostic CA Réel Actuel */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Chiffre d'affaires de référence</p>
+                <p className="text-[17px] font-black text-slate-900 mt-0.5">{money(benchmarkCA)} <span className="text-[11px] font-medium text-slate-400">/ mois</span></p>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-black text-emerald-700 bg-emerald-100/80 border border-emerald-200 px-2 py-0.5 rounded-full inline-block">
+                  Activité observée
+                </span>
+                <p className="text-[10px] text-slate-400 font-medium mt-1">Panier moy. : {money(objectivePlan.avgTicket || 45)}</p>
+              </div>
+            </div>
+
+            {/* Paliers recommandés par l'IA */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[11px] font-black uppercase tracking-wider text-gray-600 flex items-center gap-1.5">
+                  <Milestone size={14} className="text-orange-500" />
+                  Paliers de croissance recommandés
+                </label>
+                <span className="text-[10px] font-bold text-orange-600">Étape par étape</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {realisticMilestones.map((m) => {
+                  const isSelected = Number(goalDraft?.ca) === m.ca;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => {
+                        setGoalDraft(d => ({
+                          ...d,
+                          ca: m.ca,
+                          clients: objectivePlan.avgTicket > 0 ? Math.ceil(m.ca / objectivePlan.avgTicket) : d.clients
+                        }));
+                      }}
+                      className={`text-left p-2.5 rounded-2xl border transition-all active:scale-95 flex flex-col justify-between ${
+                        isSelected
+                          ? "border-orange-500 bg-orange-50/70 shadow-sm ring-1 ring-orange-500"
+                          : "border-gray-200 bg-white hover:border-orange-300"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-[8.5px] font-black px-1.5 py-0.5 rounded-md border ${m.badgeColor}`}>
+                            {m.growth}
+                          </span>
+                        </div>
+                        <p className="text-[13px] font-black text-gray-900 leading-tight">{money(m.ca)}</p>
+                      </div>
+                      <p className="text-[9.5px] text-gray-500 font-semibold mt-1.5 line-clamp-2 leading-tight">
+                        {m.badge}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Alerte si objectif irréaliste / disproportionné */}
+            {isExcessiveGoal && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 flex items-start gap-2.5 animate-fadeIn">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-[11px] text-amber-800 leading-snug">
+                  <strong className="font-black">Attention à l'écart d'échelle :</strong>
+                  <p className="mt-0.5 text-amber-700">
+                    Passer directement de {money(benchmarkCA)} à {money(Number(goalDraft.ca))} en 1 mois représente une multiplication par {Math.round(caRatio)}×.
+                    Privilégiez le <strong>Palier 1 ({money(realisticMilestones[0].ca)})</strong> ou <strong>Palier 2 ({money(realisticMilestones[1].ca)})</strong> pour construire un carnet solide et durable sans surmenage.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-3.5">
               <div className="scaling-field">
                 <label htmlFor="goal-focus">Objectif directeur</label>
                 <select id="goal-focus" value={objectiveFocus} onChange={e => { setObjectiveFocus(e.target.value); setGoalDraft(d => ({ ...d, focus: e.target.value })); }} className="scaling-field-control">
                   <option value="ca">Je pilote par le chiffre d'affaires</option>
                   <option value="clients">Je pilote par le nombre de clients</option>
                 </select>
-                <p className="text-[11px] text-gray-500 font-medium mt-1.5">L'autre objectif sera recalculé automatiquement selon votre panier moyen réel{objectivePlan.avgTicket ? ` (${money(objectivePlan.avgTicket)})` : ""}.</p>
+                <p className="text-[11px] text-gray-500 font-medium mt-1">L'autre objectif sera recalculé automatiquement selon votre panier moyen réel{objectivePlan.avgTicket ? ` (${money(objectivePlan.avgTicket)})` : ""}.</p>
               </div>
-              <div className="scaling-field">
-                <label>CA mensuel visé (€)</label>
-                <input type="number" min="0" step="100" value={goalDraft?.ca ?? ""}
-                  onChange={e => setGoalDraft(d => ({ ...d, ca: e.target.value === "" ? "" : Number(e.target.value) }))} />
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="scaling-field">
+                  <label>CA mensuel visé (€)</label>
+                  <input type="number" min="0" step="50" value={goalDraft?.ca ?? ""}
+                    onChange={e => setGoalDraft(d => ({ ...d, ca: e.target.value === "" ? "" : Number(e.target.value) }))} />
+                </div>
+                <div className="scaling-field">
+                  <label>Nouveaux clients / mois</label>
+                  <input type="number" min="0" step="1" value={goalDraft?.clients ?? ""}
+                    onChange={e => setGoalDraft(d => ({ ...d, clients: e.target.value === "" ? "" : Number(e.target.value) }))} />
+                </div>
               </div>
-              <div className="scaling-field">
-                <label>Nouveaux clients / mois</label>
-                <input type="number" min="0" step="1" value={goalDraft?.clients ?? ""}
-                  onChange={e => setGoalDraft(d => ({ ...d, clients: e.target.value === "" ? "" : Number(e.target.value) }))} />
-              </div>
-              <div className="scaling-field">
-                <label>Taux de confirmation visé (%)</label>
-                <input type="number" min="0" max="100" step="1" value={goalDraft?.confirmation ?? ""}
-                  onChange={e => setGoalDraft(d => ({ ...d, confirmation: e.target.value === "" ? "" : Number(e.target.value) }))} />
-              </div>
-              <div className="scaling-field">
-                <label>Note moyenne visée (/5)</label>
-                <input type="number" min="0" max="5" step="0.1" value={goalDraft?.note ?? ""}
-                  onChange={e => setGoalDraft(d => ({ ...d, note: e.target.value === "" ? "" : Number(e.target.value) }))} />
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="scaling-field">
+                  <label>Confirmation visée (%)</label>
+                  <input type="number" min="0" max="100" step="1" value={goalDraft?.confirmation ?? ""}
+                    onChange={e => setGoalDraft(d => ({ ...d, confirmation: e.target.value === "" ? "" : Number(e.target.value) }))} />
+                </div>
+                <div className="scaling-field">
+                  <label>Note visée (/5)</label>
+                  <input type="number" min="0" max="5" step="0.1" value={goalDraft?.note ?? ""}
+                    onChange={e => setGoalDraft(d => ({ ...d, note: e.target.value === "" ? "" : Number(e.target.value) }))} />
+                </div>
               </div>
             </div>
             <div className="scaling-modal-action">

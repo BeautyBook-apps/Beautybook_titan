@@ -1,4 +1,4 @@
-import BeautyImage from '@/components/ui/BeautyImage';
+﻿import BeautyImage from '@/components/ui/BeautyImage';
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useLocation as useRouterLocation, useNavigate } from "react-router-dom";
@@ -2307,7 +2307,7 @@ function SalonsTab({ activeCategory }) {
   const handleCardSelect = (item) => {
     if (!item.user_email) return;
     setHighlightedId(item.id);
-    navigate("/pro/vue-client", { state: { proEmail: item.user_email } });
+    navigate("/pro/vue-client", { state: { proEmail: item.user_email, profil: item } });
   };
 
   const { profils, minPricesMap } = data;
@@ -2356,7 +2356,7 @@ function SalonsTab({ activeCategory }) {
   const handleMapSelect = (item) => {
     if (!item.user_email) return;
     setHighlightedId(item.id);
-    navigate("/pro/vue-client", { state: { proEmail: item.user_email } });
+    navigate("/pro/vue-client", { state: { proEmail: item.user_email, profil: item } });
   };
 
   return (
@@ -3061,7 +3061,7 @@ function navigateToSearchItem(navigate, item) {
   } else if (item.kind === "bundle") {
     navigate(item.is_group ? `/bundle-groupe/${item.id}` : `/bundle/${item.id}`, { state: { bundle: item } });
   } else {
-    navigate("/pro/vue-client", { state: { proEmail: item.user_email } });
+    navigate("/pro/vue-client", { state: { proEmail: item.user_email, profil: item } });
   }
 }
 

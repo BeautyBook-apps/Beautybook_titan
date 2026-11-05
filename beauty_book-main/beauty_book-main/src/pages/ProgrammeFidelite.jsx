@@ -13,6 +13,7 @@ import { supabase } from '@/api/supabaseClient';
 import { reconcileClientPoints } from '@/lib/fideliteClient';
 import ProgrammeProCard from "@/components/fidelite/ProgrammeProCard";
 import { readIsProCache, writeIsProCache } from "@/hooks/useIsPro";
+import { useTheme, useThemeBg } from "@/hooks/useTheme";
 
 const LEVELS = [
   { name: "Silver", pts: 0, icon: Crown, color: "from-gray-400 to-gray-500", bg: "bg-gray-100", text: "text-gray-600" },
@@ -56,6 +57,9 @@ function getNextNiveau(pts) {
 export default function ProgrammeFidelite() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { theme } = useTheme();
+  const themeBg = useThemeBg();
+  const isDark = theme === "dark" || theme === "night";
   const email = user?.email;
   const cacheKey = email ? `fidelite_${email}` : null;
   // Affichage direct depuis le cache : la première peinture montre les derniers
@@ -166,14 +170,14 @@ export default function ProgrammeFidelite() {
 
   if (loading && !record) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className={`font-display flex items-center justify-center h-64 ${isDark ? "bg-gray-950" : "bg-[#f5f5f5]"}`} style={{ backgroundColor: themeBg }}>
         <div className="w-8 h-8 border-4 border-gray-200 border-t-primary rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="font-display min-h-full bg-[#f5f5f5]">
+    <div className={`font-display min-h-full ${isDark ? "text-gray-100" : "text-gray-900"}`} style={{ backgroundColor: themeBg }}>
 
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[999] bg-gray-900 text-white text-[13px] font-bold px-5 py-3 rounded-2xl shadow-xl max-w-[320px] text-center flex items-center gap-2">
@@ -183,8 +187,8 @@ export default function ProgrammeFidelite() {
       )}
 
       {/* Header */}
-      <div className="bg-white px-5 pt-5 pb-4 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
-        <button onClick={() => navigate(-1)} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center active:scale-95 transition-all">
+      <div className={`px-5 pt-5 pb-4 flex items-center gap-3 sticky top-0 z-10 shadow-sm ${isDark ? "bg-gray-950 border-b border-gray-800" : "bg-white"}`}>
+        <button onClick={() => navigate(-1)} className={`w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition-all ${isDark ? "bg-gray-800" : "bg-gray-100"}`}>
           <ArrowLeft className="w-4 h-4 text-primary" />
         </button>
         <div>
@@ -259,7 +263,7 @@ export default function ProgrammeFidelite() {
               <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-3 -mx-4 px-4">
                 {CATS.map(cat => (
                   <button key={cat} onClick={() => setActiveCat(cat)}
-                    className={`shrink-0 px-4 py-2 rounded-full text-[11px] font-black border transition-all active:scale-95 ${activeCat === cat ? "bg-primary text-white border-primary" : "bg-white text-gray-600 border-gray-200"}`}>
+                    className={`shrink-0 px-4 py-2 rounded-full text-[11px] font-black border transition-all active:scale-95 ${activeCat === cat ? "bg-primary text-white border-primary" : isDark ? "bg-gray-800 text-gray-300 border-gray-700" : "bg-white text-gray-600 border-gray-200"}`}>
                     {cat}
                   </button>
                 ))}

@@ -16,6 +16,7 @@ export default function Reservation() {
 
   const [step, setStep] = useState(1);
   const [proProfile, setProProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(Boolean(proEmail));
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -26,10 +27,15 @@ export default function Reservation() {
   }, []);
 
   useEffect(() => {
-    if (!proEmail) return;
+    if (!proEmail) {
+      setProfileLoading(false);
+      return;
+    }
+    setProfileLoading(true);
     entities.ProfilPro.filter({ user_email: proEmail }, "-created_at", 1)
       .then(res => { if (res[0]) setProProfile(res[0]); })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setProfileLoading(false));
   }, [proEmail]);
 
   const [booking, setBooking] = useState({
@@ -53,6 +59,7 @@ export default function Reservation() {
         <StepUnifiedReservation
           booking={booking}
           proProfile={proProfile}
+          profileLoading={profileLoading}
           onUpdateBooking={updateBookingData}
           onNext={() => setStep(2)}
           onBack={() => navigate(-1)}

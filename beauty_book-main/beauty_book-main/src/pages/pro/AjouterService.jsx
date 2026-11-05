@@ -421,6 +421,7 @@ function Step2({ data, setData }) {
 
 // ── Step 3: Options & Suppléments ──────────────────────────────────────────────
 function Step3({ data, setData }) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [produits, setProduits] = useState([]);
   const [loadingProduits, setLoadingProduits] = useState(true);
@@ -624,12 +625,21 @@ function Step3({ data, setData }) {
         ) : (
           <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-5 px-5 pb-1">
             {produits.map((prod, i) => (
-              <div key={prod.id || i} className="shrink-0 w-36 bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden">
-                <div className="h-24 bg-gray-100">
+              <div
+                key={prod.id || i}
+                onClick={() => {
+                  if (prod.id) navigate(`/produit?id=${encodeURIComponent(prod.id)}`);
+                }}
+                className="shrink-0 w-36 bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden cursor-pointer hover:border-primary/40 active:scale-95 transition-all"
+              >
+                <div className="h-24 bg-gray-100 relative">
                   {prod.image_url
                     ? <BeautyImage src={prod.image_url} alt={prod.name} className="w-full h-full object-cover" />
                     : <div className="w-full h-full flex items-center justify-center text-[28px]">🧴</div>
                   }
+                  <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                    Détail ↗
+                  </span>
                 </div>
                 <div className="p-2.5">
                   <p className="text-[11px] font-black text-gray-700 leading-tight truncate">{prod.name}</p>

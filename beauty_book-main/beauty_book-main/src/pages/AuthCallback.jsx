@@ -23,27 +23,13 @@ export default function AuthCallback() {
         const intent = readOAuthIntent(sessionStorage);
         sessionStorage.removeItem(OAUTH_INTENT_KEY);
 
-        const isSignupIntent = intent?.mode === 'signup';
-
-        if (isSignupIntent) {
-          // Lors de l'inscription via Google : afficher immédiatement la page "Vérifier l'email" / onboarding step 2
-          const parts = String(user.user_metadata?.full_name || profile?.full_name || '').trim().split(/\s+/);
-          saveSignupDraft(sessionStorage, { 
-            mode: 'email', 
-            email: user.email, 
-            prenom: parts[0] || 'Utilisateur', 
-            nom: parts.slice(1).join(' ') || '' 
-          });
-          sessionStorage.setItem('bb_social_signup', '1');
-          sessionStorage.setItem('bb_social_verify', '1');
-          navigate('/onboarding', { replace: true });
-        } else {
-          // Lors de la connexion via Google (compte existant) : la page d'accueil s'ouvre automatiquement
-          sessionStorage.removeItem('bb_social_signup');
-          sessionStorage.removeItem('bb_social_verify');
-          localStorage.setItem('bb_onboarded', '1');
-          navigate('/', { replace: true });
-        }
+        // Une fois le compte Google/Apple sélectionné, la session est active et validée.
+        // La page d'accueil s'ouvre directement.
+        sessionStorage.removeItem('bb_social_signup');
+        sessionStorage.removeItem('bb_social_verify');
+        sessionStorage.setItem('bb_splash_done', '1');
+        localStorage.setItem('bb_onboarded', '1');
+        navigate('/', { replace: true });
       } catch (err) { 
         fail(err.message || 'Impossible de terminer la connexion.'); 
       }

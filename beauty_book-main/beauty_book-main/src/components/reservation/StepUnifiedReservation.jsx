@@ -4,7 +4,7 @@ import { ArrowLeft, Calendar as CalendarIcon, Clock, User, Check, ChevronRight, 
 import { format, addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, isSameDay, isSameMonth, isBefore, startOfDay, eachDayOfInterval } from "date-fns";
 import { fr } from "date-fns/locale";
 import { entities } from "@/api/entities";
-import { applyNightMode } from "@/lib/hours";
+import { getEffectiveOpening } from "@/lib/hours";
 
 const CLEANING_MINUTES = 15;
 
@@ -28,21 +28,16 @@ function formatMinutes(mins) {
 
 // Parse horaires/ouverture from proProfile — supports both structures
 function getHoraires(proProfile) {
-  const raw = proProfile?.ouverture || proProfile?.horaires;
-  if (!raw) return null;
-  try {
-    return typeof raw === "string" ? JSON.parse(raw) : raw;
-  } catch {
-    return null;
-  }
+  return getEffectiveOpening(proProfile, null);
 }
 
 // Get schedule for a specific day (full French name)
 // Applique le Mode Nuit : si travail_nuit est actif, les jours ouverts
 // passent en 09:00 → 07:00 (lendemain) via la surcouche applyNightMode.
-function getDaySchedule(proProfile, dayOfWeek) {
+function getDaySchedule(proProfile, dayOfWeek, { profileLoading = false, requireProfile = false } = {}) {
+  if (profileLoading || (requireProfile && !proProfile)) return null;
   const dayName = DAY_MAP[dayOfWeek];
-  const horaires = applyNightMode(getHoraires(proProfile), !!proProfile?.travail_nuit);
+  const horaires = getHoraires(proProfile);
   if (!horaires) {
     // No horaires set → default: open Mon-Sat, closed Sunday
     // (plage de nuit si le Mode Nuit est actif)
@@ -122,6 +117,7 @@ function getSeatCount(proProfile) {
 export default function StepUnifiedReservation({
   booking,
   proProfile,
+  profileLoading = false,
   onUpdateBooking,
   onNext,
   onBack
@@ -166,15 +162,18 @@ export default function StepUnifiedReservation({
   const isDateClosed = (day) => {
     if (isDateDisabled(day)) return true;
     if (isDateInConges(day, conges)) return true;
-    const schedule = getDaySchedule(proProfile, day.getDay());
-    return !schedule;
+    const schedule = getDaySchedule(proProfile, day.getDay(), { profileLoading, requireProfile: !!proEmail });
+    if (!schedule) return true;
+    // Un jour ouvert sans créneau exploitable pour la prestation reste
+    // indisponible dans le calendrier (ex. fermeture trop proche).
+    return generateTimeSlots(schedule, totalDurationWithCleaning, numSeats).length === 0;
   };
 
   // ── Time slots for selected date ──
   const numSeats = getSeatCount(proProfile);
   const availableTimeSlots = useMemo(() => {
     if (!selectedDate) return [];
-    const schedule = getDaySchedule(proProfile, selectedDate.getDay());
+    const schedule = getDaySchedule(proProfile, selectedDate.getDay(), { profileLoading, requireProfile: !!proEmail });
     if (!schedule) return [];
     const slots = generateTimeSlots(schedule, totalDurationWithCleaning, numSeats);
     // Filter past time slots if selected date is today.
@@ -185,7 +184,15 @@ export default function StepUnifiedReservation({
     if (!isToday) return slots;
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
     return slots.filter(s => (s.mins ?? parseTime(s.time)) > nowMinutes);
-  }, [selectedDate, proProfile, totalDurationWithCleaning, numSeats]);
+  }, [selectedDate, proProfile, profileLoading, proEmail, totalDurationWithCleaning, numSeats]);
+
+  // Un créneau ne doit pas rester sélectionné si les horaires du professionnel
+  // sont rechargés ou modifiés entre deux étapes de la réservation.
+  useEffect(() => {
+    if (selectedTime && !availableTimeSlots.some(slot => slot.time === selectedTime)) {
+      setSelectedTime(null);
+    }
+  }, [availableTimeSlots, selectedTime]);
 
   const morningSlots = availableTimeSlots.filter(s => (s.mins ?? parseTime(s.time)) < 12 * 60);
   const afternoonSlots = availableTimeSlots.filter(s => {
@@ -209,7 +216,11 @@ export default function StepUnifiedReservation({
     : booking.services.reduce((sum, s) => sum + (parseFloat(s.price) || 0) * persons, 0);
 
   const handleValidateStep = () => {
-    if (!selectedDate || !selectedTime) return;
+    const selectedSlot = availableTimeSlots.find(slot => slot.time === selectedTime);
+    if (!selectedDate || !selectedSlot) {
+      setSelectedTime(null);
+      return;
+    }
     const updatedServices = booking.services.map(s => ({ ...s, persons }));
     onUpdateBooking({
       date: selectedDate,
@@ -221,7 +232,9 @@ export default function StepUnifiedReservation({
     onNext();
   };
 
-  const selectedSchedule = selectedDate ? getDaySchedule(proProfile, selectedDate.getDay()) : null;
+  const selectedSchedule = selectedDate
+    ? getDaySchedule(proProfile, selectedDate.getDay(), { profileLoading, requireProfile: !!proEmail })
+    : null;
 
   return (
     <div className="min-h-screen bg-[#FFF5F0] font-display" style={{ paddingBottom: "calc(220px + env(safe-area-inset-bottom, 16px))" }}>

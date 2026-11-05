@@ -13,7 +13,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey,
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
-      flowType: 'implicit',
+      flowType: 'pkce',
     },
     realtime: {
       params: {
@@ -23,6 +23,16 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey,
   }
 );
 
-// Production should provide VITE_PUBLIC_APP_URL; localhost remains a development fallback.
-export const appOrigin = (import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin).replace(/\/$/, '');
+// Origine de l'application : toujours HTTP en local pour éviter les problèmes SSL
+export const appOrigin = (() => {
+  if (typeof window !== 'undefined') {
+    let origin = window.location.origin;
+    // Force HTTP pour localhost (Google OAuth autorise http://localhost)
+    if (origin.includes('localhost:') || origin.includes('127.0.0.1:')) {
+      origin = origin.replace(/^https:/i, 'http:');
+    }
+    return origin.replace(/\/$/, '');
+  }
+  return (import.meta.env.VITE_PUBLIC_APP_URL || 'http://localhost:5173').replace(/\/$/, '');
+})();
 export const authCallbackUrl = `${appOrigin}/auth/callback`;

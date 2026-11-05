@@ -36,13 +36,32 @@ export function hasHoursData(ouverture) {
   });
 }
 
+function parseOpeningValue(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try { value = JSON.parse(value); } catch { return null; }
+  }
+  if (!value || typeof value !== "object") return null;
+
+  // Certaines anciennes fiches contiennent encore les jours avec une
+  // majuscule. On les ramène au format canonique utilisé par les réservations.
+  const normalized = { ...value };
+  DAY_KEYS.forEach(day => {
+    const capitalized = day.charAt(0).toUpperCase() + day.slice(1);
+    if (!normalized[day] && normalized[capitalized]) normalized[day] = normalized[capitalized];
+  });
+  return normalized;
+}
+
 // Horaires effectifs d'un pro : section Horaires & Congés (ouverture/horaires),
 // sinon repli sur le parcours Devenir Pro. Les objets vides sont ignorés pour
 // que l'affichage soit toujours synchronisé avec la section Horaires & Congés.
 export function getEffectiveOpening(proInfo, demande) {
   let base = null;
-  if (proInfo && hasHoursData(proInfo.ouverture)) base = proInfo.ouverture;
-  else if (proInfo && hasHoursData(proInfo.horaires)) base = proInfo.horaires;
+  const ouverture = parseOpeningValue(proInfo?.ouverture);
+  const horaires = parseOpeningValue(proInfo?.horaires);
+  if (hasHoursData(ouverture)) base = ouverture;
+  else if (hasHoursData(horaires)) base = horaires;
   else base = ouvertureFromDemande(demande);
 
   if (!base) return null;

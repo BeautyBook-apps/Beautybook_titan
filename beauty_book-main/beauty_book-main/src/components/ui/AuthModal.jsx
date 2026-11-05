@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+﻿import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { X, LogIn, UserPlus, Shield, Zap, Gift } from "lucide-react";
 import BrandLogo from "@/components/ui/BrandLogo";
@@ -13,18 +13,21 @@ export default function AuthModal({ open, onClose, message }) {
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center pb-[env(safe-area-inset-bottom,0px)]" onClick={handleClose}>
+    <div
+      className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center p-0 sm:p-4"
+      onClick={handleClose}
+    >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
 
       <div
-        className="relative bg-white w-full sm:max-w-[370px] sm:rounded-[32px] rounded-t-[32px] shadow-2xl overflow-hidden"
+        className="relative bg-white w-full sm:max-w-[380px] sm:rounded-[32px] rounded-t-[32px] shadow-2xl overflow-hidden max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         style={{ animation: "slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1)" }}
       >
         {/* Top gradient accent bar */}
-        <div className="h-1.5 w-full" style={{ background: "linear-gradient(90deg, #E8732A, #F5A623, #E84466)" }} />
+        <div className="h-1.5 w-full shrink-0" style={{ background: "linear-gradient(90deg, #E8732A, #F5A623, #E84466)" }} />
 
-        <div className="px-6 pt-6 pb-7">
+        <div className="px-6 pt-5 pb-[calc(1.75rem+env(safe-area-inset-bottom,20px))] overflow-y-auto hide-scrollbar">
           {/* Close */}
           <button
             onClick={handleClose}
@@ -34,13 +37,13 @@ export default function AuthModal({ open, onClose, message }) {
           </button>
 
           {/* Logo officiel BeautyBook */}
-          <div className="flex justify-center mb-5">
-            <BrandLogo size={84} alt="Logo BeautyBook" className="rounded-[22px] shadow-lg" />
+          <div className="flex justify-center mb-3">
+            <BrandLogo size={76} alt="Logo BeautyBook" className="rounded-[22px] shadow-lg" />
           </div>
 
           {/* Brand */}
           <h2
-            className="text-[26px] font-black text-center text-gray-900 mb-1"
+            className="text-[24px] font-black text-center text-gray-900 mb-1"
             style={{ fontFamily: "var(--font-display, 'Plus Jakarta Sans', sans-serif)" }}
           >
             BeautyBook
@@ -52,14 +55,14 @@ export default function AuthModal({ open, onClose, message }) {
           </div>
 
           {/* Subtitle */}
-          <p className="text-[13px] text-gray-400 font-medium text-center mb-6 leading-relaxed px-1">
+          <p className="text-[13px] text-gray-500 font-medium text-center mb-5 leading-relaxed px-1">
             {message || "Connectez-vous pour profiter de toutes les fonctionnalités."}
           </p>
 
           {/* CTA Se connecter */}
           <button
-            onClick={() => { onClose(); navigate("/connexion"); }}
-            className="w-full py-4 rounded-2xl font-black text-[13px] uppercase tracking-widest text-white active:scale-[0.98] transition-all shadow-lg shadow-[#E8732A]/25 flex items-center justify-center gap-2.5"
+            onClick={() => { onClose?.(); navigate("/connexion"); }}
+            className="w-full py-3.5 rounded-2xl font-black text-[13px] uppercase tracking-widest text-white active:scale-[0.98] transition-all shadow-lg shadow-[#E8732A]/25 flex items-center justify-center gap-2.5"
             style={{ background: "linear-gradient(135deg, #E8732A, #E84466)" }}
           >
             <LogIn className="w-[18px] h-[18px]" />
@@ -74,14 +77,14 @@ export default function AuthModal({ open, onClose, message }) {
               sessionStorage.setItem("bb_from_login", "1");
               navigate("/onboarding");
             }}
-            className="w-full py-3.5 mt-3 rounded-2xl font-black text-[12px] uppercase tracking-widest text-gray-500 active:scale-[0.98] transition-all border border-gray-200 hover:bg-gray-50 flex items-center justify-center gap-2"
+            className="w-full py-3 mt-2.5 rounded-2xl font-black text-[12px] uppercase tracking-widest text-gray-600 active:scale-[0.98] transition-all border border-gray-200 hover:bg-gray-50 flex items-center justify-center gap-2"
           >
             <UserPlus className="w-4 h-4" />
             Créer un compte gratuit
           </button>
 
           {/* Feature badges */}
-          <div className="flex items-center justify-center gap-5 mt-6">
+          <div className="flex items-center justify-center gap-5 mt-5 pb-2">
             <div className="flex flex-col items-center gap-1">
               <div className="w-8 h-8 rounded-xl bg-green-50 flex items-center justify-center">
                 <Shield className="w-4 h-4 text-green-500" />
