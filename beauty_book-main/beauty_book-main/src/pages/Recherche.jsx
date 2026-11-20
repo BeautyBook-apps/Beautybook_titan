@@ -13,6 +13,8 @@ import { searchSalons, matchesCategory, normalizeSearch } from '@/lib/salonSearc
 import { useTheme } from '@/hooks/useTheme';
 import { useCachedState, readPageCache, mergePageCache } from '@/hooks/usePageCache';
 import './Recherche.css';
+import SearchSuggestionsDropdown from '@/components/search/SearchSuggestionsDropdown';
+import SearchMasonryResults, { navigateToSearchResult } from '@/components/search/SearchMasonryResults';
 
 const entityTabs = [
   ['Tous', 'Tout explorer', Sparkles],
@@ -354,6 +356,8 @@ function FilterDialog({ filters, cities, servicesAvailable, onClose, onApply, re
 export default function Recherche() {
   useTheme();
   const navigate = useNavigate();
+  const [showSuggestionsR, setShowSuggestionsR] = useState(false);
+  const searchBarRef = useRef(null);
   const [params, setParams] = useSearchParams();
   const q = params.get('q') || '';
   const entityType = entityTabs.some(([id]) => id === params.get('entity')) ? params.get('entity') : 'Tous';
@@ -581,15 +585,17 @@ export default function Recherche() {
         </div>
 
         {/* Search Bar */}
-        <div className="discovery-searchbar">
+        <div className="discovery-searchbar relative" ref={searchBarRef}>
           <label className="discovery-query">
             <Search size={20} aria-hidden="true" />
             <span className="sr-only">Rechercher un salon, service, particulier, style ou bundle</span>
             <input 
               type="search" 
               value={q} 
-              onChange={e => updateParams({ q: e.target.value })} 
+              onChange={e => { updateParams({ q: e.target.value }); setShowSuggestionsR(true); }}
+              onFocus={() => setShowSuggestionsR(true)}
               placeholder="Chercher un salon, particulier, service, style..." 
+              autoComplete="off"
             />
           </label>
           <button className="discovery-filter-button" aria-label="Ouvrir les filtres" onClick={() => setShowFilters(true)}>
@@ -597,6 +603,26 @@ export default function Recherche() {
             <span>Filtres</span>
             {filterCount > 0 && <b>{filterCount}</b>}
           </button>
+          <SearchSuggestionsDropdown
+            query={q}
+            isOpen={showSuggestionsR}
+            onSelectSuggestion={(suggestion) => {
+              setShowSuggestionsR(false);
+              if (suggestion.type === 'result') {
+                navigateToSearchResult(navigate, suggestion.item);
+              } else if (suggestion.type === 'search-all') {
+                updateParams({ q: suggestion.query, entity: 'Tous' });
+              } else if (suggestion.type === 'category') {
+                updateParams({ q: suggestion.label, category: suggestion.label });
+              } else if (suggestion.type === 'salon') {
+                updateParams({ q: suggestion.name, entity: 'Salons' });
+              } else {
+                updateParams({ q: suggestion.query });
+              }
+            }}
+            onClose={() => setShowSuggestionsR(false)}
+            searchContainerRef={searchBarRef}
+          />
         </div>
 
         {/* 5 Entity Search Tabs */}
@@ -733,6 +759,7 @@ export default function Recherche() {
               {/* Grid of Multi-Entity Cards */}
               {activeItems.length > 0 ? (
                 <>
+                  {q.trim() ? <SearchMasonryResults items={activeItems.slice(0, visibleCount)} onOpen={item => navigateToSearchResult(navigate, item)} /> : <>
                   <div className="discovery-grid">
                     {activeItems.slice(0, visibleCount).map((item, idx) => {
                       const kind = item.entityKind || 'salon';
@@ -953,6 +980,7 @@ export default function Recherche() {
                       );
                     })}
                   </div>
+                  </>}
 
                   {visibleCount < activeItems.length && (
                     <button className="discovery-load-more discovery-secondary" onClick={() => setVisibleCount(n => n + 12)}>

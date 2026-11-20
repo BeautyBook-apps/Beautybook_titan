@@ -9,7 +9,7 @@ import {
   Flag, UserMinus, PhoneCall, PhoneOff,
   Baby, CreditCard, Accessibility, Shirt, Sofa, Music, PawPrint,
   Snowflake, Sparkles, Clock, Zap, Droplets, Flower2, Brush,
-  Play, Maximize2, Palette, RotateCw,
+  Play, Maximize2, Palette, RotateCw, Eye,
   Instagram, Facebook, Globe
 } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
@@ -398,14 +398,13 @@ function GalerieSection({ gallery }) {
 function MosaicGrid({ publications, navigate }) {
   const getThumb = (pub) => pub.thumbnail_url || pub.image_url || (pub.images && pub.images[0]);
 
-  // Deux colonnes avec hauteurs variables style Pinterest
-  const col1 = publications.filter((_, i) => i % 2 === 0);
-  const col2 = publications.filter((_, i) => i % 2 !== 0);
-
   const Card = ({ pub }) => {
     const videoRef = useRef(null);
     const thumb = getThumb(pub);
     const isVideo = pub.video_url;
+    const typeLabel = pub.content_type === "style" || pub.publication_type === "style" || pub.type === "style" ? "STYLE" : "REEL";
+    const likes = Number(pub.likes ?? pub.like_count ?? pub.likes_count ?? 0);
+    const views = Number(pub.views ?? pub.view_count ?? pub.views_count ?? pub.impressions ?? 0);
     const [hovering, setHovering] = useState(false);
 
     const handleMouseEnter = () => {
@@ -420,7 +419,7 @@ function MosaicGrid({ publications, navigate }) {
     return (
       <div
         className="relative rounded-2xl overflow-hidden bg-gray-100 cursor-pointer active:scale-[0.98] transition-all mb-2 shadow-sm"
-        style={{ aspectRatio: isVideo ? "9/16" : (Math.random() > 0.5 ? "4/5" : "3/4") }}
+        style={{ aspectRatio: "9/16" }}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         onClick={() => navigate(`/reseau-social?reelId=${pub.id}`)}
@@ -438,39 +437,33 @@ function MosaicGrid({ publications, navigate }) {
         {/* Overlay gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
 
-        {/* Badge vidéo */}
+        <div className={`absolute top-2 left-2 flex items-center gap-1 rounded-full px-2 py-1 text-[8px] font-black uppercase tracking-wide text-white shadow ${typeLabel === "STYLE" ? "bg-pink-600" : "bg-purple-600"}`}>
+          {typeLabel === "STYLE" ? <Sparkles className="h-2.5 w-2.5" /> : <Play className="h-2.5 w-2.5 fill-white" />}
+          {typeLabel}
+        </div>
         {isVideo && !hovering && (
-          <div className="absolute top-2 right-2 bg-black/60 rounded-full px-2 py-0.5 flex items-center gap-1">
-            <span className="text-white text-[9px] font-black">▶</span>
+          <div className="absolute top-2 right-2 rounded-full bg-black/60 p-1.5">
+            <Play className="h-2.5 w-2.5 fill-white text-white" />
           </div>
         )}
 
-        {/* Likes */}
-        {pub.likes > 0 && (
-          <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
-            <Heart className="w-3 h-3 text-red-400 fill-red-400" />
-            <span className="text-white text-[10px] font-black">{pub.likes >= 1000 ? (pub.likes / 1000).toFixed(1) + "k" : pub.likes}</span>
+        <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-1">
+          <div className="flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-1 backdrop-blur-sm">
+            <Heart className="h-3 w-3 fill-red-400 text-red-400" />
+            <span className="text-[9px] font-black leading-none text-white">{likes >= 1000 ? `${(likes / 1000).toFixed(1)}k` : likes}</span>
           </div>
-        )}
-
-        {/* Titre */}
-        <div className="absolute bottom-2 right-2 left-10">
-          <p className="text-white text-[10px] font-black truncate">{pub.title}</p>
+          <div className="flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-1 backdrop-blur-sm">
+            <Eye className="h-3 w-3 text-white" />
+            <span className="text-[9px] font-black leading-none text-white">{views >= 1000 ? `${(views / 1000).toFixed(1)}k` : views}</span>
+          </div>
         </div>
       </div>
     );
   };
 
   return (
-    <div className="px-2 pb-6">
-      <div className="flex gap-2">
-        <div className="flex-1">
-          {col1.map(pub => <Card key={pub.id} pub={pub} />)}
-        </div>
-        <div className="flex-1 mt-4">
-          {col2.map(pub => <Card key={pub.id} pub={pub} />)}
-        </div>
-      </div>
+    <div className="grid grid-cols-3 gap-1.5 px-2 pb-6">
+      {publications.map(pub => <Card key={pub.id} pub={pub} />)}
     </div>
   );
 }
@@ -614,7 +607,7 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, p
       return { ...p, avatar_url: cached.avatar_url || p.avatar_url, cover_url: cached.cover_url || p.cover_url, salon_name: cached.salon_name || p.salon_name, bio: cached.bio || p.bio, city: cached.city || p.city, phone: cached.phone || p.phone, address: cached.address || p.address };
     };
     const fetchData = async () => {
-      const [reels, profileRaw, svcs, avis, demandes, bundleData, catOpts] = await Promise.all([
+      const [reelRows, profileRaw, svcs, avis, demandes, bundleData, catOpts] = await Promise.all([
         entities.Reel.filter({ author_email: targetEmail, status: "publie" }, "-created_at", 30).catch(() => []),
         fetchProfil(),
         entities.Service.filter({ pro_email: targetEmail, status: "actif" }, "-created_at", 50).catch(() => []),
@@ -623,6 +616,16 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, p
         entities.ServiceBundle.filter({ pro_email: targetEmail, is_active: true }, "-created_at", 20).catch(() => []),
         supabase.from("CatalogueOption").select("*").eq("pro_email", targetEmail).order("usage_count", { ascending: false }).then(r => r.data || [], () => []),
       ]);
+      const reelIds = reelRows.map(reel => String(reel.id)).filter(Boolean);
+      const reelLikeCounts = await likesApi.getLikeCounts(reelIds, "reel").catch(() => ({}));
+      const reels = reelRows.map(reel => {
+        const id = String(reel.id);
+        return {
+          ...reel,
+          likes: reelLikeCounts[id] ?? Number(reel.likes ?? reel.like_count ?? reel.likes_count ?? 0),
+          views: Number(reel.views ?? reel.view_count ?? reel.views_count ?? reel.impressions ?? 0),
+        };
+      });
       setPublications(reels);
       setServices(svcs);
       setBundles(bundleData);

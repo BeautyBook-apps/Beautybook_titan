@@ -5,7 +5,7 @@ import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { likesApi } from '@/api/likes';
 import { readIsProCache, writeIsProCache } from "@/hooks/useIsPro";
-import { Share2, Settings, Star, ShoppingBag, Calendar, CreditCard, Grid, Repeat2, Bookmark, Camera, Plus, Play, Heart, Video, BadgeCheck, Eye, ListFilter, ArrowUpDown, BarChart3 } from "lucide-react";
+import { Share2, Settings, Star, ShoppingBag, Calendar, CreditCard, Grid, Repeat2, Bookmark, Camera, Plus, Play, Heart, Video, BadgeCheck, Eye, ListFilter, ArrowUpDown } from "lucide-react";
 import DetailShareSheet from "@/components/share/DetailShareSheet";
 import ScoreFiabilite from "@/components/avis/ScoreFiabilite";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -102,6 +102,27 @@ function getMetric(item, keys) {
     if (Number.isFinite(value) && value > 0) return value;
   }
   return 0;
+}
+
+async function getReelViewCounts(reelIds) {
+  const ids = [...new Set((reelIds || []).filter(Boolean).map(String))];
+  if (ids.length === 0) return {};
+  try {
+    const { data, error } = await supabase
+      .from("reel_view_event")
+      .select("reel_id")
+      .in("reel_id", ids);
+    if (error || !data) return {};
+    return data.reduce((counts, row) => {
+      const id = String(row.reel_id);
+      counts[id] = (counts[id] || 0) + 1;
+      return counts;
+    }, {});
+  } catch {
+    // La colonne Reel.views reste la source de repli sur les bases qui
+    // n'ont pas encore déployé reel_view_event.
+    return {};
+  }
 }
 
 function formatMetric(value) {
@@ -332,6 +353,14 @@ export default function Profil() {
           return {
             ...source,
             ...repub,
+            // La carte d'une republication doit utiliser l'identifiant du Reel
+            // source (user_like et les vues sont liés à cet ID), pas celui de
+            // la ligne historique Repub.
+            id: String(source?.id || repub.reel_id || repub.id),
+            repub_id: repub.id,
+            reel_id: String(repub.reel_id || source?.id || ""),
+            likes: source?.likes ?? source?.like_count ?? source?.likes_count ?? repub.likes ?? 0,
+            views: source?.views ?? source?.view_count ?? source?.views_count ?? source?.impressions ?? repub.views ?? 0,
             title: repub.reel_title || source?.title || "Vidéo",
             reel_title: repub.reel_title || source?.title || "Vidéo",
             reel_thumbnail: repub.reel_thumbnail || source?.thumbnail_url || source?.images?.[0],
@@ -349,6 +378,12 @@ export default function Profil() {
       entities.PointsFidelite.filter({ user_email: ownerEmail }, "-created_at", 1).catch(() => []),
     ]);
     const publicationIds = reels.map(reel => String(reel.id)).filter(Boolean);
+    const allReelMetricIds = [...new Set([
+      ...publicationIds,
+      ...repubs.map(item => String(item.reel_id || item.id)).filter(Boolean),
+      ...likedReelIds.map(String),
+    ])];
+    const reelViewCounts = await getReelViewCounts(allReelMetricIds);
     if (publicationIds.length > 0) {
       const [likeCounts, commentsResult] = await Promise.all([
         likesApi.getLikeCounts(publicationIds, "reel").catch(() => ({})),
@@ -358,10 +393,31 @@ export default function Profil() {
       commentsResult.forEach(comment => { const id = String(comment.reel_id); commentCounts[id] = (commentCounts[id] || 0) + 1; });
       reels = reels.map(reel => ({
         ...reel,
-        likes: Number(likeCounts[String(reel.id)] ?? reel.likes ?? 0),
+        likes: Number(likeCounts[String(reel.id)] || getMetric(reel, ["likes", "like_count", "likes_count"]) || 0),
         comments_count: Number(commentCounts[String(reel.id)] ?? reel.comments_count ?? 0),
-        views: Number(reel.views || 0),
+        views: Math.max(getMetric(reel, ["views", "view_count", "views_count", "impressions"]), reelViewCounts[String(reel.id)] || 0),
       }));
+    }
+    const repubReelIds = [...new Set(repubs.map(item => String(item.reel_id || item.id)).filter(Boolean))];
+    if (repubReelIds.length > 0) {
+      const [repubLikeCounts, repubSourceResult] = await Promise.all([
+        likesApi.getLikeCounts(repubReelIds, "reel").catch(() => ({})),
+        supabase.from("Reel").select("*").in("id", repubReelIds),
+      ]);
+      const repubSourceMetrics = new Map((repubSourceResult.data || []).map(item => [String(item.id), item]));
+      repubs = repubs.map(repub => {
+        const reelId = String(repub.reel_id || repub.id);
+        const sourceMetrics = repubSourceMetrics.get(reelId) || {};
+        return {
+          ...repub,
+          likes: Number(repubLikeCounts[reelId] || getMetric(sourceMetrics, ["likes", "like_count", "likes_count"]) || getMetric(repub, ["likes", "like_count", "likes_count"]) || 0),
+          views: Math.max(
+            getMetric(sourceMetrics, ["views", "view_count", "views_count", "impressions"]),
+            getMetric(repub, ["views", "view_count", "views_count", "impressions"]),
+            reelViewCounts[reelId] || 0,
+          ),
+        };
+      });
     }
     setPublications(reels);
     setRepubsList(repubs);
@@ -379,8 +435,13 @@ export default function Profil() {
       likedReels.forEach((res, index) => {
         if (res[0]) {
           const rid = likedReelIds[index];
+          const reelRow = res[0];
           favs.push({
-            ...res[0],
+            ...reelRow,
+            views: Math.max(
+              getMetric(reelRow, ["views", "view_count", "views_count", "impressions"]),
+              reelViewCounts[String(rid)] || 0,
+            ),
             favorite_created_at: favoriteDate('reel', rid),
             _kind: 'reel',
             _badgeLabel: 'Reel',
@@ -523,7 +584,7 @@ export default function Profil() {
     favs.forEach(item => {
       const targetType = item._kind;
       const targetId = targetType === 'pro_profile' ? (item.user_email || item.id) : item.id;
-      if (!targetType || !targetId || targetType === 'product') return;
+      if (!targetType || !targetId) return;
       if (!favoriteIdsByType[targetType]) favoriteIdsByType[targetType] = new Set();
       favoriteIdsByType[targetType].add(String(targetId));
     });
@@ -531,16 +592,30 @@ export default function Profil() {
     await Promise.all(Object.entries(favoriteIdsByType).map(async ([targetType, ids]) => {
       favoriteLikeCounts[targetType] = await likesApi.getLikeCounts([...ids], targetType).catch(() => ({}));
     }));
+    const productIds = [...(favoriteIdsByType.product || [])];
+    const productViewCounts = {};
+    if (productIds.length > 0) {
+      const { data: productViews, error: productViewsError } = await supabase
+        .from("product_view_event")
+        .select("product_id")
+        .in("product_id", productIds);
+      if (!productViewsError) {
+        (productViews || []).forEach(row => {
+          const id = String(row.product_id);
+          productViewCounts[id] = (productViewCounts[id] || 0) + 1;
+        });
+      }
+    }
     const favoritesWithMetrics = favs.map(item => {
       const targetType = item._kind;
       const targetId = targetType === 'pro_profile' ? (item.user_email || item.id) : item.id;
       const countedLikes = favoriteLikeCounts[targetType]?.[String(targetId)];
+      // Pull view count from every possible field name the backend might use
+      const rawViews = item.views ?? item.view_count ?? item.views_count ?? item.impressions ?? item.view ?? 0;
       return {
         ...item,
-        likes: countedLikes !== undefined
-          ? Number(countedLikes)
-          : getMetric(item, ['likes', 'like_count', 'likes_count']),
-        views: getMetric(item, ['views', 'view_count', 'views_count', 'impressions']),
+        likes: Number(countedLikes || getMetric(item, ['likes', 'like_count', 'likes_count']) || 0),
+        views: Number(rawViews) || productViewCounts[String(targetId)] || 0,
       };
     });
     setFavorisList(favoritesWithMetrics.sort((a, b) => new Date(b.favorite_created_at || b.created_at || b.updated_at || 0).getTime() - new Date(a.favorite_created_at || a.created_at || a.updated_at || 0).getTime()));
@@ -845,23 +920,11 @@ export default function Profil() {
           ) : (
             <div className="grid grid-cols-3 gap-1.5 px-1.5 pb-6">
               {publications.map((r) => (
-                <div key={r.id} className="min-w-0">
-                  <MediaThumb item={r} onClick={() => navigate(`/reels?reelId=${encodeURIComponent(r.id)}`)} />
-                  {!isSharedProfile && (
-                    <div className={`mt-1.5 rounded-xl border px-1.5 py-1.5 ${theme === "light" ? "border-gray-100 bg-white" : theme === "dark" ? "border-gray-700 bg-gray-800" : "border-gray-800 bg-[#0a0a0a]"}`}>
-                      <p className={`truncate px-1 text-[9px] font-bold ${theme === "light" ? "text-gray-600" : "text-gray-200"}`} title={r.title || "Publication"}>{r.title || "Publication"}</p>
-                      <button
-                        type="button"
-                        onClick={(event) => { event.stopPropagation(); navigate(`/pro/publication-analytics?reel=${encodeURIComponent(r.id)}`); }}
-                        aria-label={`Voir les données analytiques de ${r.title || "cette publication"}`}
-                        className={`mt-1 flex min-h-7 w-full items-center justify-center gap-1 rounded-lg px-1.5 text-[8px] font-black uppercase tracking-wide transition-transform active:scale-95 ${theme === "light" ? "bg-orange-50 text-orange-600 hover:bg-orange-100" : theme === "dark" ? "bg-orange-500/15 text-orange-300 hover:bg-orange-500/25" : "bg-orange-500/20 text-orange-300 hover:bg-orange-500/30"}`}
-                      >
-                        <BarChart3 className="h-3 w-3" />
-                        Données
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <MediaThumb
+                  key={r.id}
+                  item={r}
+                  onClick={() => navigate(`/reels?reelId=${encodeURIComponent(r.id)}`)}
+                />
               ))}
             </div>
           )

@@ -116,6 +116,7 @@ export const apiClient = {
     };
     Object.assign(endpointMap, {
       analyzePhoto: { path: '/api/ai/analyze-photo', method: 'POST' },
+      museAnalyze: { path: '/api/ai/muse/orchestrate', method: 'POST' },
       simulateHairstyle: { path: '/api/ai/simulate-hairstyle', method: 'POST' },
       shAiTryOn: { path: '/api/ai/try-on', method: 'POST' },
       shAiImageSearch: { path: '/api/ai/image-search', method: 'POST' },

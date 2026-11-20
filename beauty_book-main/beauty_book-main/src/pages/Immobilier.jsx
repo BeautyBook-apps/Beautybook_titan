@@ -6,6 +6,7 @@ import MapWithPricePins from "@/components/map/MapWithPricePins";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import { entities } from "@/api/entities";
 import { apiClient } from "@/lib/apiClient";
+import SearchMasonryResults, { navigateToSearchResult } from "@/components/search/SearchMasonryResults";
 
 const PRICE_RANGES = [
   { id: "tous", label: "Tous les prix", min: 0, max: Infinity },
@@ -262,9 +263,8 @@ export default function Immobilier() {
       const matchType = activeTab === 'location' ? l.type === 'location' : l.type === 'vente';
 
       const matchSearch = !search.trim() ||
-        l.title?.toLowerCase().includes(search.toLowerCase()) ||
-        l.location?.toLowerCase().includes(search.toLowerCase()) ||
-        l.area?.toLowerCase().includes(search.toLowerCase());
+        [l.title, l.location, l.area, l.address, l.city, l.description, l.salon_type]
+          .filter(Boolean).join(" ").toLowerCase().includes(search.trim().toLowerCase());
 
       const priceRange = PRICE_RANGES.find(r => r.id === filterPrice);
       const matchPrice = !priceRange || filterPrice === "tous" || (l.price >= priceRange.min && l.price < priceRange.max);
@@ -458,7 +458,7 @@ export default function Immobilier() {
       </div>
 
       {/* Listings */}
-      <div data-tour="immobilier-listings" className="px-4 space-y-4">
+      <div data-tour="immobilier-listings" className={`px-4 ${search.trim() ? "" : "space-y-4"}`}>
         {(loading && listings.length === 0) ? (
           Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="bg-white rounded-3xl overflow-hidden animate-pulse">
@@ -479,6 +479,17 @@ export default function Immobilier() {
               Réinitialiser les filtres
             </button>
           </div>
+        ) : search.trim() ? (
+          <SearchMasonryResults
+            items={filtered.map(listing => ({
+              ...listing,
+              entityKind: "immobilier",
+              image_url: listing.images?.[0] || listing.image_url || "",
+              author_name: listing.owner_name || listing.salon_name || "Annonce immobilière",
+              category: listing.type === "vente" ? "Vente" : "Location",
+            }))}
+            onOpen={listing => navigateToSearchResult(navigate, listing)}
+          />
         ) : filtered.map((listing) => (
           <ListingCard
             key={listing.id}

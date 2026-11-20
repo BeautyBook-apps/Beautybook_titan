@@ -576,7 +576,7 @@ export default function RendezVous() {
             <p className="text-[13px] text-gray-400 font-medium mb-5">Que souhaitez-vous créer ?</p>
             <div className="grid grid-cols-2 gap-3">
               <button
-                onClick={() => { setShowAddMenu(false); navigate("/services"); }}
+                onClick={() => { setShowAddMenu(false); navigate("/services-salons?tab=SERVICES"); }}
                 className="flex flex-col items-center gap-3 py-6 bg-orange-50 border-2 border-primary rounded-3xl active:scale-95 transition-all"
               >
                 <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center">

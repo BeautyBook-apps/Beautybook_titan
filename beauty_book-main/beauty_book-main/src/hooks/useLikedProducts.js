@@ -3,6 +3,8 @@
  * Chaque produit liké contient : id, name, brand, price, img, category_hint
  */
 import { useState, useEffect } from "react";
+import { supabase } from "@/api/supabaseClient";
+import { likesApi } from "@/api/likes";
 
 const STORAGE_KEY = "bb_liked_products";
 
@@ -42,6 +44,16 @@ export function useLikedProducts() {
         favorite_created_at: new Date().toISOString(),
       }]);
     }
+
+    // Garder le favori local disponible hors connexion, tout en enregistrant
+    // le like du produit dans Supabase pour calculer le compteur public.
+    supabase.auth.getUser().then(({ data }) => {
+      const email = data?.user?.email;
+      if (!email) return;
+      return exists
+        ? likesApi.removeLike(email, product.id, "produit")
+        : likesApi.addLike(email, product.id, "produit", data.user.user_metadata?.full_name || "", data.user.user_metadata?.avatar_url || "");
+    }).catch(error => console.warn("[useLikedProducts] Like produit non synchronisé:", error?.message));
   };
 
   const isLiked = (id) => liked.some(p => p.id === id);

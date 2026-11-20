@@ -20,6 +20,7 @@ import usePullToRefresh from "@/hooks/usePullToRefresh";
 import { useLikedProducts } from "@/hooks/useLikedProducts";
 import { useCartSync } from "@/hooks/useCartSync";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
+import SearchMasonryResults from "@/components/search/SearchMasonryResults";
 
 
 // ── Data ──────────────────────────────────────────────────────────────────────
@@ -274,13 +275,23 @@ export default function Boutique() {
   };
 
   const displayedProducts = imageSearchResults
-    ? imageSearchResults.map(p => ({ ...p, badge: "SIMILAIRE" }))
+    ? filterProducts(imageSearchResults).map(p => ({ ...p, badge: "SIMILAIRE" }))
     : search.trim()
     ? sortNewFirst(filterProducts(shopifyProducts).filter(p =>
         p.name?.toLowerCase().includes(search.toLowerCase()) ||
         p.brand?.toLowerCase().includes(search.toLowerCase())
       ))
     : sortNewFirst(filterProducts(shopifyProducts));
+  const showMasonryResults = Boolean(search.trim()) || imageSearchResults !== null;
+  const masonryProducts = displayedProducts.map(product => ({
+    ...product,
+    entityKind: "product",
+    title: product.name,
+    image_url: product.img,
+    author_name: product.brand || "Boutique BeautyBook",
+    avatar_url: product.brand_image || product.vendor_logo,
+    likes_count: product.likes_count || product.likes || 0,
+  }));
 
   return (
     <div ref={containerRef} className="font-display bg-white min-h-full pb-6">
@@ -401,6 +412,24 @@ export default function Boutique() {
       </div>
 
       <div className="px-4 space-y-5 mt-4">
+
+        {showMasonryResults ? (
+          <section aria-label="Résultats de la boutique" className="pb-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-[15px] font-bold text-gray-900">Résultats de la boutique</h2>
+              <span className="text-xs text-gray-500">{masonryProducts.length} article{masonryProducts.length > 1 ? "s" : ""}</span>
+            </div>
+            {loadingProducts && masonryProducts.length === 0 ? (
+              <div className="grid grid-cols-2 gap-3" aria-label="Chargement des produits">
+                {Array.from({ length: 4 }, (_, index) => <div key={index} className="aspect-[4/5] animate-pulse rounded-2xl bg-gray-100" />)}
+              </div>
+            ) : masonryProducts.length ? (
+              <SearchMasonryResults items={masonryProducts} onOpen={product => navigate(`/produit?id=${encodeURIComponent(product.id)}`)} />
+            ) : (
+              <div className="rounded-2xl bg-gray-50 px-4 py-12 text-center text-sm font-medium text-gray-500">Aucun produit trouvé dans cette catégorie.</div>
+            )}
+          </section>
+        ) : <>
 
         {/* ── Bannières dynamiques (admin) ou bannière par défaut ── */}
         {boutiqueBanners.length > 0 ? boutiqueBanners.map((banner, i) => (
@@ -609,6 +638,7 @@ export default function Boutique() {
           </div>
         </div>
 
+        </>}
       </div>
     </div>
   );

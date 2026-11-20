@@ -221,7 +221,7 @@ function Step1({ data, setData, errors }) {
         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Type d'activité *</p>
         <div className="grid grid-cols-2 gap-2">
           {[["Salon professionnel", "Salon"], ["Particulier", "Particulier"]].map(([label, val]) => (
-            <button key={val} onClick={() => setData(d => ({ ...d, type: val, ...(val !== "Salon" ? { salon_category: "" } : {}) }))}
+            <button key={val} onClick={() => setData(d => ({ ...d, type: val, ...(val === "Particulier" ? { seats_count: 1 } : {}), ...(val !== "Salon" ? { salon_category: "" } : {}) }))}
               className={`flex items-center gap-2 p-3 rounded-2xl border text-[13px] font-medium transition-all ${data.type === val ? "border-primary bg-orange-50" : "border-gray-200 bg-white"}`}>
               <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${data.type === val ? "border-primary" : "border-gray-300"}`}>
                 {data.type === val && <div className="w-2 h-2 rounded-full bg-primary" />}
@@ -292,12 +292,12 @@ function Step1({ data, setData, errors }) {
         )}
       </div>
 
-      {/* Nombre de sièges disponibles */}
-      <div>
+      {/* Un particulier ne peut accueillir qu'un client à la fois. */}
+      {data.type === "Salon" && <div>
         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nombre de sièges disponibles</p>
         <p className="text-[11px] text-gray-400 font-medium mb-3">Postes disponibles en simultané — utilisé par le système de réservation</p>
         <SeatsDrumPicker value={data.seats_count || 1} onChange={v => setData(d => ({ ...d, seats_count: v }))} />
-      </div>
+      </div>}
     </div>
   );
 }
@@ -1579,13 +1579,15 @@ export default function DevenirPro() {
   const [data, setDataRaw] = useState(() => {
     try {
       const saved = localStorage.getItem(DRAFT_KEY);
-      return saved ? JSON.parse(saved) : {};
+      const restored = saved ? JSON.parse(saved) : {};
+      return { ...restored, seats_count: restored.type === "Particulier" ? 1 : (restored.seats_count || 1) };
     } catch { return {}; }
   });
 
   const setData = useCallback((updater) => {
     setDataRaw(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
+      const updated = typeof updater === "function" ? updater(prev) : updater;
+      const next = updated?.type === "Particulier" ? { ...updated, seats_count: 1 } : updated;
       try { localStorage.setItem(DRAFT_KEY, JSON.stringify(next)); } catch {}
       return next;
     });
@@ -1661,7 +1663,7 @@ export default function DevenirPro() {
           days: data.days || ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"],
           time_slots: data.time_slots || [],
           commodites: data.commodites || [],
-          seats_count: data.seats_count || 1,
+          seats_count: data.type === "Particulier" ? 1 : (data.seats_count || 1),
           se_deplace: data.deplace || false,
           travail_nuit: data.nuit || false,
           visite_video_url: data.visite_video_url || "",

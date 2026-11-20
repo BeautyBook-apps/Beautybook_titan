@@ -13,10 +13,69 @@ import {
 } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { apiClient } from '@/lib/apiClient';
-import { analyzePhotoWithGrok } from '@/lib/grokService';
 import { useLikedProducts } from "@/hooks/useLikedProducts";
 import { useCartSync } from "@/hooks/useCartSync";
 import { useTheme } from "@/hooks/useTheme";
+
+function imageUrl(value) {
+  return typeof value === "string" ? value : value?.url || value?.src || value?.image_url || "";
+}
+
+function productReferenceImages(product) {
+  return [...new Set([
+    product?.img,
+    product?.image_url,
+    ...(Array.isArray(product?.images) ? product.images : []),
+  ].map(imageUrl).filter(Boolean))].slice(0, 8);
+}
+
+const OUTFIT_SLOTS = {
+  top: { label: "Haut", emoji: "👕", category: "Vêtements", terms: ["haut", "t-shirt", "tshirt", "chemise", "blouse", "pull", "polo", "débardeur", "top", "crop"] },
+  bottom: { label: "Bas", emoji: "👖", category: "Vêtements", terms: ["pantalon", "jean", "jupe", "short", "legging", "bermuda", "bas"] },
+  jacket: { label: "Veste", emoji: "🧥", category: "Vêtements", terms: ["veste", "manteau", "blazer", "gilet", "cardigan", "jacket", "coat"] },
+  shoes: { label: "Chaussures", emoji: "👟", category: "Chaussures", terms: ["chauss", "basket", "sneaker", "botte", "sandale", "escarpin", "mocassin"] },
+  bag: { label: "Sac", emoji: "👜", category: "Sacs & accessoires", terms: ["sac", "bag", "pochette", "cartable", "accessoire"] },
+};
+
+function normalizeCatalogText(value) {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function productsForOutfitSlot(products, slot) {
+  const config = OUTFIT_SLOTS[slot];
+  if (!config) return [];
+  const categoryTerms = slot === "shoes" ? ["chauss", "footwear"]
+    : slot === "bag" ? ["sac", "bag", "accessoire"]
+      : ["vetement", "clothing", "mode", "habillement"];
+  const termMatches = product => {
+    const details = normalizeCatalogText([
+      product.name, product.category, product.sub_category, product.productType,
+      ...(Array.isArray(product.tags) ? product.tags : []),
+    ].join(" "));
+    return config.terms.some(term => details.includes(normalizeCatalogText(term)));
+  };
+  const categoryMatches = product => {
+    const category = normalizeCatalogText(`${product.category || ""} ${product.sub_category || ""} ${product.productType || ""}`);
+    return categoryTerms.some(term => category.includes(normalizeCatalogText(term)));
+  };
+  const specificMatches = products.filter(termMatches);
+  if (specificMatches.length) return specificMatches;
+  const categoryMatchesForSlot = products.filter(categoryMatches);
+  if (categoryMatchesForSlot.length) return categoryMatchesForSlot;
+  // Some shop listings are tagged only as Homme/Femme. Use that broad Boutique
+  // category as a final fallback for clothing, while excluding bags and shoes.
+  if (slot !== "shoes" && slot !== "bag") return products.filter(product => {
+    const details = normalizeCatalogText([
+      product.name, product.category, product.sub_category, product.productType,
+      ...(Array.isArray(product.tags) ? product.tags : []),
+    ].join(" "));
+    const broadClothingCategory = ["homme", "femme", "vetement", "mode", "habillement"].some(term => details.includes(term));
+    const anotherSlot = OUTFIT_SLOTS.shoes.terms.some(term => details.includes(normalizeCatalogText(term)))
+      || OUTFIT_SLOTS.bag.terms.some(term => details.includes(normalizeCatalogText(term)));
+    return broadClothingCategory && !anotherSlot;
+  });
+  return [];
+}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -241,28 +300,75 @@ function UploadZone({ image, onUpload, onClear, label, hint, accent = true }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // PIECE UPLOAD
 // ─────────────────────────────────────────────────────────────────────────────
-function PieceUpload({ label, emoji, image, onUpload, onClear }) {
-  const ref = useRef();
+function PieceUpload({ label, emoji, image, productName, onBrowse, onClear }) {
   return (
     <div className="flex flex-col gap-1.5">
       {image ? (
-        <div className="relative aspect-square rounded-2xl overflow-hidden bg-gray-100 shadow-sm">
-          <BeautyImage src={image} alt={label} className="w-full h-full object-cover" />
-          <button onClick={onClear} className="absolute top-1.5 right-1.5 w-6 h-6 bg-black/60 rounded-full flex items-center justify-center">
+        <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-gray-100 shadow-sm">
+          <button type="button" onClick={onBrowse} aria-label={`Remplacer ${label}`} className="h-full w-full">
+            <BeautyImage src={image} alt={productName || label} className="w-full h-full object-cover" />
+          </button>
+          <button type="button" aria-label={`Retirer ${label}`} onClick={onClear} className="absolute top-1.5 right-1.5 w-6 h-6 bg-black/60 rounded-full flex items-center justify-center">
             <X className="w-3 h-3 text-white" />
           </button>
           <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent py-1.5 px-2">
-            <p className="text-white text-[9px] font-black">{label}</p>
+            <p className="text-white text-[9px] font-black">{productName || label}</p>
           </div>
         </div>
       ) : (
-        <button onClick={() => ref.current?.click()}
+        <button type="button" onClick={onBrowse}
           className="aspect-square rounded-2xl border-2 border-dashed border-primary/30 bg-primary/5 flex flex-col items-center justify-center gap-1.5 active:scale-[0.98] transition-all">
           <span className="text-[22px]">{emoji}</span>
           <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{label}</span>
+          <span className="text-[9px] font-bold text-primary">Choisir dans la boutique</span>
         </button>
       )}
-      <input ref={ref} type="file" accept="image/*" className="hidden" onChange={onUpload} />
+    </div>
+  );
+}
+
+function OutfitProductPicker({ slot, products, currentImage, onSelect, onUpload, onClose }) {
+  const [query, setQuery] = useState("");
+  const config = OUTFIT_SLOTS[slot];
+  const available = productsForOutfitSlot(products, slot);
+  const matches = available.filter(product => !query.trim()
+    || normalizeCatalogText(`${product.name} ${product.brand} ${product.category} ${product.sub_category} ${product.productType}`)
+      .includes(normalizeCatalogText(query)));
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-5" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <section role="dialog" aria-modal="true" aria-label={`Choisir ${config.label} dans la boutique`} className="flex max-h-[88dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+        <header className="flex items-center gap-3 border-b border-gray-100 px-4 py-4">
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-50 text-xl">{config.emoji}</span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[15px] font-black text-gray-900">Choisir {config.label.toLowerCase()}</h2>
+            <p className="text-[11px] font-medium text-gray-500">Produits de la catégorie {config.category} dans la boutique</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Fermer" className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-600"><X className="h-4 w-4" /></button>
+        </header>
+        <div className="space-y-3 overflow-y-auto p-4">
+          <label className="flex items-center gap-2 rounded-2xl bg-gray-100 px-3 py-2.5">
+            <Search className="h-4 w-4 shrink-0 text-gray-400" />
+            <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder={`Rechercher ${config.label.toLowerCase()}…`} className="min-w-0 flex-1 bg-transparent text-[13px] outline-none" />
+          </label>
+          <label className="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-orange-200 bg-orange-50/60 text-[12px] font-bold text-primary">
+            <Camera className="h-4 w-4" /> Importer une photo personnelle
+            <input type="file" accept="image/*" className="hidden" onChange={onUpload} />
+          </label>
+          {matches.length ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {matches.map(product => {
+                const image = productReferenceImages(product)[0];
+                const selected = currentImage === image;
+                return <button key={product.id} type="button" onClick={() => onSelect(product)} className={`overflow-hidden rounded-2xl border-2 text-left transition ${selected ? "border-primary shadow-md" : "border-gray-100"}`}>
+                  <div className="relative aspect-square bg-gray-50"><BeautyImage src={image} alt={product.name} className="h-full w-full object-cover" />{selected && <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-white"><Check className="h-4 w-4" /></span>}</div>
+                  <span className="block p-2.5"><span className="block truncate text-[11px] font-black text-gray-800">{product.name}</span><span className="block truncate text-[10px] text-gray-500">{product.category || product.sub_category || config.category}</span><span className="mt-1 block text-[11px] font-black text-primary">{product.price}€</span></span>
+                </button>;
+              })}
+            </div>
+          ) : <div className="py-10 text-center"><ShoppingCart className="mx-auto h-8 w-8 text-gray-300" /><p className="mt-2 text-[12px] font-bold text-gray-500">Aucun produit de cette catégorie dans la boutique.</p><p className="mt-1 text-[10px] text-gray-400">Vous pouvez importer une photo personnelle.</p></div>}
+        </div>
+      </section>
     </div>
   );
 }
@@ -390,7 +496,11 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [topPhoto, setTopPhoto] = useState(draft?.topPhoto || null);
   const [bottomPhoto, setBottomPhoto] = useState(draft?.bottomPhoto || null);
+  const [jacketPhoto, setJacketPhoto] = useState(draft?.jacketPhoto || null);
   const [shoesPhoto, setShoesPhoto] = useState(draft?.shoesPhoto || null);
+  const [bagPhoto, setBagPhoto] = useState(draft?.bagPhoto || null);
+  const [outfitPickerSlot, setOutfitPickerSlot] = useState(null);
+  const [outfitProductNames, setOutfitProductNames] = useState({});
   const [result, setResult] = useState(draft?.result || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -481,24 +591,28 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
       
       let analysisData = null;
       try {
-        analysisData = await analyzePhotoWithGrok(url);
-      } catch (err) {
-        console.warn('Grok analysis fallback in ShAI:', err);
-      }
-
-      if (!analysisData) {
-        const res = await apiClient.callFunction('analyzePhoto', { photoUrl: url, productName });
+        const res = await apiClient.callFunction('museAnalyze', {
+          photo_url: url,
+          image_urls: productReferenceImages(selectedProduct),
+          user_context: { productName },
+          module: mode === 'tenue' ? 'styliste_ia' : 'ai_style_changer',
+          page: 'sh-ai',
+          category: mode === 'tenue' ? 'outfit' : 'article',
+          target_area: 'silhouette et vêtement sélectionné',
+        });
         analysisData = res.data;
+      } catch (err) {
+        console.warn('Muse analysis unavailable in ShAI:', err);
       }
       setPhotoAnalysis(analysisData);
     } catch (e) {
       console.warn('Photo analysis soft fallback:', e);
       setPhotoAnalysis({
-        has_person: true,
-        body_visible: true,
-        quality_ok: true,
-        issues: [],
-        suggestion: 'Photo nette et bien cadrée pour l’essayage.'
+        has_person: false,
+        body_visible: false,
+        quality_ok: false,
+        issues: ['ANALYSIS_UNAVAILABLE'],
+        suggestion: 'L’analyse visuelle est momentanément indisponible. Vérifiez la photo et réessayez.'
       });
     } finally {
       setAnalyzingPhoto(false);
@@ -513,10 +627,17 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
     analyzePhoto(url, selectedProduct?.name || "", file);
   };
 
-  const handlePiece = async (e, setter) => {
+  const setOutfitPiece = (slot, image, productName = "") => {
+    const setters = { top: setTopPhoto, bottom: setBottomPhoto, jacket: setJacketPhoto, shoes: setShoesPhoto, bag: setBagPhoto };
+    setters[slot]?.(image);
+    setOutfitProductNames(current => ({ ...current, [slot]: image ? productName : "" }));
+    setResult(null);
+  };
+
+  const handlePiece = async (e, slot) => {
     const file = e.target.files[0]; if (!file) return;
     const url = await doUploadFile(file); if(!url)return;
-    setter(url); setResult(null); e.target.value = "";
+    setOutfitPiece(slot, url, "Photo importée"); e.target.value = "";
   };
 
   const abortRef = useRef(null);
@@ -528,19 +649,29 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
     setLoading(true); setError(null);
     const controller = new AbortController();
     abortRef.current = controller;
-    const garmentPhoto = mode === "article" ? selectedProduct.img : (topPhoto || bottomPhoto);
+    const referenceImages = mode === "article"
+      ? productReferenceImages(selectedProduct)
+      : [topPhoto, bottomPhoto, jacketPhoto, shoesPhoto, bagPhoto].filter(Boolean).slice(0, 8);
+    const garmentPhoto = referenceImages[0];
     const garmentName = mode === "article"
       ? selectedProduct.name
-      : `tenue (${[topPhoto && "haut", bottomPhoto && "bas", shoesPhoto && "chaussures"].filter(Boolean).join(", ")})`;
+      : `tenue (${[topPhoto && "haut", bottomPhoto && "bas", jacketPhoto && "veste", shoesPhoto && "chaussures", bagPhoto && "sac"].filter(Boolean).join(", ")})`;
     try {
       const apiCall = apiClient.callFunction("shAiTryOn", {
         user_photo: userPhoto,
         garment_photo: garmentPhoto,
+        reference_images: referenceImages,
         garment_name: garmentName,
+        styleName: garmentName,
         preserve_face: true,
         preserve_background: true,
         mode: mode === "tenue" ? "outfit" : "article",
-        outfit_pieces: mode === "tenue" ? { top: topPhoto, bottom: bottomPhoto, shoes: shoesPhoto } : undefined,
+        outfit_pieces: mode === "tenue" ? { top: topPhoto, bottom: bottomPhoto, jacket: jacketPhoto, shoes: shoesPhoto, bag: bagPhoto } : undefined,
+        module: mode === "tenue" ? "styliste_ia" : "ai_style_changer",
+        page: "sh-ai",
+        category: mode === "tenue" ? "outfit" : "article",
+        target_area: "silhouette complète",
+        operation: mode === "tenue" ? "outfit_styling" : "style_change",
       }, { signal: controller.signal });
       const res = await apiCall;
       setLoading(false);
@@ -570,7 +701,7 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
 
   const reset = () => {
     setResult(null); setSelectedProduct(preSelectedProduct || null);
-    setTopPhoto(null); setBottomPhoto(null); setShoesPhoto(null); setError(null);
+    setTopPhoto(null); setBottomPhoto(null); setJacketPhoto(null); setShoesPhoto(null); setBagPhoto(null); setOutfitProductNames({}); setError(null);
     setPhotoAnalysis(null); setUserPhoto(null);
     localStorage.removeItem(SHAI_DRAFT_KEY);
   };
@@ -819,9 +950,10 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
           ) : (
             <div className="space-y-3">
               <div className="grid grid-cols-3 gap-3">
-                <PieceUpload label="Haut" emoji="👕" image={topPhoto} onUpload={e => handlePiece(e, setTopPhoto)} onClear={() => setTopPhoto(null)} />
-                <PieceUpload label="Bas" emoji="👖" image={bottomPhoto} onUpload={e => handlePiece(e, setBottomPhoto)} onClear={() => setBottomPhoto(null)} />
-                <PieceUpload label="Chaussures" emoji="👟" image={shoesPhoto} onUpload={e => handlePiece(e, setShoesPhoto)} onClear={() => setShoesPhoto(null)} />
+                {Object.entries(OUTFIT_SLOTS).map(([slot, config]) => {
+                  const images = { top: topPhoto, bottom: bottomPhoto, jacket: jacketPhoto, shoes: shoesPhoto, bag: bagPhoto };
+                  return <PieceUpload key={slot} label={config.label} emoji={config.emoji} image={images[slot]} productName={outfitProductNames[slot]} onBrowse={() => setOutfitPickerSlot(slot)} onClear={() => setOutfitPiece(slot, null)} />;
+                })}
               </div>
             </div>
           )}
@@ -839,6 +971,18 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
         <Wand2 className="w-5 h-5" />
         {mode === "tenue" ? "Essayer cette tenue" : "Essayer cet article"}
       </button>
+      {outfitPickerSlot && <OutfitProductPicker
+        slot={outfitPickerSlot}
+        products={products}
+        currentImage={({ top: topPhoto, bottom: bottomPhoto, jacket: jacketPhoto, shoes: shoesPhoto, bag: bagPhoto })[outfitPickerSlot]}
+        onSelect={product => {
+          const image = productReferenceImages(product)[0];
+          setOutfitPiece(outfitPickerSlot, image, product.name || product.title || OUTFIT_SLOTS[outfitPickerSlot].label);
+          setOutfitPickerSlot(null);
+        }}
+        onUpload={async event => { await handlePiece(event, outfitPickerSlot); setOutfitPickerSlot(null); }}
+        onClose={() => setOutfitPickerSlot(null)}
+      />}
     </div>
   );
 }
@@ -879,7 +1023,13 @@ function EchangeTenues() {
     const url = await doUploadFile(file); if(!url)return;
     setReferencePhoto(url); setResult(null); setSearchResults([]); setDetectedItems([]);
     setSearching(true);
-    const res = await apiClient.callFunction("shAiImageSearch", { image_url: url }).catch(e => {setError(e.message);return null;});
+    const res = await apiClient.callFunction("shAiImageSearch", {
+      image_url: url,
+      module: "ai_style_changer",
+      page: "sh-ai",
+      category: "article",
+      target_area: "vêtement sélectionné",
+    }).catch(e => {setError(e.message);return null;});
     if (res?.data?.products) setSearchResults(res.data.products);
     if (res?.data?.detected_items) setDetectedItems(res.data.detected_items);
     setSearching(false);
@@ -897,6 +1047,11 @@ function EchangeTenues() {
       const apiCall = apiClient.callFunction("shAiTryOn", {
         user_photo: userPhoto, garment_photo: referencePhoto, garment_name: "tenue de référence",
         preserve_face: true, preserve_background: true, mode: "exchange",
+        module: "ai_style_changer",
+        page: "sh-ai",
+        category: "article",
+        target_area: "silhouette complète",
+        operation: "exchange_style",
       }, {signal:controller.signal});
       const res = await apiCall;
       setLoading(false);
@@ -1123,13 +1278,38 @@ export default function ShAI() {
     Promise.allSettled([
       fetchShopifyProducts({}).then(r => r.data?.products || []),
       entities.Produit.filter({ status: "actif" }, "-created_at", 200)
-        .then(items => items.map(p => ({ id: p.id, name: p.name, brand: p.brand || "", price: p.price, img: (p.images && p.images[0]) || (p.image_url) || "" }))),
-    ]).then(([shopify, db]) => {
+        .then(items => items.map(p => ({
+          id: p.id,
+          name: p.name,
+          brand: p.brand || "",
+          price: p.price,
+          img: imageUrl(p.images?.[0]) || imageUrl(p.image_url),
+          image_url: p.image_url || "",
+          images: [p.image_url, ...(p.images || [])].filter(Boolean),
+          category: p.category || "",
+          sub_category: p.sub_category || "",
+          tags: p.tags || [],
+        }))),
+      entities.AppConfig.filter({ key: "shopify_category_mappings" }, "-created_at", 50)
+        .then(rows => rows[0]?.value?.products || rows[0]?.value || {})
+        .catch(() => ({})),
+    ]).then(([shopify, db, mappings]) => {
+      const categoryOverrides = mappings.status === "fulfilled" ? mappings.value : {};
+      const shopifyProducts = (shopify.status === "fulfilled" ? shopify.value : []).map(product => {
+        const override = categoryOverrides[product.id] || {};
+        return {
+          ...product,
+          category: override.category ?? product.category ?? product.productType ?? "",
+          sub_category: override.sub_category ?? product.sub_category ?? "",
+          tags: override.tags ?? product.tags ?? [],
+        };
+      });
       const all = [
         ...(db.status === "fulfilled" ? db.value : []),
-        ...(shopify.status === "fulfilled" ? shopify.value : []),
+        ...shopifyProducts,
       ].filter(p => p.img);
-      setProducts(all);
+      const deduplicated = [...new Map(all.map(product => [product.id, product])).values()];
+      setProducts(deduplicated);
     });
   }, []);
 

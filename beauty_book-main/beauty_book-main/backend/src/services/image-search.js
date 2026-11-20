@@ -2,6 +2,7 @@ import db from '../config/pg.js';
 import {assert,HttpError} from '../lib/errors.js';
 import {generateText,extractText,checkedImage} from './openai.js';
 import {generateVisionText,isXaiConfigured} from './xai.js';
+import {isMuseConfigured,museDetectBeautyItems} from './muse.js';
 const VISION_PROMPT='Analyse uniquement les éléments beauté visibles sur cette image. Priorise la coiffure ou le style de cheveux (coupe, tresses, twists, locks, perruque, texture, couleur), puis le maquillage, les ongles et les soins si visibles. Ne déduis aucune caractéristique personnelle et ne donne aucun score. Réponds uniquement en JSON {"detected_items":[{"type":"nom court en français","color":"couleur"}]}, avec 5 éléments maximum.';
 export function createImageSearch(database=db,generate=null){return async({image_url})=>{
  const safeImage=checkedImage(image_url);
@@ -10,6 +11,9 @@ export function createImageSearch(database=db,generate=null){return async({image
  if(generate){
   const response=await generate({input:[{role:'user',content:[{type:'input_image',image_url:safeImage},{type:'input_text',text:VISION_PROMPT}]}],max_output_tokens:450});
   responseText=extractText(response);
+ }else if(isMuseConfigured()){
+  const museResult=await museDetectBeautyItems(safeImage);
+  responseText=JSON.stringify(museResult);
  }else if(useGrok){
   responseText=await generateVisionText({image_url:safeImage,prompt:VISION_PROMPT});
  }else{

@@ -11,32 +11,77 @@ function getReservationStart(reservation) {
 }
 
 function normalizeAnswers(reservation) {
-  const raw = reservation?.custom_answers ?? reservation?.customAnswers ?? reservation?.questionnaire_answers ?? reservation?.answers;
+  const candidates = [
+    reservation?.custom_answers,
+    reservation?.customAnswers,
+    reservation?.questionnaire_answers,
+    reservation?.questionnaireAnswers,
+    reservation?.questionnaire_responses,
+    reservation?.form_answers,
+    reservation?.responses,
+    reservation?.reponses,
+    reservation?.answers,
+  ];
+  const hasAnswers = value => {
+    if (typeof value === "string") {
+      try { return hasAnswers(JSON.parse(value)); } catch { return value.trim().length > 0; }
+    }
+    if (Array.isArray(value)) return value.length > 0;
+    if (!value || typeof value !== "object") return false;
+    return Object.keys(value).length > 0;
+  };
+  let raw = candidates.find(hasAnswers);
+  if (typeof raw === "string") {
+    try { raw = JSON.parse(raw); } catch { return [{ id: "reponses", label: "Réponses du formulaire", value: raw }]; }
+  }
+  // Certaines intégrations stockent l'objet complet du formulaire sous une clé
+  // imbriquée plutôt que directement sous custom_answers.
+  if (raw && !Array.isArray(raw) && typeof raw === "object") {
+    raw = raw.answers ?? raw.responses ?? raw.reponses ?? raw.questions ?? raw;
+    if (typeof raw === "string") {
+      try { raw = JSON.parse(raw); } catch { return [{ id: "reponses", label: "Réponses du formulaire", value: raw }]; }
+    }
+  }
   if (Array.isArray(raw)) {
     return raw
       .map((item, index) => ({
         id: item?.id || item?.question_id || `question-${index}`,
-        label: item?.question || item?.label || item?.question_id || `Question ${index + 1}`,
-        value: item?.answer ?? item?.value,
+        label: item?.question || item?.question_text || item?.label || item?.question_id || `Question ${index + 1}`,
+        value: item && typeof item === "object" ? (item.answer ?? item.answer_text ?? item.response ?? item.value) : item,
       }))
-      .filter(item => item.value !== undefined && item.value !== null && item.value !== "");
+      .filter(item => item.value !== undefined && item.value !== null && item.value !== "" && !(Array.isArray(item.value) && item.value.length === 0));
   }
   if (!raw || typeof raw !== "object") return [];
-  const labels = reservation?.custom_answer_labels || reservation?.customAnswerLabels || {};
+  const labels = [reservation?.custom_answer_labels, reservation?.customAnswerLabels, reservation?.question_labels, reservation?.questionLabels]
+    .find(value => value && typeof value === "object" && Object.keys(value).length > 0) || {};
   return Object.entries(raw)
-    .filter(([, value]) => value !== undefined && value !== null && value !== "")
-    .map(([id, value]) => ({ id, label: labels[id] || id, value }));
+    .filter(([key, value]) => !["notes", "comment", "commentaire", "created_at", "updated_at"].includes(key.toLowerCase()) && value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0))
+    .map(([id, value]) => ({
+      id,
+      label: labels[id] || value?.question || value?.question_text || value?.label || id,
+      value: value && typeof value === "object" && !Array.isArray(value)
+        ? (value.answer ?? value.answer_text ?? value.response ?? value.value ?? value.selected ?? value)
+        : value,
+    }))
+    .filter(item => item.value !== undefined && item.value !== null && item.value !== "");
+}
+
+function getReservationComment(reservation) {
+  const comment = [reservation?.notes, reservation?.client_notes, reservation?.commentaire, reservation?.comment,
+    reservation?.client_comment, reservation?.booking_comment, reservation?.commentaire_parcours]
+    .find(value => typeof value === "string" && value.trim());
+  return comment?.trim() || "";
 }
 
 function answerText(value) {
-  if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "object" && value !== null) return Object.values(value).join(", ");
+  if (Array.isArray(value)) return value.map(answerText).filter(Boolean).join(", ");
+  if (typeof value === "object" && value !== null) return Object.values(value).map(answerText).filter(Boolean).join(", ");
   return String(value);
 }
 
 function InformationPanel({ reservation, mode, onClose, modal = false }) {
   const answers = normalizeAnswers(reservation);
-  const comment = reservation?.notes || reservation?.commentaire || reservation?.comment || reservation?.client_comment || "";
+  const comment = getReservationComment(reservation);
   const title = mode === "client" ? "Informations de ma réservation" : "Informations du client";
 
   return (
@@ -90,7 +135,7 @@ export default function ReservationClientInfo({ reservation, mode = "client", au
   const [showDetails, setShowDetails] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const answers = useMemo(() => normalizeAnswers(reservation), [reservation]);
-  const comment = reservation?.notes || reservation?.commentaire || reservation?.comment || reservation?.client_comment || "";
+  const comment = getReservationComment(reservation);
 
   useEffect(() => {
     if (!autoOnly || !reservation) return undefined;

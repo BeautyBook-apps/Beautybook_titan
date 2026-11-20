@@ -20,6 +20,7 @@ const inputCls = "w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3
 export default function RoutineModal({ onClose, onCreated, prefill = null }) {
   const [step, setStep] = useState(prefill ? 1 : 0); // 0=suggestions, 1=infos, 2=tâches, 3=objectif
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [newTask, setNewTask] = useState("");
   const [loadingDesc, setLoadingDesc] = useState(false);
   const [loadingTasks, setLoadingTasks] = useState(false);
@@ -131,25 +132,35 @@ export default function RoutineModal({ onClose, onCreated, prefill = null }) {
   const handleSave = async () => {
     if (!form.name.trim()) return;
     setSaving(true);
-    const user = await supabase.auth.getUser().then(({ data }) => data?.user).catch(() => null);
-    if (!user) { setSaving(false); return; }
+    setSaveError("");
+    try {
+      const user = await supabase.auth.getUser().then(({ data }) => data?.user).catch(() => null);
+      if (!user) throw new Error("Connectez-vous pour enregistrer votre routine.");
 
-    // Calculer sessions_total selon la durée objectif et fréquence
-    const weeks = form.objectif_duree_semaines || 8;
-    const sessionsPerWeek = form.frequency === "quotidien" ? 7
-      : form.days_of_week.length || 1;
-    const sessions_total = Math.round(weeks * sessionsPerWeek);
+      // Calculer sessions_total selon la durée objectif et fréquence
+      const weeks = form.objectif_duree_semaines || 8;
+      const sessionsPerWeek = form.frequency === "quotidien" ? 7
+        : form.days_of_week.length || 1;
+      const sessions_total = Math.round(weeks * sessionsPerWeek);
 
-    const routine = await entities.RoutineBeaute.create({
-      ...form,
-      user_email: user.email,
-      sessions_total,
-      sessions_faites: 0,
-      streak: 0,
-      status: "active",
-    });
-    onCreated(routine);
-    onClose();
+      const routine = await entities.RoutineBeaute.create({
+        ...form,
+        user_email: user.email,
+        sessions_total,
+        sessions_faites: 0,
+        streak: 0,
+        status: "active",
+      });
+      onCreated(routine);
+      onClose();
+    } catch (error) {
+      console.error("[RoutineModal] Échec de l'enregistrement de la routine", error);
+      setSaveError(error?.code === "PGRST204" || /schema cache|column.*RoutineBeaute/i.test(error?.message || "")
+        ? "La base Supabase doit être mise à jour pour enregistrer cette routine. Appliquez la migration 202611200001_routine_beaute_fields.sql dans le SQL Editor."
+        : error?.message || "Impossible d'enregistrer cette routine. Réessayez.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -403,6 +414,7 @@ export default function RoutineModal({ onClose, onCreated, prefill = null }) {
 
         {/* Footer */}
         <div className="px-5 pb-6 pt-3 border-t border-gray-100 shrink-0">
+          {saveError && <p role="alert" className="mb-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-[11px] font-semibold leading-relaxed text-red-700">{saveError}</p>}
           {step > 0 && step < 3 ? (
             <button onClick={() => setStep(s => s + 1)} disabled={step === 1 && !form.name.trim()}
               className="w-full bg-primary text-white py-4 rounded-2xl font-black text-[14px] uppercase tracking-widest shadow-lg shadow-primary/30 active:scale-95 transition-all disabled:opacity-50">

@@ -5,7 +5,6 @@ import { ArrowLeft, Share2, Heart, Clock, Star, MapPin, Sparkles, MessageSquare,
 import VueClient from "@/pages/pro/VueClient";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import { entities } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
 import { likesApi } from '@/api/likes';
 import apiClient from '@/lib/apiClient';
 import { useAuth } from "@/lib/AuthContext";
@@ -601,30 +600,24 @@ export default function StyleDetail() {
       : user?.email
         ? `email-${user.email.toLowerCase()}`
         : getStyleViewerKey();
-    supabase.rpc("record_style_view", {
-      style_uuid: String(styleId),
-      viewer_key_value: viewerKey,
-      viewer_email_value: user?.email || null,
-    }).then(({ data, error }) => {
-      if (error) throw error;
-      if (Number.isFinite(Number(data))) {
+    // Use the backend compatibility endpoint as the single source of truth.
+    // Older Supabase projects do not have the optional record_style_view RPC;
+    // calling it directly produced a noisy 404 before this fallback ran.
+    apiClient.post('/content/styles/engagement', {
+      styleId: String(styleId),
+      kind: 'views',
+      viewerKey,
+      viewerEmail: user?.email || null,
+    }).then(result => {
+      if (Number.isFinite(Number(result?.value))) {
         setStyle(current => {
           if (!current) return current;
-          const next = { ...current, views: Number(data) };
+          const next = { ...current, views: Number(result.value) };
           mergePageCache(`style_${styleId}`, { style: next });
           return next;
         });
       }
-    }).catch(() => {
-      // Compatibilité avec une instance backend qui n'a pas encore reçu la
-      // migration RPC : le serveur historique reste un filet de sécurité.
-      apiClient.post('/content/styles/engagement', {
-        styleId: String(styleId),
-        kind: 'views',
-        viewerKey,
-        viewerEmail: user?.email || null,
-      }).catch(() => {});
-    });
+    }).catch(() => {});
   }, [styleId, user?.email, user?.id]);
 
   useEffect(() => {
@@ -1036,8 +1029,10 @@ export default function StyleDetail() {
           initialStyle={{
             id: st.id,
             label: st.title,
-            img: st.images?.[0] || st.thumbnail_url || st.image_url || st.cover || mediaList.find(url => !/\.(mp4|webm|mov)(\?|$)/i.test(url)),
-            allImages: (st.images || [st.thumbnail_url || st.image_url || st.cover].filter(Boolean)).filter(url => !/\.(mp4|webm|mov)(\?|$)/i.test(url)),
+            img: (st.images || []).map(image => image?.url || image).find(url => url && !/\.(mp4|webm|mov)(\?|$)/i.test(url)) || st.thumbnail_url || st.image_url || st.cover || mediaList.find(url => !/\.(mp4|webm|mov)(\?|$)/i.test(url)),
+            allImages: [...(st.images || []), st.thumbnail_url, st.image_url, st.cover]
+              .map(image => image?.url || image)
+              .filter(url => url && !/\.(mp4|webm|mov)(\?|$)/i.test(url)),
             author: st.author_name || st.author || null,
             category: st.category || null,
           }}

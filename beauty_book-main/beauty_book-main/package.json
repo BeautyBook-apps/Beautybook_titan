@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "node ./node_modules/vite/bin/vite.js",
     "dev:api": "npm --prefix backend run dev",
-    "dev:full": "concurrently -k -n api,app -c magenta,cyan \"npm run dev:api\" \"npm run dev\"",
+    "dev:worker": "npm --prefix backend run worker",
+    "dev:full": "node ./node_modules/concurrently/dist/bin/index.js -k -n api,worker,app -c magenta,yellow,cyan \"npm run dev:api\" \"npm run dev:worker\" \"npm run dev\"",
     "dev:admin": "node ./node_modules/vite/bin/vite.js --config vite.admin.config.js",
     "dev:seller": "node ./node_modules/vite/bin/vite.js --config vite.seller.config.js",
-    "dev:all": "concurrently -n app,admin,seller -c cyan,magenta,yellow \"npm run dev\" \"npm run dev:admin\" \"npm run dev:seller\"",
+    "dev:all": "node ./node_modules/concurrently/dist/bin/index.js -n app,admin,seller -c cyan,magenta,yellow \"npm run dev\" \"npm run dev:admin\" \"npm run dev:seller\"",
     "build": "node scripts/export-questionnaires.mjs && node ./node_modules/vite/bin/vite.js build",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",

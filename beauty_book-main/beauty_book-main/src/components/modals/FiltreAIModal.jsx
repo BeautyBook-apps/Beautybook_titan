@@ -7,7 +7,6 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronUp, Shield, Download, Heart, Check, Search, Sparkles, ImageIcon, GalleryHorizontalEnd, Loader2, Camera, Scissors } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { apiClient } from '@/lib/apiClient';
-import { analyzePhotoWithGrok } from '@/lib/grokService';
 
 
 
@@ -27,6 +26,27 @@ const GUIDE_TIPS = [
   { icon: "📏", title: "Tête bien droite", desc: "Regardez l'objectif sans incliner la tête" },
   { icon: "☀️", title: "Bonne luminosité", desc: "Évitez les ombres fortes sur le visage" },
 ];
+
+function imageUrl(value) {
+  return typeof value === "string" ? value : value?.url || value?.src || value?.image_url || "";
+}
+
+function styleReferenceImages(style) {
+  return [...new Set([
+    ...(Array.isArray(style?.allImages) ? style.allImages : []),
+    style?.img,
+  ].map(imageUrl).filter(Boolean))].slice(0, 8);
+}
+
+function styleTargetArea(category) {
+  const targets = {
+    manucure: "ongles des mains",
+    pedicure: "ongles des pieds",
+    maquillage: "zones de maquillage du visage",
+    tatouage: "zone du tatouage",
+  };
+  return targets[String(category || "").toLowerCase()] || "cheveux";
+}
 
 
 
@@ -69,8 +89,8 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
           .map(s => ({
             id: s.id,
             label: s.title || s.name || "Style",
-            img: (s.images?.[0]) || s.thumbnail_url,
-            allImages: s.images || [s.thumbnail_url].filter(Boolean),
+            img: imageUrl(s.images?.[0]) || imageUrl(s.thumbnail_url),
+            allImages: [...(s.images || []), s.thumbnail_url].map(imageUrl).filter(Boolean),
             author: s.author_name || null,
             category: s.category,
           }));
@@ -148,28 +168,35 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
       const { file_url } = await uploadFile({ file }, 'uploads');
       setUserPhotoUploadedUrl(file_url);
       
-      // Use Grok AI analysis
-      let analysisData = null;
-      try {
-        analysisData = await analyzePhotoWithGrok(file_url);
-      } catch (err) {
-        console.warn('Grok analysis error, fallback to apiClient', err);
-      }
-
-      if (!analysisData) {
-        const res = await apiClient.callFunction('analyzePhoto', { photoUrl: file_url, productName: 'coiffure' });
-        analysisData = res.data;
-      }
-      setPhotoAnalysis(analysisData);
+      // Keep the whole hairstyle flow on the server-side Muse integration.
+      // This avoids using a browser-side Grok key and keeps the validation
+      // provider consistent with the image generation provider.
+      const res = await apiClient.callFunction('museAnalyze', {
+        module: 'ai_style_changer',
+        page: 'maria/filtre-ai',
+        category: selectedStyle?.category || 'coiffure',
+        target_area: styleTargetArea(selectedStyle?.category),
+        operation: 'photo_validation',
+        photo_url: file_url,
+        image_urls: styleReferenceImages(selectedStyle),
+        user_context: { productName: selectedStyle?.label || 'style' },
+      });
+      setPhotoAnalysis({
+        ...res.data,
+        has_person: res.data?.has_person !== false,
+        body_visible: res.data?.body_visible !== false,
+        quality_ok: res.data?.quality_ok !== false,
+      });
     } catch (e) {
       console.error('Photo analysis failed:', e);
-      // Non-blocking fallback to let user proceed
+      // Keep the simulation available, but never pretend that the image was
+      // validated when Muse could not analyze it.
       setPhotoAnalysis({
-        has_person: true,
-        body_visible: true,
-        quality_ok: true,
-        issues: [],
-        suggestion: 'Photo prête pour l’essayage.'
+        has_person: false,
+        body_visible: false,
+        quality_ok: false,
+        issues: ['ANALYSIS_UNAVAILABLE'],
+        suggestion: 'L’analyse Muse IA est momentanément indisponible. Vérifiez la photo et réessayez.'
       });
     } finally {
       setAnalyzingPhoto(false);
@@ -190,9 +217,16 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
       }
       const response = await apiClient.callFunction('shAiTryOn', {
         user_photo: uploadedUrl,
-        garment_photo: selectedStyle.allImages?.filter(Boolean)[0] || selectedStyle.img,
-        garment_name: 'coiffure: ' + selectedStyle.label,
-        mode: 'hair'
+        garment_photo: styleReferenceImages(selectedStyle)[0],
+        reference_images: styleReferenceImages(selectedStyle),
+        garment_name: `${selectedStyle.category || 'style'}: ${selectedStyle.label}`,
+        styleName: selectedStyle.label,
+        mode: 'hair',
+        module: 'ai_style_changer',
+        page: 'maria/filtre-ai',
+        category: selectedStyle.category || 'coiffure',
+        target_area: styleTargetArea(selectedStyle.category),
+        operation: 'style_change',
       }, {
         onProgress: job => setProgressMsg(job.status === 'queued' ? 'Votre demande est dans la file d’attente…' : 'Génération de votre coiffure…')
       });
@@ -215,8 +249,10 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
             ? 'Votre quota gratuit du jour est épuisé. Achetez un pack de crédits pour continuer.'
           : ['AUTH_REQUIRED', 'SESSION_INVALID'].includes(e.code)
           ? 'Connectez-vous pour lancer une simulation de coiffure.'
-          : e.code === 'AI_PROVIDER_ERROR'
-            ? 'Le service Grok n’a pas pu traiter cette photo. Réessayez dans quelques instants.'
+          : ['AI_PROVIDER_ERROR', 'MUSE_PROVIDER_ERROR', 'MUSE_NETWORK_ERROR', 'INVALID_IMAGE_RESULT'].includes(e.code)
+            ? (e.code === 'MUSE_PROVIDER_ERROR' && e.message
+              ? e.message
+              : 'Muse IA n’a pas pu générer cette simulation. Vérifiez que le serveur est démarré puis réessayez dans quelques instants.')
           : e.message || 'La simulation n’a pas pu être générée.';
       setErrorMsg(message);
       if (e.code === 'AI_QUOTA_REACHED') {
@@ -305,11 +341,11 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     <h3 className="text-[24px] font-black text-gray-900 mt-3">AI Hairstyle</h3>
                     <p className="text-[22px] font-black text-primary">Changer</p>
                     <p className="text-[13px] text-gray-600 mt-3 leading-relaxed">
-                      Notre IA Grok génère une <strong>vraie photo de vous</strong> avec la coiffure choisie en quelques secondes.
+                      Muse IA génère une <strong>vraie photo de vous</strong> avec la coiffure choisie en quelques secondes.
                     </p>
                     <div className="mt-3 flex items-center justify-center gap-1.5 bg-white/70 rounded-2xl px-3 py-2">
                       <Sparkles className="w-3.5 h-3.5 text-primary" />
-                      <span className="text-[11px] font-black text-primary">Propulsé par Grok</span>
+                      <span className="text-[11px] font-black text-primary">Propulsé par Muse IA</span>
                     </div>
                   </div>
                   <div className="space-y-3">
@@ -457,7 +493,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     {selectedStyle.author && (
                       <p className="text-[10px] text-primary font-bold">✦ Publié par {selectedStyle.author}</p>
                     )}
-                    <p className="text-[11px] text-gray-500">Grok va générer votre photo avec ce style</p>
+                    <p className="text-[11px] text-gray-500">Muse IA va générer votre photo avec ce style</p>
                   </div>
                   {!stylesExpanded && <Check className="h-5 w-5 shrink-0 text-green-600" aria-label="Style actif" />}
                 </div>
@@ -621,7 +657,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                 <div className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 border ${result.fallback ? "bg-purple-50 border-purple-100" : "bg-gradient-to-r from-orange-50 to-yellow-50 border-orange-100"}`}>
                   <Sparkles className={`w-3.5 h-3.5 ${result.fallback ? "text-purple-500" : "text-primary"}`} />
                   <span className={`text-[11px] font-black ${result.fallback ? "text-purple-600" : "text-primary"}`}>
-                    {result.fallback ? "Généré par IA (mode fallback)" : "Généré par Grok"}
+                    {result.fallback ? "Généré par IA (mode fallback)" : "Généré par Muse IA"}
                   </span>
                 </div>
               </div>
@@ -700,7 +736,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     onTouchEnd={() => setIsDragging(false)}
                     onTouchMove={onTouchMove}
                   >
-                    {/* APRÈS — image générée par Grok */}
+                    {/* APRÈS — image générée par Muse IA */}
                     <div className="absolute inset-0">
                       <BeautyImage
                         src={result.generatedImageUrl}
@@ -749,7 +785,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     {result.author && (
                       <p className="text-[11px] text-primary font-bold">✦ Style de {result.author}</p>
                     )}
-                    <p className="text-[11px] text-gray-400 font-medium">Image générée par Grok</p>
+                    <p className="text-[11px] text-gray-400 font-medium">Image générée par Muse IA</p>
                   </div>
                 </div>
               </div>

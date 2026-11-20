@@ -9,6 +9,7 @@ const input={mode:'article',user_photo:'https://images.test.invalid/person.png',
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2ioAAAAASUVORK5CYII=','base64');
 test('image inputs reject invalid schemes, modes and oversized payloads',()=>{
  assert.equal(imageInput(input).images.length,2);
+ assert.deepEqual(imageInput({...input,reference_images:['https://images.test.invalid/front.png','https://images.test.invalid/back.png']}).images.slice(1),['https://images.test.invalid/front.png','https://images.test.invalid/back.png']);
  for(const bad of [{mode:'arbitrary'},{user_photo:'file:///private.txt'},{user_photo:'https://user:secret@host.invalid/photo'},{garment_photo:null},{user_photo:'data:image/svg+xml;base64,PHN2Zz4='}])assert.throws(()=>imageInput({...input,...bad}));
  assert.equal(imageInput({...input,mode:'outfit',outfit_pieces:{top:input.garment_photo,bottom:input.garment_photo}}).images.length,3);
 });

@@ -1,6 +1,6 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Search, Bell, SlidersHorizontal, Star, MapPin, User, Flame, CheckCircle } from "lucide-react";
 import MapWithPricePins from "@/components/map/MapWithPricePins";
 import AdvancedFilterSheet from "@/components/filters/AdvancedFilterSheet";
@@ -63,12 +63,15 @@ const ENTITY_TABS = [
 
 export default function Services() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { filterByRadius, hasLocation } = useLocation();
   const [search, setSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({});
   const [activeCategory, setActiveCategory] = useState(null);
-  const [activeTab, setActiveTab] = useState("all");
+  const requestedTab = searchParams.get("tab");
+  const initialTab = ENTITY_TABS.some(tab => tab.id === requestedTab) ? requestedTab : "all";
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [styles, setStyles] = useCachedState("services_page", [], c => c?.styles || []);
   const [services, setServices] = useCachedState("services_page", [], c => c?.services || []);
   const [pros, setPros] = useCachedState("services_page", [], c => c?.pros || []);

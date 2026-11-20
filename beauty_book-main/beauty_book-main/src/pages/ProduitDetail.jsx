@@ -3,6 +3,7 @@ import { fetchShopifyProducts } from "@/api/shopifyClient";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { entities } from '@/api/entities';
+import { supabase } from '@/api/supabaseClient';
 import {
   ArrowLeft, Share2, Heart, ShoppingCart, Star, ChevronRight,
   Truck, ChevronDown, ChevronUp, Check, ZoomIn, CreditCard, X, Wand2,
@@ -12,6 +13,20 @@ import { useCartSync } from "@/hooks/useCartSync";
 import { useLikedProducts } from "@/hooks/useLikedProducts";
 import { readPageCache, writePageCache, mergePageCache } from "@/hooks/usePageCache";
 import DetailShareSheet from "@/components/share/DetailShareSheet";
+
+function getProductViewerSession() {
+  try {
+    const key = "bb_product_view_session";
+    let session = localStorage.getItem(key);
+    if (!session) {
+      session = crypto.randomUUID?.() || `product-view-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(key, session);
+    }
+    return session;
+  } catch {
+    return `product-view-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
 
 // Couleurs courantes utilisées par les variantes Shopify. Les valeurs non
 // présentes dans cette palette restent affichées comme des boutons texte.
@@ -341,6 +356,7 @@ export default function ProduitDetail() {
   const { addToCart, error: cartError } = useCartSync();
   const [vendorProducts, setVendorProducts] = useState(initialCache.vendorProducts || []);
   const [productReviews, setProductReviews] = useState(initialCache.productReviews || []);
+  const trackedProductViews = useRef(new Set());
 
   useEffect(() => {
     if (!productId) { setError("Produit introuvable"); setLoading(false); return; }
@@ -399,6 +415,25 @@ export default function ProduitDetail() {
       } else { loadShopifyProduct(productId); }
     }).catch(() => { loadShopifyProduct(productId); });
   }, [productId]);
+
+  useEffect(() => {
+    if (!productId || !product || loading || trackedProductViews.current.has(String(productId))) return;
+    const id = String(productId);
+    trackedProductViews.current.add(id);
+    supabase.auth.getUser().then(({ data }) => supabase.rpc("record_product_view", {
+      product_key: id,
+      viewer_session_key: data?.user?.id ? `user-${data.user.id}` : getProductViewerSession(),
+      viewer_email_value: data?.user?.email || "",
+    })).then(({ error }) => {
+      if (error) {
+        trackedProductViews.current.delete(id);
+        console.warn("[ProduitDetail] Compteur de vues produit indisponible:", error.message);
+      }
+    }).catch(error => {
+      trackedProductViews.current.delete(id);
+      console.warn("[ProduitDetail] Compteur de vues produit indisponible:", error?.message);
+    });
+  }, [productId, product, loading]);
 
   const selectedVariant = product && !isDbProduct ? product.variants?.find(v => Object.entries(selectedOptions).every(([name, val]) => v.options.some(o => o.name === name && o.value === val))) || product.variants?.[0] : null;
   const handleOptionChange = (optionName, value) => { setSelectedOptions(prev => ({ ...prev, [optionName]: value })); };
@@ -484,7 +519,16 @@ export default function ProduitDetail() {
 
         {product.tags?.length > 0 && <div className="flex flex-wrap gap-1.5 mb-4">{product.tags.slice(0, 4).map((tag, i) => <span key={i} className="bg-gray-100 text-gray-500 text-[11px] font-bold px-2.5 py-1 rounded-full">{tag}</span>)}</div>}
 
-        <button onClick={() => navigate("/sh-ai", { state: { preSelectedProduct: { id: product.id || productId, name: product.title || product.name, price: displayPrice, img: activeProductImg, brand: product.vendor || "" } } })}
+        <button onClick={() => navigate("/sh-ai", { state: { preSelectedProduct: {
+          id: product.id || productId,
+          name: product.title || product.name,
+          price: displayPrice,
+          img: activeProductImg,
+          image_url: product.image_url || "",
+          images: galleryImages.map(image => image?.url || image).filter(Boolean),
+          brand: product.vendor || "",
+          category: product.category || product.productType || "",
+        } } })}
           className="w-full flex items-center gap-3 bg-gradient-to-r from-orange-50 to-yellow-50 border border-orange-200 rounded-2xl px-4 py-3.5 active:scale-95 transition-all mb-1">
           <div className="w-10 h-10 bg-primary rounded-2xl flex items-center justify-center shadow-md shadow-primary/30 shrink-0"><Wand2 className="w-5 h-5 text-white" /></div>
           <div className="flex-1 text-left"><p className="text-[14px] font-black text-gray-900">Essayer avec Styliste IA</p><p className="text-[11px] text-gray-500 font-medium">Simulez ce produit sur votre photo</p></div>

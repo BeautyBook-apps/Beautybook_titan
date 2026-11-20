@@ -22,6 +22,7 @@ import {imageJobs} from './services/image-jobs.js';
 import {aiCredits} from './services/ai-credits.js';
 import {imageSearch} from './services/image-search.js';
 import { chatCompletion } from './services/xai.js';
+import { isMuseConfigured, museOrchestrate } from './services/muse.js';
 import {inspectSchema} from './services/readiness.js';
 import contentRoutes from './routes/content.routes.js';
 import mapsRoutes from './routes/maps.routes.js';
@@ -98,7 +99,7 @@ export function createApp() {
   app.get('/api/ai/credits',asyncRoute(async(req,res)=>res.json(await aiCredits.summary(req.user.id,Number(process.env.AI_IMAGE_FREE_DAILY_LIMIT||process.env.AI_IMAGE_DAILY_LIMIT||5)))));
   app.post('/api/ai/credits/checkout',asyncRoute(async(req,res)=>res.json(await aiCredits.checkout(req.user,req.body.package_id,req.body.request_key||req.headers['idempotency-key'],req.body.return_path))));
   app.get('/api/capabilities',(req,res)=>res.json({
-    ai:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY),speech:Boolean(process.env.OPENAI_API_KEY),images:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY),
+    ai:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY || isMuseConfigured()),speech:Boolean(process.env.OPENAI_API_KEY),images:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY || isMuseConfigured()),
     phone:false,
     social:false,
     payments:Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET && process.env.APP_URL),
@@ -188,12 +189,35 @@ export function createApp() {
     res.json({result});
   }));
   app.post('/api/ai/analyze-photo',asyncRoute(async(req,res)=>{
+    if (isMuseConfigured()) {
+      return res.json(await museOrchestrate({
+        module: req.body.module || 'ai_style_changer',
+        page: req.body.page || 'sh-ai',
+        category: req.body.category || 'all',
+        target_area: req.body.target_area || req.body.targetArea,
+        operation: 'quality_check',
+        photo_url: req.body.photoUrl,
+        user_context: { productName: req.body.productName || '' },
+      }));
+    }
     const response=await generateText({input:[{role:'user',content:[{type:'input_image',image_url:checkedImage(req.body.photoUrl)},{type:'input_text',text:'Analyse uniquement la qualité du cadrage pour un essayage virtuel, sans inventer de score. JSON: {"has_person":boolean,"body_visible":boolean,"quality_ok":boolean,"issues":string[],"suggestion":string}. Ne déduis pas de caractéristique sensible.'}]}]});
     let result;
     try{result=JSON.parse(extractText(response).replace(/^```(?:json)?\s*|\s*```$/g,''));}catch{throw new HttpError(502,'INVALID_AI_RESULT','Analyse inexploitable.');}
     assert(['has_person','body_visible','quality_ok'].every(k=>typeof result[k]==='boolean') && Array.isArray(result.issues),502,'INVALID_AI_RESULT','Analyse inexploitable.');
     res.json(result);
   }));
+  app.post('/api/ai/muse/orchestrate',asyncRoute(async(req,res)=>res.json(await museOrchestrate({
+    module:req.body.module,
+    page:req.body.page,
+    category:req.body.category,
+    target_area:req.body.target_area||req.body.targetArea,
+    operation:req.body.operation,
+    photo_url:req.body.photo_url||req.body.photoUrl,
+    image_urls:req.body.image_urls||req.body.imageUrls||[],
+    items:req.body.items,
+    user_context:req.body.user_context||req.body.userContext,
+    user_prompt:req.body.user_prompt||req.body.userPrompt,
+  }))));
 
   // RLS-bound compatibility API: no service role, no SQL endpoint, no automatic migrations.
   const tables=new Set(['ProfilPro','Service','Avis','Style','Reel','CommentaireStyle','MessageChat','Notification','Produit','Annonce','AppConfig','CallLog','CallSignal','CatalogueOption','DemandeProV2','DemandefFranchise','ImmobilierListing','LiveMessage','LiveSession','MariaConversation','MembreEquipe','Publication','Repub','RoutineBeaute','Panier','UserMemory','VisiteVirtuelle','ServiceBundle','profiles','user_like','reel_comment','reel_comment_report','user_follow','user_favorite']);

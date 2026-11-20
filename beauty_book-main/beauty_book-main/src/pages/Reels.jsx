@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/use-toast";
 import SponsoredCard from "@/components/reels/SponsoredCard";
 import { getPublicAds } from "@/lib/publicAds";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
+import SearchMasonryResults from "@/components/search/SearchMasonryResults";
 
 const TABS = ["Réels", "Conseils", "Tutos"];
 const SPEEDS = [0.5, 1, 1.5, 2, 5, 10];
@@ -1020,31 +1021,19 @@ export default function Reels() {
     const key = `${reel.id}:${viewerKey}`;
     if (trackedViewsRef.current.has(key)) return;
     trackedViewsRef.current.add(key);
-    supabase.rpc("record_reel_view", {
-      reel_uuid: reel.id,
-      viewer_session: viewerKey,
-      viewer_email_value: user?.email || '',
-    }).then(({ data, error }) => {
-      if (error) {
+    // Même source de vérité que les styles : le backend incrémente Reel.views,
+    // applique l'idempotence du visiteur et renvoie le compteur canonique.
+    apiClient.post('/content/reels/engagement', {
+      reelId: String(reel.id),
+      viewerSession: viewerKey,
+      viewerEmail: user?.email || '',
+    }).then(result => {
+      if (!result?.tracked || !Number.isFinite(Number(result?.value))) {
         trackedViewsRef.current.delete(key);
         return;
       }
-      if (Number.isFinite(Number(data))) {
-        setReelsData(prev => prev.map(item => String(item.id) === String(reel.id) ? { ...item, views: Number(data) } : item));
-      }
-    }).catch(() => {
-      // Fallback serveur pour les déploiements où la fonction RPC n'est pas
-      // encore disponible ou lorsque le visiteur est anonyme.
-      apiClient.post('/content/reels/engagement', {
-        reelId: String(reel.id),
-        viewerSession: viewerKey,
-        viewerEmail: user?.email || '',
-      }).then(result => {
-        if (Number.isFinite(Number(result?.value))) {
-          setReelsData(prev => prev.map(item => String(item.id) === String(reel.id) ? { ...item, views: Number(result.value) } : item));
-        }
-      }).catch(() => trackedViewsRef.current.delete(key));
-    });
+      setReelsData(prev => prev.map(item => String(item.id) === String(reel.id) ? { ...item, views: Number(result.value) } : item));
+    }).catch(() => trackedViewsRef.current.delete(key));
   }, [setReelsData, user?.email, user?.id]);
 
   // ── À chaque (ré-)entrée sur la page Social, on repart du haut du fil ──
@@ -1394,18 +1383,35 @@ export default function Reels() {
   feedRef.current = feed;
 
   const isCurrentAd = feed[currentIdx]?.type === "ad";
+  const searchResultsMode = Boolean(searchQuery.trim());
+  const socialSearchResults = searchResultsMode
+    ? REELS.filter(reel => [reel.title, reel.description, reel.author_name, reel.category].some(value => String(value || "").toLocaleLowerCase().includes(searchQuery.trim().toLocaleLowerCase())))
+      .map(reel => ({ ...reel, entityKind: "social", image_url: reel.thumbnail_url, avatar_url: reel.author_avatar, likes_count: reel.likes }))
+    : [];
 
   // Filtrage recherche
-  const filteredFeed = searchQuery.trim()
-    ? feed.filter(item => item.type === "reel" && item.reel.title?.toLowerCase().includes(searchQuery.toLowerCase()))
-    : feed;
+  const filteredFeed = feed;
 
   return (
     <div className="relative w-full bg-black overflow-hidden font-display" style={{ height: "100dvh" }}>
 
       {/* Scroll container */}
       <div data-tour="reels-feed" ref={scrollRef} className="w-full overflow-y-scroll hide-scrollbar" style={{ height: "100dvh", scrollSnapType: "y mandatory" }}>
-        {filteredFeed.map((item, feedIdx) => {
+        {searchResultsMode ? (
+          <div className="min-h-full bg-[#f8f8f8] px-3 pb-24 pt-[calc(72px+env(safe-area-inset-top,0px))] text-gray-900" style={{ scrollSnapAlign: "none" }}>
+            {socialSearchResults.length ? <SearchMasonryResults items={socialSearchResults} onOpen={item => {
+              setSearchQuery("");
+              setShowSearch(false);
+              navigate(`/reels?reelId=${encodeURIComponent(item.id)}&tab=${encodeURIComponent(activeTab)}`);
+            }} /> : (
+              <div className="flex min-h-[45vh] flex-col items-center justify-center gap-2 text-center">
+                <span className="text-4xl">🔎</span>
+                <p className="text-sm font-bold text-gray-700">Aucun résultat trouvé</p>
+                <p className="text-xs text-gray-500">Essayez un autre nom, thème ou créateur.</p>
+              </div>
+            )}
+          </div>
+        ) : filteredFeed.map((item, feedIdx) => {
           if (item.type === "ad") {
             const adKey = item.adKey;
             if (hiddenAds.includes(adKey)) return null;
@@ -1452,7 +1458,7 @@ export default function Reels() {
           );
         })}
         {/* ── États honnêtes du fil : jamais d'écran noir silencieux ── */}
-        {filteredFeed.length === 0 && (
+        {!searchResultsMode && filteredFeed.length === 0 && (
           <div className="w-full flex flex-col items-center justify-center gap-4 px-10 text-center"
             style={{ height: "100dvh", paddingTop: "calc(56px + env(safe-area-inset-top, 0px))", paddingBottom: "calc(70px + env(safe-area-inset-bottom, 16px))" }}>
             {feedLoading ? (
@@ -1482,23 +1488,23 @@ export default function Reels() {
 
       {/* ── Top Header (overlay) ── */}
       <div
-        className={`absolute top-0 left-0 right-0 z-30 px-4 pb-2 pointer-events-none transition-colors duration-300 ${isCurrentAd ? "bg-white" : "bg-transparent"}`}
+        className={`absolute top-0 left-0 right-0 z-30 px-4 pb-2 pointer-events-none transition-colors duration-300 ${isCurrentAd || searchResultsMode ? "bg-white" : "bg-transparent"}`}
         style={{ paddingTop: "calc(16px + env(safe-area-inset-top, 0px))" }}
       >
         {showSearch ? (
           <div className="flex items-center gap-2 pointer-events-auto">
-            <div className={`flex-1 flex items-center gap-2 rounded-2xl px-4 py-2.5 ${isCurrentAd ? "bg-gray-100" : "bg-white/15 backdrop-blur-sm"}`}>
-              <Search className={`w-4 h-4 shrink-0 ${isCurrentAd ? "text-gray-500" : "text-white/70"}`} />
+            <div className={`flex-1 flex items-center gap-2 rounded-2xl px-4 py-2.5 ${isCurrentAd || searchResultsMode ? "bg-gray-100" : "bg-white/15 backdrop-blur-sm"}`}>
+              <Search className={`w-4 h-4 shrink-0 ${isCurrentAd || searchResultsMode ? "text-gray-500" : "text-white/70"}`} />
               <input
                 autoFocus
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Rechercher des réels..."
-                className={`flex-1 bg-transparent text-[14px] outline-none ${isCurrentAd ? "text-gray-900 placeholder:text-gray-400" : "text-white placeholder:text-white/50"}`}
+                className={`flex-1 bg-transparent text-[14px] outline-none ${isCurrentAd || searchResultsMode ? "text-gray-900 placeholder:text-gray-400" : "text-white placeholder:text-white/50"}`}
               />
             </div>
             <button onClick={() => { setShowSearch(false); setSearchQuery(""); }} className="pointer-events-auto shrink-0">
-              <span className={`text-[13px] font-black ${isCurrentAd ? "text-gray-700" : "text-white"}`}>Annuler</span>
+              <span className={`text-[13px] font-black ${isCurrentAd || searchResultsMode ? "text-gray-700" : "text-white"}`}>Annuler</span>
             </button>
           </div>
         ) : (

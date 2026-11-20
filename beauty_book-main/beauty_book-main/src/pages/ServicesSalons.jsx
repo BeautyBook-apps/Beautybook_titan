@@ -14,6 +14,7 @@ import SponsoredCard from "@/components/reels/SponsoredCard";
 import { getPublicAds } from "@/lib/publicAds";
 import MapWithPricePins from "@/components/map/MapWithPricePins";
 import AdvancedFilterSheet from "@/components/filters/AdvancedFilterSheet";
+import SearchMasonryResults, { navigateToSearchResult } from "@/components/search/SearchMasonryResults";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import AuthModal from "@/components/ui/AuthModal";
 import { useAuthGate } from "@/hooks/useAuthGate";
@@ -3015,61 +3016,9 @@ function matchesSearchCategory(item, activeCategory) {
   return !category || category === "tous" || searchItemText(item).includes(category);
 }
 
-function SearchResultCard({ item, onOpen }) {
-  const videoRef = useRef(null);
-  const [playing, setPlaying] = useState(false);
-  const media = item.video_url || item.image;
-  const startVideo = event => {
-    event.stopPropagation();
-    if (!item.video_url || !videoRef.current) return;
-    videoRef.current.play().catch(() => {});
-    setPlaying(true);
-  };
-  const stopVideo = event => {
-    event?.stopPropagation?.();
-    if (!item.video_url || !videoRef.current) return;
-    videoRef.current.pause();
-    setPlaying(false);
-  };
-
-  return (
-    <article className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-gray-100 shadow-sm">
-      {item.video_url ? (
-        <video ref={videoRef} src={item.video_url} muted playsInline preload="metadata" className="h-full w-full object-cover"
-          onPointerDown={startVideo} onPointerUp={stopVideo} onPointerCancel={stopVideo} onPointerLeave={stopVideo} />
-      ) : media ? (
-        <BeautyImage src={media} alt={item.title} className="h-full w-full object-cover" />
-      ) : (
-        <div className="flex h-full items-center justify-center text-3xl">{item.kind === "service" ? "💆" : item.kind === "bundle" ? "🎁" : "✨"}</div>
-      )}
-      <button type="button" onClick={onOpen} onPointerDown={startVideo} onPointerUp={stopVideo} onPointerCancel={stopVideo} onPointerLeave={stopVideo} className="absolute inset-0 text-left">
-        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent px-3 pb-3 pt-10">
-          <span className="block truncate text-[13px] font-black text-white">{item.title}</span>
-          <span className="mt-0.5 block truncate text-[10px] font-bold text-white/75">{item.category || item.salon_name || item.city || "BeautyBook"}</span>
-        </span>
-      </button>
-      {item.video_url && <span className={`pointer-events-none absolute right-2 top-2 rounded-full bg-black/55 px-2 py-1 text-[9px] font-black text-white ${playing ? "opacity-100" : "opacity-70"}`}>VIDEO</span>}
-    </article>
-  );
-}
-
-function navigateToSearchItem(navigate, item) {
-  if (item.kind === "style") {
-    navigate(`/style/${item.id}`, { state: { id: item.id, title: item.title, cover: item.image, images: item.images, video_url: item.video_url, category: item.category, subcategory: item.subcategory, description: item.description, likes: item.likes } });
-  } else if (item.kind === "service") {
-    navigate(`/service/${item.id}`, { state: { id: item.id, title: item.title, price: item.price, duration: item.duration_min, cover: item.image } });
-  } else if (item.kind === "bundle") {
-    navigate(item.is_group ? `/bundle-groupe/${item.id}` : `/bundle/${item.id}`, { state: { bundle: item } });
-  } else {
-    navigate("/pro/vue-client", { state: { proEmail: item.user_email, profil: item } });
-  }
-}
-
 function SearchResultGrid({ items, navigate, onClose }) {
   return (
-    <div className="grid grid-cols-2 gap-2.5">
-      {items.map(item => <SearchResultCard key={`${item.kind}-${item.id}`} item={item} onOpen={() => { onClose(); navigateToSearchItem(navigate, item); }} />)}
-    </div>
+    <SearchMasonryResults items={items} onOpen={item => { onClose(); navigateToSearchResult(navigate, item); }} />
   );
 }
 

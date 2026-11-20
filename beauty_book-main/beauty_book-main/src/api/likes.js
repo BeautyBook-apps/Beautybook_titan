@@ -43,19 +43,27 @@ export const likesApi = {
     if (!targetIds || targetIds.length === 0) return {};
     const counts = {};
     targetIds.forEach(id => { counts[String(id)] = 0; });
-    try {
-      const { data, error } = await supabase.from('user_like')
-        .select('target_id')
-        .in('target_id', targetIds.map(String))
-        .eq('target_type', targetType);
-      if (!error && data) {
-        data.forEach(row => {
-          counts[row.target_id] = (counts[row.target_id] || 0) + 1;
-        });
-      }
-    } catch (e) {
-      console.error('[likesApi] getLikeCounts error:', e);
-    }
+    const typeAliases = targetType === 'product' ? ['product', 'produit']
+      : targetType === 'reel' ? ['reel', 'publication']
+      : [targetType];
+    // user_like est la table canonique (la table legacy "Like" n'est pas
+    // déployée sur toutes les bases Supabase et générait des 404 à chaque
+    // chargement de profil, quel que soit le type de contenu).
+    const { data, error } = await supabase.from('user_like')
+      .select('id,user_email,target_id')
+      .in('target_id', targetIds.map(String))
+      .in('target_type', typeAliases);
+    if (error || !data) return counts;
+
+    const seen = new Set();
+    data.forEach(row => {
+      const id = String(row.target_id);
+      if (!(id in counts)) return;
+      const uniqueLike = `${id}:${String(row.user_email || row.id || '')}`;
+      if (seen.has(uniqueLike)) return;
+      seen.add(uniqueLike);
+      counts[id] += 1;
+    });
     return counts;
   },
 

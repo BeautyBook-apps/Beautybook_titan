@@ -205,7 +205,9 @@ export async function chatCompletion({ messages, system, model, max_tokens, enab
 
 // Vision is also used by the public catalogue search. Keep the provider call
 // server-side so neither the xAI key nor an AI request is exposed in the app.
-export async function generateVisionText({ image_url, prompt }) {
+export async function generateVisionText({ image_url, image_urls = [], prompt }) {
+  const images = [...new Set([image_url, ...image_urls].filter(Boolean))].slice(0, 8);
+  assert(images.length > 0, 400, 'IMAGE_REQUIRED', 'Une image est nécessaire pour cette analyse.');
   const body = await request('chat/completions', {
     method: 'POST',
     body: JSON.stringify({
@@ -215,7 +217,7 @@ export async function generateVisionText({ image_url, prompt }) {
       messages: [{
         role: 'user',
         content: [
-          { type: 'image_url', image_url: { url: image_url, detail: 'high' } },
+          ...images.map(url => ({ type: 'image_url', image_url: { url, detail: 'high' } })),
           { type: 'text', text: prompt },
         ],
       }],

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
+import { apiClient } from '@/lib/apiClient';
 import { useTheme } from "@/hooks/useTheme";
 
 const HAIR_TYPES = [
@@ -1740,25 +1741,20 @@ Génère un diagnostic professionnel ultra-personnalisé en JSON :
 
       setAnalyseProgress(50);
 
-      const response = await base44.integrations.Core.InvokeLLM({
-        prompt,
-        model: "claude_sonnet_4_6",
-        response_json_schema: {
-          type: "object",
-          properties: {
-            diagnostic: { type: "string" },
-            score_sante: { type: "number" },
-            points_forts: { type: "array", items: { type: "string" } },
-            points_faibles: { type: "array", items: { type: "string" } },
-            coiffures: { type: "array", items: { type: "object" } },
-            produits: { type: "array", items: { type: "object" } },
-            routine: { type: "object" },
-            conseil_pro: { type: "string" },
-            routines_suggeries: { type: "array", items: { type: "object" } },
-          }
+      const response = (await apiClient.callFunction('museAnalyze', {
+        module: 'scan_capillaire',
+        page: 'scan-capillaire',
+        category: 'coiffure',
+        target_area: 'cheveux et cuir chevelu visible',
+        operation: 'scan_analysis',
+        photo_url: uploadedUrl,
+        user_context: {
+          hair_type: hairTypeLabel,
+          declared_origin: origineLabel || null,
+          concerns,
         },
-        file_urls: uploadedUrl ? [uploadedUrl] : undefined,
-      });
+        user_prompt: prompt,
+      })).data;
 
       setAnalyseProgress(100);
       // Valider que la réponse contient bien les données attendues

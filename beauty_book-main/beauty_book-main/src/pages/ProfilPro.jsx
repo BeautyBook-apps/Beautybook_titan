@@ -7,7 +7,8 @@ import {
   Settings, Share2, Star, Calendar, Users, LogOut,
   TrendingUp, Scissors, BarChart3, Camera, Moon,
   Wallet, ArrowLeft, Radio, UserCircle, Network, Scan, Menu,
-  ChevronRight, Sparkles, Zap, Eye, FileText, Clapperboard, Building2
+  ChevronRight, Sparkles, Zap, Eye, FileText, Clapperboard, Building2,
+  Heart, Play, Video, Repeat2, Grid, Plus, LayoutGrid
 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
@@ -183,9 +184,38 @@ export default function ProfilPro() {
     } catch {}
   };
 
+  // ── Publications Pro ──────────────────────────────────────────
+  const [proPublications, setProPublications] = useState([]);
+
+  const loadProPublications = async () => {
+    if (!user?.email) return;
+    try {
+      // Use 'Reel' table (capital R) — matches entities.Reel used elsewhere in the app
+      const { data: reels, error } = await supabase
+        .from('Reel')
+        .select('id, title, reel_thumbnail, reel_images, video_url, images, image_url, views, likes, like_count, comments_count, created_at, author_email')
+        .eq('author_email', user.email)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      const rows = reels || [];
+      // Also fetch view counts from reel_views table if 'views' column is 0/null
+      // The app tracks views via supabase.rpc('record_reel_view') which
+      // increments a 'views' integer column directly on the Reel table.
+      setProPublications(rows.map(r => ({
+        ...r,
+        views: Number(r.views ?? 0),
+        likes: Number(r.likes ?? r.like_count ?? 0),
+      })));
+    } catch (err) {
+      console.error('[ProfilPro] loadProPublications error:', err?.message);
+    }
+  };
+
   useEffect(() => {
     loadProfil();
     loadStats();
+    loadProPublications();
   }, [user, location.key]);
 
   useEffect(() => {
@@ -481,27 +511,145 @@ export default function ProfilPro() {
         )}
 
         {/* Tab Switcher */}
-        <div className="flex p-1 bg-gray-100 rounded-2xl">
+        <div className="flex p-1 bg-gray-100 rounded-2xl gap-0.5">
           <button
             onClick={() => setActiveTab("gestion")}
-            className={`flex-1 py-2.5 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all ${
+            className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
               activeTab === "gestion" ? "bg-white text-primary shadow-sm" : "text-gray-400"
             }`}
           >
-            Ma Gestion
+            Gestion
+          </button>
+          <button
+            onClick={() => { setActiveTab("publications"); loadProPublications(); }}
+            className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
+              activeTab === "publications" ? "bg-white text-primary shadow-sm" : "text-gray-400"
+            }`}
+          >
+            Posts
           </button>
           <button
             onClick={() => setActiveTab("client")}
-            className={`flex-1 py-2.5 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all ${
+            className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
               activeTab === "client" ? "bg-white text-primary shadow-sm" : "text-gray-400"
             }`}
           >
-            Vue Client
+            Vitrine
           </button>
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* ── Publications Tab Content ──────────────────────────────── */}
+      {activeTab === "publications" && (
+        <div className="px-3 pt-2 pb-8">
+          <div className="flex items-center justify-between px-1 py-2 mb-2">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+              {proPublications.length} publication{proPublications.length !== 1 ? "s" : ""}
+            </p>
+            <button
+              onClick={() => navigate("/pro/publication")}
+              className="w-8 h-8 bg-primary rounded-full flex items-center justify-center shadow-md shadow-primary/30 active:scale-95 transition-all"
+              aria-label="Nouvelle publication"
+            >
+              <Plus className="w-4 h-4 text-white" />
+            </button>
+          </div>
+
+          {proPublications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <Camera className="w-12 h-12 text-gray-200" />
+              <p className="text-[12px] text-gray-400 font-medium">Aucune publication pour l'instant</p>
+              <button
+                onClick={() => navigate("/pro/publication")}
+                className="mt-1 bg-primary text-white font-black text-[12px] uppercase tracking-widest px-6 py-3 rounded-2xl shadow-md shadow-primary/30 active:scale-95 transition-all"
+              >
+                Créer une publication
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-1.5">
+              {proPublications.map((r) => {
+                const thumb = r.reel_thumbnail || r.thumbnail_url || (r.reel_images && r.reel_images[0]) || (r.images && r.images[0]) || r.image_url;
+                const isVideo = r.video_url || (thumb && (thumb.endsWith(".webm") || thumb.endsWith(".mp4")));
+                const views = Number(r.views ?? r.view_count ?? 0);
+                const likes = Number(r.likes ?? r.like_count ?? 0);
+                const fmtNum = (n) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+                return (
+                  <div key={r.id} className="min-w-0">
+                    {/* Thumbnail */}
+                    <div
+                      onClick={() => navigate(`/reels?reelId=${encodeURIComponent(r.id)}`)}
+                      className="aspect-[9/16] overflow-hidden bg-gray-100 cursor-pointer relative rounded-2xl group"
+                    >
+                      {thumb ? (
+                        <BeautyImage
+                          src={thumb}
+                          alt={r.title || "Publication"}
+                          className="w-full h-full object-cover transition-transform duration-300 group-active:scale-110"
+                          style={{ objectPosition: "center top" }}
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                          <Camera className="w-8 h-8 text-gray-400" />
+                        </div>
+                      )}
+                      {isVideo && (
+                        <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full p-1">
+                          <Video className="w-2.5 h-2.5 text-white" />
+                        </div>
+                      )}
+                      {/* Stats overlay */}
+                      <div className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-1">
+                        <div className="flex min-w-0 items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 backdrop-blur-sm">
+                          <Heart className="h-2.5 w-2.5 shrink-0 fill-red-400 text-red-400" />
+                          <span className="text-[9px] font-black leading-none text-white">{fmtNum(likes)}</span>
+                        </div>
+                        <div className="flex min-w-0 items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 backdrop-blur-sm">
+                          <Eye className="h-2.5 w-2.5 shrink-0 text-white" />
+                          <span className="text-[9px] font-black leading-none text-white">{fmtNum(views)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Info + Analytics */}
+                    <div className={`mt-1.5 rounded-xl border px-1.5 py-1.5 ${theme === "light" ? "border-gray-100 bg-white" : theme === "dark" ? "border-gray-700 bg-gray-800" : "border-gray-800 bg-[#0a0a0a]"}`}>
+                      <p
+                        className={`truncate px-1 text-[9px] font-bold ${theme === "light" ? "text-gray-600" : "text-gray-200"}`}
+                        title={r.title || "Publication"}
+                      >
+                        {r.title || "Publication"}
+                      </p>
+                      <div className="flex items-center gap-1.5 px-1 mt-0.5">
+                        {r.created_at && (
+                          <span className="text-[8px] text-gray-400 font-medium">
+                            {new Date(r.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                          </span>
+                        )}
+                        <span className="text-[8px] text-gray-300">·</span>
+                        <span className="flex items-center gap-0.5 text-[8px] text-gray-400 font-medium">
+                          <Eye className="w-2.5 h-2.5" />{fmtNum(views)} vues
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/pro/publication-analytics?reel=${encodeURIComponent(r.id)}`); }}
+                        aria-label={`Données de ${r.title || "cette publication"}`}
+                        className={`mt-1 flex min-h-7 w-full items-center justify-center gap-1 rounded-lg px-1.5 text-[8px] font-black uppercase tracking-wide transition-transform active:scale-95 ${theme === "light" ? "bg-orange-50 text-orange-600 hover:bg-orange-100" : theme === "dark" ? "bg-orange-500/15 text-orange-300 hover:bg-orange-500/25" : "bg-orange-500/20 text-orange-300 hover:bg-orange-500/30"}`}
+                      >
+                        <BarChart3 className="h-3 w-3" />
+                        Données
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stats Cards + Gestion — only shown for Ma Gestion tab */}
+      {activeTab === "gestion" && (
       <div className="px-5 pt-4 space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white border border-gray-100 p-5 rounded-3xl shadow-sm flex flex-col justify-between min-h-[110px]">
@@ -552,6 +700,7 @@ export default function ProfilPro() {
             </div>
           </div>
         </div>
+
 
         {/* Night Mode Toggle */}
         <div className="bg-indigo-50 rounded-3xl p-4 flex items-center gap-4 border border-indigo-100">
@@ -639,6 +788,7 @@ export default function ProfilPro() {
           Se déconnecter
         </button>
       </div>
+      )}
     </div>
   );
 }

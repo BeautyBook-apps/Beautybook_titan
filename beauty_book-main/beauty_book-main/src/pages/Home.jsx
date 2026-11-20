@@ -2,11 +2,14 @@ import { useLiveSessions } from '@/hooks/useLiveSessions';
 import BeautyImage from '@/components/ui/BeautyImage';
 import { fetchShopifyProducts } from "@/api/shopifyClient";
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Award, Circle, Crown, ChevronRight, Droplets, Eye, Flame, Footprints, Gem, Hand, Heart, MapPin, Paintbrush, PenTool, Scissors, Sparkles, Star, Users, Waves, Wind, Zap } from "lucide-react";
+import SearchSuggestionsDropdown from "@/components/search/SearchSuggestionsDropdown";
+import { navigateToSearchResult } from "@/components/search/SearchMasonryResults";
+import { ArrowUpRight, Award, Bath, Brush, CircleDot, Crown, ChevronRight, Diamond, Droplets, Eye, Feather, Flame, Flower2, HandHeart, Layers, MapPin, PenTool, Scissors, Search, Sparkles, Star, Users, Waves } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import usePullToRefresh from "@/hooks/usePullToRefresh";
 import { SERVICE_HOME_CATEGORIES } from "@/lib/categories";
+import { BEAUTY_CATEGORY_ICONS } from "@/components/home/CategoryIcons";
 import { getPublicAds } from "@/lib/publicAds";
 import { entities } from '@/api/entities';
 import { useLocale } from "@/hooks/useLocale";
@@ -18,41 +21,24 @@ import {
   recordRecommendationEvent,
 } from "@/lib/recommendations";
 
-const HOME_CATEGORY_ICONS = {
-  tous: Sparkles,
-  coiffure: Scissors,
-  perruque: Crown,
-  tresses: Waves,
-  extensions: Sparkles,
-  maquillage: Paintbrush,
-  ongles: Gem,
-  pedicure: Footprints,
-  soin: Droplets,
-  barbe: Zap,
-  massage: Hand,
-  epilation: Wind,
-  cils: Eye,
-  spa: Heart,
-  tatouage: PenTool,
-  piercing: Circle,
-};
+const HOME_CATEGORY_ICONS = BEAUTY_CATEGORY_ICONS;
 
 const HOME_CATEGORY_STYLES = {
-  tous: { surface: "bg-slate-100", border: "border-slate-200", icon: "text-slate-800" },
+  tous: { surface: "bg-amber-50/90", border: "border-amber-200/80", icon: "text-amber-600" },
   coiffure: { surface: "bg-purple-50", border: "border-purple-200", icon: "text-purple-500" },
   perruque: { surface: "bg-violet-50", border: "border-violet-200", icon: "text-violet-500" },
   tresses: { surface: "bg-rose-50", border: "border-rose-200", icon: "text-rose-500" },
   extensions: { surface: "bg-fuchsia-50", border: "border-fuchsia-200", icon: "text-fuchsia-500" },
   maquillage: { surface: "bg-pink-50", border: "border-pink-200", icon: "text-pink-500" },
   ongles: { surface: "bg-amber-50", border: "border-amber-200", icon: "text-amber-500" },
-  pedicure: { surface: "bg-pink-50", border: "border-pink-200", icon: "text-pink-500" },
+  pedicure: { surface: "bg-teal-50", border: "border-teal-200", icon: "text-teal-600" },
   soin: { surface: "bg-cyan-50", border: "border-cyan-200", icon: "text-cyan-500" },
-  barbe: { surface: "bg-slate-100", border: "border-slate-200", icon: "text-slate-700" },
+  barbe: { surface: "bg-stone-100", border: "border-stone-200", icon: "text-stone-700" },
   massage: { surface: "bg-emerald-50", border: "border-emerald-200", icon: "text-emerald-500" },
-  epilation: { surface: "bg-indigo-50", border: "border-indigo-200", icon: "text-indigo-500" },
+  epilation: { surface: "bg-rose-50", border: "border-rose-200", icon: "text-rose-400" },
   cils: { surface: "bg-sky-50", border: "border-sky-200", icon: "text-sky-500" },
   spa: { surface: "bg-orange-50", border: "border-orange-200", icon: "text-orange-500" },
-  tatouage: { surface: "bg-slate-100", border: "border-slate-200", icon: "text-slate-700" },
+  tatouage: { surface: "bg-zinc-100", border: "border-zinc-300", icon: "text-zinc-800" },
   piercing: { surface: "bg-yellow-50", border: "border-yellow-200", icon: "text-yellow-600" },
 };
 
@@ -102,10 +88,16 @@ function HeroSlider({ banners, user, navigate }) {
         <BeautyImage src={banner.image || ""} alt="Banner" className="w-full h-full object-cover" />
         {/* Overlay opacité configurable */}
         <div className="absolute inset-0" style={{ background: `rgba(0,0,0,${banner.overlay_opacity ?? 0.55})` }} />
-        <div className="absolute inset-0 p-5 flex flex-col justify-between">
-          <span className="self-start bg-white/25 backdrop-blur-sm text-white text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-white/30">
-            {banner.badge || "Offre"}
-          </span>
+        <div className="absolute inset-0 p-4 sm:p-5 flex flex-col justify-between">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-sm text-white text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-white/30">
+              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+              {banner.badge || "Offre"}
+            </span>
+            <span className="inline-flex items-center gap-1.5 bg-black/25 backdrop-blur-sm text-white/90 text-[10px] font-bold px-3 py-1.5 rounded-full border border-white/15">
+              <Search className="w-3.5 h-3.5" aria-hidden="true" /> Recherche centrale
+            </span>
+          </div>
           <div>
             <h2 className="text-white text-[24px] font-black leading-tight whitespace-pre-line drop-shadow-sm">{banner.title || ""}</h2>
             {banner.subtitle && <p className="text-white/85 text-[12px] font-medium mt-1">{banner.subtitle}</p>}
@@ -129,6 +121,69 @@ function HeroSlider({ banners, user, navigate }) {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function HomeSearch({ navigate }) {
+  const [query, setQuery] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchContainerRef = useRef(null);
+
+  const submitSearch = (event) => {
+    event.preventDefault();
+    setShowSuggestions(false);
+    const value = query.trim();
+    navigate(value ? `/recherche?q=${encodeURIComponent(value)}&entity=Tous&category=Tous` : "/recherche", {
+      state: { source: "home-top-search", surfaces: ["services", "mobile", "social"] },
+    });
+  };
+
+  const handleSuggestionSelect = (suggestion) => {
+    setShowSuggestions(false);
+    if (suggestion.type === 'result') {
+      navigateToSearchResult(navigate, suggestion.item);
+    } else if (suggestion.type === 'search-all') {
+      navigate(`/recherche?q=${encodeURIComponent(suggestion.query)}&entity=Tous&category=Tous`);
+    } else if (suggestion.type === 'category') {
+      navigate(`/services-salons?tab=STYLES&cat=${suggestion.id}`, {
+        state: { serviceTab: "STYLES", serviceCategory: suggestion.id },
+      });
+    } else if (suggestion.type === 'salon') {
+      navigate(`/recherche?q=${encodeURIComponent(suggestion.name)}&entity=Salons&category=Tous`);
+    } else {
+      navigate(`/recherche?q=${encodeURIComponent(suggestion.query)}&entity=Tous&category=Tous`);
+    }
+  };
+
+  return (
+    <div className="px-4 pt-3 pb-1" ref={searchContainerRef}>
+      <div className="relative">
+        <form onSubmit={submitSearch} className="flex items-center gap-2 rounded-2xl bg-white border border-gray-200 p-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.08)] focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15">
+          <Search className="ml-2.5 w-4 h-4 text-primary shrink-0" aria-hidden="true" />
+          <label className="sr-only" htmlFor="home-top-search">Rechercher une prestation, un style ou un salon</label>
+          <input
+            id="home-top-search"
+            type="search"
+            value={query}
+            onChange={event => { setQuery(event.target.value); setShowSuggestions(true); }}
+            onFocus={() => setShowSuggestions(true)}
+            placeholder="Rechercher un style, un service ou un salon…"
+            className="min-w-0 flex-1 h-10 bg-transparent text-[12px] font-bold text-gray-900 outline-none placeholder:text-gray-400"
+            autoComplete="off"
+          />
+          <button type="submit" aria-label="Lancer la recherche" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white shadow-md shadow-primary/30 active:scale-95 transition-transform">
+            <ArrowUpRight className="w-4 h-4" />
+          </button>
+        </form>
+        <SearchSuggestionsDropdown
+          query={query}
+          isOpen={showSuggestions}
+          onSelectSuggestion={handleSuggestionSelect}
+          onClose={() => setShowSuggestions(false)}
+          searchContainerRef={searchContainerRef}
+        />
       </div>
     </div>
   );
@@ -477,6 +532,7 @@ export default function Home() {
 
       {/* ── Hero ── */}
       <div data-tour="hero">
+        <HomeSearch navigate={navigate} />
         <HeroSlider banners={heroBanners} user={user} navigate={navigate} />
       </div>
 
