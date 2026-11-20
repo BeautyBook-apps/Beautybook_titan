@@ -330,28 +330,9 @@ export default function ModifierProfilPro() {
         ...coords,
       };
 
-      let saveError = null;
-      if (existingId) {
-        const { error } = await supabase.from('ProfilPro').update(core).eq('id', existingId);
-        saveError = error;
-      } else {
-        const { user: authUser } = await supabase.auth.getUser();
-        const { data: insertedProfile, error } = await supabase
-          .from('ProfilPro')
-          .insert({ ...core, user_email: user.email, created_by_id: authUser?.id || null })
-          .select('id')
-          .single();
-        saveError = error;
-        if (!error && insertedProfile?.id) {
-          existingId = insertedProfile.id;
-          setProfileId(insertedProfile.id);
-        }
-      }
-      if (saveError) throw saveError;
-
-      // Les pauses sont stockées dans ouverture/horaires (pause_start/pause_end par jour).
-      // Les menus et services additionnels sont persistés en JSONB sur ProfilPro
-      // et sont relus directement par la vue client.
+      // Enregistre les informations et les cartes ensemble : auparavant le
+      // premier enregistrement pouvait réussir tandis que le second échouait
+      // silencieusement quand les colonnes Menu/Carte manquaient en base.
       const extra = {
         seats_count: data.seats,
         specialites: data.specialites,
@@ -364,10 +345,30 @@ export default function ModifierProfilPro() {
         additional_services: data.additional_services || [],
         updated_at: new Date().toISOString(),
       };
+      const profileFields = { ...core, ...extra };
+
+      let saveError = null;
       if (existingId) {
-        const { error: extraError } = await supabase.from('ProfilPro').update(extra).eq('id', existingId);
-        if (extraError) throw extraError;
+        const { data: updatedProfile, error } = await supabase.from('ProfilPro')
+          .update(profileFields).eq('id', existingId).select('id').maybeSingle();
+        saveError = error;
+        if (!error && !updatedProfile?.id) {
+          saveError = new Error("Le profil professionnel n'a pas été modifié. Vérifiez vos droits d'accès puis réessayez.");
+        }
+      } else {
+        const { user: authUser } = await supabase.auth.getUser();
+        const { data: insertedProfile, error } = await supabase
+          .from('ProfilPro')
+          .insert({ ...profileFields, user_email: user.email, created_by_id: authUser?.id || null })
+          .select('id')
+          .single();
+        saveError = error;
+        if (!error && insertedProfile?.id) {
+          existingId = insertedProfile.id;
+          setProfileId(insertedProfile.id);
+        }
       }
+      if (saveError) throw saveError;
 
       // Produits (mèches à commander…) : colonne récente — mise à jour
       // tolérante : si la migration n'a pas été exécutée, la sauvegarde
@@ -382,8 +383,8 @@ export default function ModifierProfilPro() {
         }
       }
 
-      try { localStorage.setItem('pro_profile_cache', JSON.stringify({ ...core, user_email: user.email })); } catch {}
-      window.dispatchEvent(new CustomEvent('pro-profile-updated', { detail: { avatar_url: data.avatar_url, cover_url: data.cover_url } }));
+      try { localStorage.setItem('pro_profile_cache', JSON.stringify({ ...profileFields, user_email: user.email })); } catch {}
+      window.dispatchEvent(new CustomEvent('pro-profile-updated', { detail: { ...profileFields, user_email: user.email } }));
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);
     } catch (e) {

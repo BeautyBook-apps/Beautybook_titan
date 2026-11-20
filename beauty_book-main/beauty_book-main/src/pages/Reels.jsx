@@ -17,6 +17,22 @@ import SearchMasonryResults from "@/components/search/SearchMasonryResults";
 const TABS = ["Réels", "Conseils", "Tutos"];
 const SPEEDS = [0.5, 1, 1.5, 2, 5, 10];
 
+function formatReelAge(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+  if (minutes < 1) return "À l’instant";
+  if (minutes < 60) return `${minutes}min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `il y a ${days}j`;
+  if (date.getFullYear() === new Date().getFullYear()) return `${date.getMonth() + 1}-${date.getDate()}`;
+  const years = Math.floor(days / 365);
+  return `il y a ${years} an${years > 1 ? "s" : ""}`;
+}
+
 function getReelViewSession() {
   try {
     const key = "bb_reel_view_session";
@@ -593,6 +609,14 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
     return [];
   })();
   const cleanDescription = (reel.description || "").replace(/<!--CALLOUTS:.*?-->/g, "").trim();
+  const cleanTitle = (reel.title || "").trim();
+  const showTitle = cleanTitle && cleanTitle !== cleanDescription;
+  const caption = cleanDescription || cleanTitle;
+  const reelAge = formatReelAge(reel.created_at);
+  const reelTags = (Array.isArray(reel.tags) ? reel.tags : String(reel.tags || "").split(/[\s,]+/))
+    .map(tag => String(tag || "").trim().replace(/^#+/, ""))
+    .filter(Boolean);
+  const musicLabel = reel.sound || [reel.music_title, reel.music_artist].filter(Boolean).join(" · ") || (reel.sound_preview_url ? "Son sélectionné" : "");
 
   // Découpe la description en phrases ; aperçu = 2 premières phrases + "Voir plus"
   const descSentences = (() => {
@@ -933,7 +957,10 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
             </div>
           </button>
           <div className="flex-1 min-w-0">
-            <button onClick={() => onAuthorClick?.(reel)} className="text-white text-[13px] font-bold truncate text-left block">{reel.author_name || reel.author_handle || "Utilisateur"}</button>
+            <div className="flex items-center gap-2 min-w-0">
+              <button onClick={() => onAuthorClick?.(reel)} className="text-white text-[13px] font-bold truncate text-left">{reel.author_name || reel.author_handle || "Utilisateur"}</button>
+              {reelAge && <span className="text-white/65 text-[10px] font-semibold shrink-0">· {reelAge}</span>}
+            </div>
           </div>
           {reel.author_email && reel.author_email !== currentUser?.email && (
             <button onClick={onFollow} className={`shrink-0 border rounded-full px-3 py-1 text-[11px] font-black transition-all ${followed ? "border-white/40 text-white/60" : "border-white text-white"}`}>
@@ -942,10 +969,10 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
           )}
         </div>
         {/* Titre + bio extensible (Voir plus après la 2e phrase) */}
-        <p className="text-white text-[15px] font-bold leading-tight">{reel.title}</p>
-        {reel.description && (
+        {showTitle && <p className="text-white text-[15px] font-bold leading-tight">{cleanTitle}</p>}
+        {caption && (
           <div className="text-white/90 text-[13px] leading-snug">
-            <span>{descExpanded || !descHasMore ? cleanDescription : descPreview}</span>
+            <span>{descExpanded || !descHasMore || !cleanDescription ? caption : descPreview}</span>
             {descHasMore && (
               <button
                 onClick={(e) => { e.stopPropagation(); setDescExpanded(v => !v); }}
@@ -956,13 +983,16 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
             )}
           </div>
         )}
+        {reelTags.length > 0 && <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+          {reelTags.map((tag, index) => <span key={`${tag}-${index}`} className="text-white/90 text-[11px] font-bold">#{tag}</span>)}
+        </div>}
         <div className="flex items-center gap-2">
-          {reel.sound && (
+          {musicLabel && (
             <>
               <div className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center">
                 <Music className="w-3 h-3 text-white" />
               </div>
-              <p className="text-white/80 text-[12px] font-medium truncate">{reel.sound}</p>
+              <p className="text-white/80 text-[12px] font-medium truncate">{musicLabel}</p>
             </>
           )}
         </div>
@@ -1359,6 +1389,8 @@ export default function Reels() {
     thumbnail_url: r.thumbnail_url || (r.images && r.images[0]) || "",
     images: r.images || [], video_url: r.video_url || null,
     title: r.title, description: r.description || String(), sound: r.sound || null,
+    tags: r.tags || r.hashtags || [], created_at: r.created_at || r.updated_at || null,
+    music_title: r.music_title || r.sound_title || "", music_artist: r.music_artist || r.sound_artist || "",
     sound_preview_url: r.sound_preview_url || null,
     likes: reelLikeCounts[String(r.id)] ?? reelLikeCounts[r.id] ?? r.likes ?? 0,
     realLikes: reelLikeCounts[String(r.id)] ?? reelLikeCounts[r.id] ?? r.likes ?? 0,

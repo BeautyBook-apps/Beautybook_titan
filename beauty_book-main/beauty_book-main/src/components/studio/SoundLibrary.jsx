@@ -8,11 +8,10 @@ import initialTikTokSounds from "./tiktokSoundsData.json";
 
 const ACCENT = STUDIO_ACCENT;
 
-// Catégories inspirées de TikTok & Instagram Reels
 const SOUND_CATEGORIES = [
-  { id: "all", label: "🔥 Tout TikTok", icon: Flame },
-  { id: "beauty", label: "💄 Beauté & Glow Up", icon: Sparkles },
-  { id: "tiktok", label: "⚡ Viral TikTok", icon: TrendingUp },
+  { id: "all", label: "Tout voir", icon: Flame },
+  { id: "beauty", label: "Beauté & glow", icon: Sparkles },
+  { id: "tiktok", label: "Populaires", icon: TrendingUp },
   { id: "afro", label: "🌴 Afrobeats", icon: Disc3 },
   { id: "hits_fr", label: "🇫🇷 Hits France", icon: Radio },
   { id: "lofi", label: "🎧 Lofi & Chill", icon: Music2 },
@@ -90,7 +89,7 @@ export default function SoundLibrary({
     };
   }, []);
 
-  // ── Recherche globale dans la base de données TikTok / iTunes (100M+ titres) ──
+  // Recherche dans le catalogue musical en ligne.
   const searchMusicCatalog = useCallback(async (queryTerm) => {
     const term = queryTerm.trim();
     if (!term) {
@@ -101,9 +100,10 @@ export default function SoundLibrary({
 
     setSearching(true);
     try {
-      // 1. Recherche par mot-clé (titre, artiste, genre) sur le catalogue mondial
-      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=30`;
+      // Recherche par titre, artiste ou genre dans le catalogue musical.
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=200`;
       const res = await fetch(url);
+      if (!res.ok) throw new Error(`Catalogue indisponible (${res.status})`);
       const data = await res.json();
 
       const tracks = (data.results || [])
@@ -139,7 +139,7 @@ export default function SoundLibrary({
       return;
     }
 
-    // Suggestions instantanées depuis la base locale TikTok + catalogue
+    // Suggestions instantanées depuis la sélection locale.
     const localMatches = curatedTracks.filter(
       (t) =>
         t.title.toLowerCase().includes(term.toLowerCase()) ||
@@ -160,7 +160,7 @@ export default function SoundLibrary({
   const displayedTracks = useMemo(() => {
     const term = q.trim().toLowerCase();
 
-    // Si une recherche est saisie, combiner résultats locaux TikTok + résultats en ligne
+    // Si une recherche est saisie, combiner la sélection locale et le catalogue.
     if (term.length > 0) {
       const matchedLocal = curatedTracks.filter(
         (t) =>
@@ -183,7 +183,7 @@ export default function SoundLibrary({
       return combined;
     }
 
-    // Mode tendances : filtrer selon la catégorie TikTok sélectionnée
+    // Mode découverte : filtrer selon la catégorie sélectionnée.
     if (selectedCategory === "all") {
       return curatedTracks;
     }
@@ -258,14 +258,9 @@ export default function SoundLibrary({
             <X className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-[18px] font-black tracking-tight flex items-center gap-2">
-              <span>Ajouter un son</span>
-              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-pink-500 to-orange-500 text-white shadow-sm">
-                TikTok & Insta
-              </span>
-            </h1>
+            <h1 className="text-[18px] font-black tracking-tight">Ajouter un son</h1>
             <p className="text-[11px] font-medium" style={{ color: MUTED }}>
-              Recherchez parmi des millions de musiques et sons viraux
+              Recherchez un titre, un artiste ou une ambiance
             </p>
           </div>
         </div>
@@ -287,7 +282,7 @@ export default function SoundLibrary({
               onFocus={() => {
                 if (suggestItems.length > 0) setShowSuggestDropdown(true);
               }}
-              placeholder="Rechercher un son TikTok, un artiste, une musique…"
+              placeholder="Rechercher un titre, un artiste, une musique…"
               className="flex-1 bg-transparent text-[13px] font-bold outline-none"
               style={{ color: TXT }}
               autoComplete="off"
@@ -375,7 +370,7 @@ export default function SoundLibrary({
           ))}
         </div>
 
-        {/* ── Onglets de catégories TikTok / Reels ── */}
+        {/* ── Catégories musicales ── */}
         {!q && (
           <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar pt-2 pb-0.5">
             {SOUND_CATEGORIES.map((cat) => {
@@ -463,7 +458,7 @@ export default function SoundLibrary({
             ) : (
               <>
                 <Flame className="w-3.5 h-3.5 text-orange-500" />
-                Tendances TikTok & Reels ({displayedTracks.length})
+                Sélection musicale ({displayedTracks.length})
               </>
             )}
           </p>
@@ -473,7 +468,7 @@ export default function SoundLibrary({
         {searching && (
           <div className="flex flex-col items-center justify-center py-12 gap-2 text-primary">
             <Loader2 className="w-7 h-7 animate-spin" />
-            <span className="text-[12px] font-bold">Recherche dans la base musicale TikTok…</span>
+            <span className="text-[12px] font-bold">Recherche dans le catalogue musical…</span>
           </div>
         )}
 
@@ -561,7 +556,7 @@ export default function SoundLibrary({
                   <p className="text-[13px] font-black truncate leading-tight">{tr.title}</p>
                   {tr.category === "tiktok" && (
                     <span className="text-[8px] font-black uppercase px-1 rounded bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-300 shrink-0">
-                      TikTok
+                      Tendance
                     </span>
                   )}
                 </div>

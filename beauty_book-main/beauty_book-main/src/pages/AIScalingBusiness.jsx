@@ -6,7 +6,7 @@ import {
   DollarSign, Target, Zap, ChevronRight, Sparkles, Send,
   Rocket, Bot, LayoutDashboard, Magnet, PhoneCall, MessageSquareText,
   Share2, Smartphone, Globe, Crown, Flame, Lightbulb, Star,
-  ArrowUpRight, Wallet, Repeat, UserPlus, Scissors, Settings2, BadgeCheck,
+  ArrowUpRight, ArrowRight, Wallet, Repeat, UserPlus, Scissors, Settings2, BadgeCheck,
   CircleAlert, PartyPopper, Check, CalendarDays, ListChecks, Info, Milestone, AlertTriangle, ShieldCheck
 } from "lucide-react";
 import {
@@ -1406,132 +1406,92 @@ STYLE: français, professionnel et accessible. Conseils concrets, chiffrés, act
       {/* ══ MODALE OBJECTIFS ══ */}
       {showGoalModal && (
         <div className="scaling-modal-backdrop" onClick={() => setShowGoalModal(false)}>
-          <div className="scaling-modal" role="dialog" aria-modal="true" aria-labelledby="goal-modal-title" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-1">
-              <h3 id="goal-modal-title" className="text-[17px] font-black">Personnaliser mes objectifs</h3>
-              <button aria-label="Fermer" onClick={() => setShowGoalModal(false)} className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-500 font-bold">✕</button>
-            </div>
-            <p className="text-[12.5px] text-gray-500 font-medium mb-3">
-              Définissez des objectifs graduels étudiés selon votre rythme actuel pour assurer une progression solide et tenable.
-            </p>
-
-            {/* Diagnostic CA Réel Actuel */}
-            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 mb-4 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Chiffre d'affaires de référence</p>
-                <p className="text-[17px] font-black text-slate-900 mt-0.5">{money(benchmarkCA)} <span className="text-[11px] font-medium text-slate-400">/ mois</span></p>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] font-black text-emerald-700 bg-emerald-100/80 border border-emerald-200 px-2 py-0.5 rounded-full inline-block">
-                  Activité observée
-                </span>
-                <p className="text-[10px] text-slate-400 font-medium mt-1">Panier moy. : {money(objectivePlan.avgTicket || 45)}</p>
-              </div>
-            </div>
-
-            {/* Paliers recommandés par l'IA */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] font-black uppercase tracking-wider text-gray-600 flex items-center gap-1.5">
-                  <Milestone size={14} className="text-orange-500" />
-                  Paliers de croissance recommandés
-                </label>
-                <span className="text-[10px] font-bold text-orange-600">Étape par étape</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {realisticMilestones.map((m) => {
-                  const isSelected = Number(goalDraft?.ca) === m.ca;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => {
-                        setGoalDraft(d => ({
-                          ...d,
-                          ca: m.ca,
-                          clients: objectivePlan.avgTicket > 0 ? Math.ceil(m.ca / objectivePlan.avgTicket) : d.clients
-                        }));
-                      }}
-                      className={`text-left p-2.5 rounded-2xl border transition-all active:scale-95 flex flex-col justify-between ${
-                        isSelected
-                          ? "border-orange-500 bg-orange-50/70 shadow-sm ring-1 ring-orange-500"
-                          : "border-gray-200 bg-white hover:border-orange-300"
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className={`text-[8.5px] font-black px-1.5 py-0.5 rounded-md border ${m.badgeColor}`}>
-                            {m.growth}
-                          </span>
-                        </div>
-                        <p className="text-[13px] font-black text-gray-900 leading-tight">{money(m.ca)}</p>
-                      </div>
-                      <p className="text-[9.5px] text-gray-500 font-semibold mt-1.5 line-clamp-2 leading-tight">
-                        {m.badge}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Alerte si objectif irréaliste / disproportionné */}
-            {isExcessiveGoal && (
-              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 flex items-start gap-2.5 animate-fadeIn">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div className="text-[11px] text-amber-800 leading-snug">
-                  <strong className="font-black">Attention à l'écart d'échelle :</strong>
-                  <p className="mt-0.5 text-amber-700">
-                    Passer directement de {money(benchmarkCA)} à {money(Number(goalDraft.ca))} en 1 mois représente une multiplication par {Math.round(caRatio)}×.
-                    Privilégiez le <strong>Palier 1 ({money(realisticMilestones[0].ca)})</strong> ou <strong>Palier 2 ({money(realisticMilestones[1].ca)})</strong> pour construire un carnet solide et durable sans surmenage.
-                  </p>
+          <div className="scaling-modal scaling-goals-modal" role="dialog" aria-modal="true" aria-labelledby="goal-modal-title" onClick={e => e.stopPropagation()}>
+            <header className="scaling-goals-header">
+              <div className="flex items-start gap-3">
+                <div className="scaling-goals-icon"><Target size={21} /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="scaling-goals-kicker">MARIA IA · PLAN DE CROISSANCE</p>
+                  <h3 id="goal-modal-title" className="text-[21px] leading-tight font-black mt-1">Personnaliser mes objectifs</h3>
+                  <p className="text-[12px] text-slate-500 mt-1">Un plan calculé depuis l’activité observée de votre salon.</p>
                 </div>
+                <button aria-label="Fermer" onClick={() => setShowGoalModal(false)} className="scaling-goals-close">✕</button>
               </div>
-            )}
+            </header>
 
-            <div className="space-y-3.5">
-              <div className="scaling-field">
-                <label htmlFor="goal-focus">Objectif directeur</label>
-                <select id="goal-focus" value={objectiveFocus} onChange={e => { setObjectiveFocus(e.target.value); setGoalDraft(d => ({ ...d, focus: e.target.value })); }} className="scaling-field-control">
-                  <option value="ca">Je pilote par le chiffre d'affaires</option>
-                  <option value="clients">Je pilote par le nombre de clients</option>
-                </select>
-                <p className="text-[11px] text-gray-500 font-medium mt-1">L'autre objectif sera recalculé automatiquement selon votre panier moyen réel{objectivePlan.avgTicket ? ` (${money(objectivePlan.avgTicket)})` : ""}.</p>
-              </div>
+            <div className="scaling-goals-content">
+              <section className="scaling-goals-baseline">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[.12em] text-white/65">Votre rythme actuel</p>
+                    <p className="text-[25px] leading-tight font-black mt-1">{money(benchmarkCA)}<span className="text-[12px] font-bold text-white/65"> / mois</span></p>
+                  </div>
+                  <span className="scaling-goals-live"><span /> Analyse réelle</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-4">
+                  <div className="scaling-goals-stat"><span>Panier moyen constaté</span><strong>{money(objectivePlan.avgTicket || 45)}</strong></div>
+                  <div className="scaling-goals-stat"><span>Rendez-vous analysés</span><strong>{num(objectivePlan.dataPoints || 0)}</strong></div>
+                </div>
+              </section>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="scaling-field">
-                  <label>CA mensuel visé (€)</label>
-                  <input type="number" min="0" step="50" value={goalDraft?.ca ?? ""}
-                    onChange={e => setGoalDraft(d => ({ ...d, ca: e.target.value === "" ? "" : Number(e.target.value) }))} />
+              <section className="scaling-goals-section">
+                <div className="flex items-end justify-between gap-2 mb-3">
+                  <div><p className="scaling-goals-step">ÉTAPE 1</p><h4>Choisissez votre cap mensuel</h4></div>
+                  <span className="text-[10px] text-slate-400 font-semibold">Paliers recommandés</span>
                 </div>
-                <div className="scaling-field">
-                  <label>Nouveaux clients / mois</label>
-                  <input type="number" min="0" step="1" value={goalDraft?.clients ?? ""}
-                    onChange={e => setGoalDraft(d => ({ ...d, clients: e.target.value === "" ? "" : Number(e.target.value) }))} />
+                <div className="scaling-goals-focus" role="group" aria-label="Choisir l’objectif directeur">
+                  <button type="button" aria-pressed={objectiveFocus === "ca"} className={objectiveFocus === "ca" ? "active" : ""} onClick={() => { setObjectiveFocus("ca"); setGoalDraft(d => ({ ...d, focus: "ca", clients: Number(d?.ca) > 0 && objectivePlan.avgTicket ? Math.ceil(Number(d.ca) / objectivePlan.avgTicket) : d?.clients })); }}>Chiffre d’affaires</button>
+                  <button type="button" aria-pressed={objectiveFocus === "clients"} className={objectiveFocus === "clients" ? "active" : ""} onClick={() => { setObjectiveFocus("clients"); setGoalDraft(d => ({ ...d, focus: "clients", ca: Number(d?.clients) > 0 ? Math.round(Number(d.clients) * (objectivePlan.avgTicket || 45)) : d?.ca })); }}>Nombre de clients</button>
                 </div>
-              </div>
+                <div className="scaling-goal-options">
+                  {realisticMilestones.map((m, i) => {
+                    const selected = Number(goalDraft?.ca) === m.ca;
+                    return <button key={m.id} type="button" onClick={() => { setObjectiveFocus("ca"); setGoalDraft(d => ({ ...d, focus: "ca", ca: m.ca, clients: objectivePlan.avgTicket > 0 ? Math.ceil(m.ca / objectivePlan.avgTicket) : d.clients })); }} className={`scaling-goal-option ${selected ? "selected" : ""}`}>
+                      <span className={`scaling-goal-badge level-${i + 1}`}>{m.growth}</span>
+                      <strong>{money(m.ca)}</strong><span>{m.badge}</span>
+                    </button>;
+                  })}
+                </div>
+                <div className="scaling-goals-custom scaling-field">
+                  <label htmlFor="goal-ca">Ou définissez votre propre objectif de CA</label>
+                  <div className="scaling-goal-input-wrap"><input id="goal-ca" type="number" min="0" step="50" inputMode="numeric" placeholder="Ex. 5 000" value={goalDraft?.ca ?? ""} onChange={e => {
+                    const value = e.target.value === "" ? "" : Number(e.target.value);
+                    setGoalDraft(d => ({ ...d, ca: value, ...(objectiveFocus === "ca" && value !== "" && objectivePlan.avgTicket > 0 ? { clients: Math.ceil(value / objectivePlan.avgTicket) } : {}) }));
+                  }} /><span>€ / mois</span></div>
+                </div>
+              </section>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="scaling-field">
-                  <label>Confirmation visée (%)</label>
-                  <input type="number" min="0" max="100" step="1" value={goalDraft?.confirmation ?? ""}
-                    onChange={e => setGoalDraft(d => ({ ...d, confirmation: e.target.value === "" ? "" : Number(e.target.value) }))} />
+              <section className="scaling-goals-section">
+                <div className="flex items-end justify-between gap-2 mb-3">
+                  <div><p className="scaling-goals-step">ÉTAPE 2</p><h4>Votre plan s’ajuste automatiquement</h4></div>
+                  <Sparkles size={17} className="text-orange-500" />
                 </div>
-                <div className="scaling-field">
-                  <label>Note visée (/5)</label>
-                  <input type="number" min="0" max="5" step="0.1" value={goalDraft?.note ?? ""}
-                    onChange={e => setGoalDraft(d => ({ ...d, note: e.target.value === "" ? "" : Number(e.target.value) }))} />
+                <div className="scaling-goals-linked">
+                  <div className="scaling-goals-link-icon"><Users size={18} /></div>
+                  <div className="min-w-0 flex-1"><strong>Clients à accueillir</strong><p>Calculé avec votre panier moyen réel de {money(objectivePlan.avgTicket || 45)}</p></div>
+                  <div className="scaling-goals-linked-value"><input aria-label="Nouveaux clients visés par mois" type="number" min="0" step="1" inputMode="numeric" value={goalDraft?.clients ?? ""} onChange={e => {
+                    const value = e.target.value === "" ? "" : Number(e.target.value);
+                    setGoalDraft(d => ({ ...d, clients: value, ...(objectiveFocus === "clients" && value !== "" ? { ca: Math.round(value * (objectivePlan.avgTicket || 45)) } : {}) }));
+                  }} /><span>/ mois</span></div>
                 </div>
-              </div>
+                <div className="scaling-goals-projection"><div className="scaling-goals-projection-icon"><Milestone size={16} /></div><p>Votre cap représente environ <strong>{num(Number(goalDraft?.clients) || (objectivePlan.avgTicket ? Math.ceil((Number(goalDraft?.ca) || 0) / objectivePlan.avgTicket) : 0))} nouveaux clients par mois</strong>. Maria IA s’en servira pour répartir l’objectif en étapes et en actions quotidiennes.</p></div>
+              </section>
+
+              <section className="scaling-goals-section">
+                <div className="mb-3"><p className="scaling-goals-step">ÉTAPE 3 · QUALITÉ</p><h4>Choisissez aussi vos repères de service</h4></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="scaling-field"><label htmlFor="goal-confirmation">Rendez-vous confirmés</label><div className="scaling-goal-input-wrap"><input id="goal-confirmation" type="number" min="0" max="100" step="1" inputMode="numeric" placeholder="Ex. 85" value={goalDraft?.confirmation ?? ""} onChange={e => setGoalDraft(d => ({ ...d, confirmation: e.target.value === "" ? "" : Number(e.target.value) }))} /><span>%</span></div></div>
+                  <div className="scaling-field"><label htmlFor="goal-note">Note client visée</label><div className="scaling-goal-input-wrap"><input id="goal-note" type="number" min="0" max="5" step="0.1" inputMode="decimal" placeholder="Ex. 4,8" value={goalDraft?.note ?? ""} onChange={e => setGoalDraft(d => ({ ...d, note: e.target.value === "" ? "" : Number(e.target.value) }))} /><span>/ 5</span></div></div>
+                </div>
+              </section>
+
+              {isExcessiveGoal && <div className="scaling-goals-alert"><AlertTriangle size={17} /><p>Votre cible est nettement au-dessus du rythme observé ({caRatio.toFixed(1)}×). Vous pouvez la garder ou choisir un palier progressif.</p></div>}
             </div>
-            <div className="scaling-modal-action">
-              <button onClick={saveObjectives}
-                className="w-full text-white font-extrabold text-[14px] py-3.5 rounded-2xl active:scale-[.98]"
-                style={{ background: "linear-gradient(135deg,#FF6B00,#FFB25E)", boxShadow: "0 10px 24px rgba(255,107,0,.3)" }}>
-                Enregistrer mes objectifs
-              </button>
-            </div>
+
+            <footer className="scaling-modal-action scaling-goals-footer">
+              <button onClick={saveObjectives} className="scaling-goals-save"><span>Enregistrer mon plan</span><ArrowRight size={18} /></button>
+              <button onClick={() => setShowGoalModal(false)} className="scaling-goals-cancel">Continuer plus tard</button>
+            </footer>
           </div>
         </div>
       )}

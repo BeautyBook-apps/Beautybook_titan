@@ -124,7 +124,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
       caption: (pub.caption || pub.description || pub.title || "").replace(/<!--CALLOUTS:.*?-->/g, "").trim(),
       category: pub.category || "Coiffure",
       images,
-      hashtags: pub.hashtags || [],
+      hashtags: pub.hashtags || pub.tags || [],
       pubType: categoryToPubType[pub.category] || pub.pub_type || "reel",
       visibility: pub.visibility || "public",
       sound: pub.sound || null,
@@ -2638,7 +2638,11 @@ export default function Publication() {
         author_name: user?.full_name || "",
         author_avatar: user?.avatar_url || undefined,
         created_by_id: user?.id || undefined,
+        tags: form.hashtags || [],
+        sound: form.sound || "",
+        sound_preview_url: form.soundPreviewUrl || "",
         category: pubTypeToCategory[form.pubType] || "Réels",
+        pub_type: form.pubType || "reel",
         status: "publie",
         product_id: form.product_id || null,
         product_name: form.product_name || null,
@@ -2669,6 +2673,9 @@ export default function Publication() {
           return next;
         });
       }
+      window.dispatchEvent(new CustomEvent("professional-publications-updated", {
+        detail: { author_email: user?.email || "", reel_id: reel?.id || editId },
+      }));
       setEditingPub(null);
       setToolResult(null);
       setShowWizard(false);
@@ -2743,6 +2750,9 @@ export default function Publication() {
       mergePageCache(cacheKey, { publications: next });
       return next;
     });
+    window.dispatchEvent(new CustomEvent("professional-publications-updated", {
+      detail: { author_email: user?.email || "", reel_id: id },
+    }));
   };
 
   const catToFilter = { "Réels": "Tous", "Tutos": "Tutos", "Conseils": "Conseils" };

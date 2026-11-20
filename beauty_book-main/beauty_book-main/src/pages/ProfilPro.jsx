@@ -193,8 +193,9 @@ export default function ProfilPro() {
       // Use 'Reel' table (capital R) — matches entities.Reel used elsewhere in the app
       const { data: reels, error } = await supabase
         .from('Reel')
-        .select('id, title, reel_thumbnail, reel_images, video_url, images, image_url, views, likes, like_count, comments_count, created_at, author_email')
+        .select('*')
         .eq('author_email', user.email)
+        .eq('status', 'publie')
         .order('created_at', { ascending: false })
         .limit(100);
       if (error) throw error;
@@ -227,17 +228,29 @@ export default function ProfilPro() {
       loadProfil();
       loadStats();
     };
+    const onPublicationsUpdated = (e) => {
+      const authorEmail = String(e.detail?.author_email || "").toLowerCase();
+      if (!authorEmail || authorEmail === String(user?.email || "").toLowerCase()) loadProPublications();
+    };
     window.addEventListener('pro-profile-updated', onUpdated);
-    return () => window.removeEventListener('pro-profile-updated', onUpdated);
+    window.addEventListener('professional-publications-updated', onPublicationsUpdated);
+    return () => {
+      window.removeEventListener('pro-profile-updated', onUpdated);
+      window.removeEventListener('professional-publications-updated', onPublicationsUpdated);
+    };
   }, [user]);
 
   useEffect(() => {
-    const handleFocus = () => { loadProfil(); loadStats(); };
+    const handleFocus = () => { loadProfil(); loadStats(); loadProPublications(); };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") handleFocus();
+    };
     window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") { loadProfil(); loadStats(); }
-    });
-    return () => window.removeEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [user]);
 
   // Ne jamais afficher les données d'un autre utilisateur (évite le flash).

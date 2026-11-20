@@ -591,7 +591,7 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, p
       } catch { return null; }
     };
     const fetchProfil = async () => {
-      const { data: profiles, error } = await supabase.from('ProfilPro').select('id, user_email, salon_name, phone, address, city, bio, avatar_url, cover_url, status, galerie_urls, followers, ouverture, horaires, travail_nuit, rating, reviews_count, se_deplace, specialites, commodites, latitude, longitude, type_activite, postal_code, seats_count').eq('user_email', targetEmail).order('created_at', { ascending: false });
+      const { data: profiles, error } = await supabase.from('ProfilPro').select('id, user_email, salon_name, phone, address, city, bio, avatar_url, cover_url, status, galerie_urls, followers, ouverture, horaires, travail_nuit, rating, reviews_count, se_deplace, specialites, commodites, latitude, longitude, type_activite, postal_code, seats_count, menu_restaurant, menu_bar, additional_services').eq('user_email', targetEmail).order('created_at', { ascending: false });
       if (error || !profiles || profiles.length === 0) return null;
       // Priority: 1) actif with images, 2) actif, 3) any with images, 4) latest
       const activeWithImages = profiles.find(p => p.status === 'actif' && (p.avatar_url || p.cover_url));
@@ -608,7 +608,8 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, p
     };
     const fetchData = async () => {
       const [reelRows, profileRaw, svcs, avis, demandes, bundleData, catOpts] = await Promise.all([
-        entities.Reel.filter({ author_email: targetEmail, status: "publie" }, "-created_at", 30).catch(() => []),
+        supabase.from("Reel").select("*").eq("author_email", targetEmail).eq("status", "publie").order("created_at", { ascending: false }).limit(100)
+          .then(result => result.error ? [] : (result.data || [])).catch(() => []),
         fetchProfil(),
         entities.Service.filter({ pro_email: targetEmail, status: "actif" }, "-created_at", 50).catch(() => []),
         entities.Avis.filter({ cible_email: targetEmail, type: "client_to_pro" }, "-created_at", 100).catch(() => []),
@@ -671,8 +672,16 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, p
       }
       fetchData();
     };
+    const onPublicationsUpdated = (e) => {
+      const authorEmail = String(e.detail?.author_email || "").toLowerCase();
+      if (!authorEmail || authorEmail === String(targetEmail).toLowerCase()) fetchData();
+    };
     window.addEventListener('pro-profile-updated', onUpdated);
-    return () => window.removeEventListener('pro-profile-updated', onUpdated);
+    window.addEventListener('professional-publications-updated', onPublicationsUpdated);
+    return () => {
+      window.removeEventListener('pro-profile-updated', onUpdated);
+      window.removeEventListener('professional-publications-updated', onPublicationsUpdated);
+    };
   }, [targetEmail, user]);
 
   useEffect(() => {
