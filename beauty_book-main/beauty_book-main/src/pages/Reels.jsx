@@ -13,6 +13,7 @@ import SponsoredCard from "@/components/reels/SponsoredCard";
 import { getPublicAds } from "@/lib/publicAds";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import SearchMasonryResults from "@/components/search/SearchMasonryResults";
+import BrandMark from "@/components/ui/BrandMark";
 
 const TABS = ["Réels", "Conseils", "Tutos"];
 const SPEEDS = [0.5, 1, 1.5, 2, 5, 10];
@@ -47,9 +48,9 @@ function getReelViewSession() {
 }
 
 const SHARE_OPTIONS = [
-  { label: "WhatsApp", color: "bg-green-500", icon: "💬" },
-  { label: "Instagram", color: "bg-pink-500", icon: "📸" },
-  { label: "TikTok", color: "bg-black", icon: "🎵" },
+  { label: "WhatsApp", brand: "whatsapp", color: "bg-green-500", icon: "💬" },
+  { label: "Instagram", brand: "instagram", color: "bg-pink-500", icon: "📸" },
+  { label: "TikTok", brand: "tiktok", color: "bg-black", icon: "🎵" },
   { label: "Copier lien", color: "bg-gray-700", icon: "🔗" },
   { label: "Message", color: "bg-blue-500", icon: "✉️" },
   { label: "Story", color: "bg-primary", icon: "⭐" },
@@ -551,7 +552,7 @@ function ShareSheet({ onClose, reelUrl, reelTitle }) {
         <div className="grid grid-cols-3 gap-4 px-6" style={{ paddingBottom: "calc(90px + env(safe-area-inset-bottom, 20px))" }}>
           {SHARE_OPTIONS.map((opt) => (
             <button key={opt.label} onClick={() => handleShare(opt.label)} className="flex flex-col items-center gap-2 active:scale-95 transition-all">
-              <div className={`w-14 h-14 ${opt.color} rounded-2xl flex items-center justify-center text-[24px] shadow-lg`}>{opt.icon}</div>
+              <div className={`w-14 h-14 ${opt.color} rounded-2xl flex items-center justify-center text-[24px] shadow-lg`}>{opt.brand ? <BrandMark brand={opt.brand} label={opt.label} size={25} /> : opt.icon}</div>
               <span className="text-white/70 text-[11px] font-black">{copied && opt.label === "Copier lien" ? "Copié !" : opt.label}</span>
             </button>
           ))}

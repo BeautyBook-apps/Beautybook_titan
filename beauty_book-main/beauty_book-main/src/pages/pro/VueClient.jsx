@@ -591,7 +591,9 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, p
       } catch { return null; }
     };
     const fetchProfil = async () => {
-      const { data: profiles, error } = await supabase.from('ProfilPro').select('id, user_email, salon_name, phone, address, city, bio, avatar_url, cover_url, status, galerie_urls, followers, ouverture, horaires, travail_nuit, rating, reviews_count, se_deplace, specialites, commodites, latitude, longitude, type_activite, postal_code, seats_count, menu_restaurant, menu_bar, additional_services').eq('user_email', targetEmail).order('created_at', { ascending: false });
+      // select('*') évite qu'une colonne de profil récemment ajoutée (ex. Menu/Carte)
+      // fasse échouer le chargement public complet avant le déploiement du schéma.
+      const { data: profiles, error } = await supabase.from('ProfilPro').select('*').eq('user_email', targetEmail).order('created_at', { ascending: false });
       if (error || !profiles || profiles.length === 0) return null;
       // Priority: 1) actif with images, 2) actif, 3) any with images, 4) latest
       const activeWithImages = profiles.find(p => p.status === 'actif' && (p.avatar_url || p.cover_url));
@@ -604,7 +606,19 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, p
       const cached = getCached();
       if (!cached) return p;
       if (!p) return { id: 'local', user_email: targetEmail, ...cached };
-      return { ...p, avatar_url: cached.avatar_url || p.avatar_url, cover_url: cached.cover_url || p.cover_url, salon_name: cached.salon_name || p.salon_name, bio: cached.bio || p.bio, city: cached.city || p.city, phone: cached.phone || p.phone, address: cached.address || p.address };
+      return {
+        ...p,
+        avatar_url: cached.avatar_url || p.avatar_url,
+        cover_url: cached.cover_url || p.cover_url,
+        salon_name: cached.salon_name || p.salon_name,
+        bio: cached.bio || p.bio,
+        city: cached.city || p.city,
+        phone: cached.phone || p.phone,
+        address: cached.address || p.address,
+        menu_restaurant: Array.isArray(cached.menu_restaurant) ? cached.menu_restaurant : (p.menu_restaurant || []),
+        menu_bar: Array.isArray(cached.menu_bar) ? cached.menu_bar : (p.menu_bar || []),
+        additional_services: Array.isArray(cached.additional_services) ? cached.additional_services : (p.additional_services || []),
+      };
     };
     const fetchData = async () => {
       const [reelRows, profileRaw, svcs, avis, demandes, bundleData, catOpts] = await Promise.all([

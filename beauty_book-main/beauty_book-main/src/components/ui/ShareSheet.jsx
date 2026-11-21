@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { X, Copy, Check, MessageCircle, Send } from "lucide-react";
+import BrandMark from "@/components/ui/BrandMark";
 
 /**
  * ShareSheet — bottom sheet de partage natif/web
@@ -25,6 +26,7 @@ export default function ShareSheet({ open, onClose, title, text, url }) {
   const options = [
     {
       label: "WhatsApp",
+      brand: "whatsapp",
       emoji: "💬",
       bg: "bg-green-500",
       action: () => { window.open(`https://wa.me/?text=${encodeURIComponent(shareText + " " + shareUrl)}`, "_blank"); onClose(); },
@@ -98,7 +100,7 @@ export default function ShareSheet({ open, onClose, title, text, url }) {
               className="flex flex-col items-center gap-2 active:scale-95 transition-all"
             >
               <div className={`w-14 h-14 ${opt.bg} rounded-2xl flex items-center justify-center text-[22px] shadow-md`}>
-                {opt.emoji}
+                {opt.brand ? <BrandMark brand={opt.brand} label={opt.label} size={27} /> : opt.emoji}
               </div>
               <span className="text-[10px] font-black text-gray-500 uppercase tracking-wide">{opt.label}</span>
             </button>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { MapPin, RefreshCw, ExternalLink } from "lucide-react";
 import { loadAppleMaps } from "@/lib/appleMaps";
+import BrandMark from "@/components/ui/BrandMark";
 
 const VTC_PROVIDERS = [
   {
@@ -223,7 +224,7 @@ export default function VTCSection({ destinationLat, destinationLng, destination
             <a key={provider.id} href={provider.deepLink} target="_blank" rel="noopener noreferrer"
               className={`flex items-center gap-4 px-4 py-4 active:bg-gray-50 transition-colors ${!isLast ? "border-b border-gray-100" : ""}`}>
               <div className={`w-12 h-12 ${provider.logoBg} rounded-2xl flex items-center justify-center shrink-0 shadow-sm`}>
-                <span className={`${provider.logoTextColor} text-[12px] font-black`}>{provider.logoText}</span>
+                <BrandMark brand={provider.id} label={provider.name} size={25} className={`${provider.logoTextColor} text-[15px]`} />
               </div>
               <div className="flex-1">
                 <p className="text-[15px] font-black text-gray-900">{provider.name}</p>

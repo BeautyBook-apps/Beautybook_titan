@@ -1,7 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardList, MessageSquare, X, Clock3, ChevronRight } from "lucide-react";
+import { ClipboardList, MessageSquare, X, Clock3, ChevronRight, Search, CheckCircle2 } from "lucide-react";
 
 const ACTIVE_STATUSES = new Set(["en_attente", "confirme"]);
+const QUESTION_LABELS = {
+  prep_notes: "Préférences pendant la prestation",
+  hair_length: "Longueur actuelle des cheveux",
+  hair_history: "Historique capillaire",
+  sensitivities: "Sensibilités connues",
+  styling_preference: "Style souhaité",
+  extensions_provided: "Extensions à prévoir",
+  hair_texture: "Texture des cheveux",
+  hair_type: "Type de cheveux",
+  scalp_sensitivity: "Sensibilité du cuir chevelu",
+  appointment_source: "Comment avez-vous connu le salon ?",
+};
+
+function prettyQuestionLabel(label, id) {
+  const raw = String(label || id || "Question").trim();
+  const key = String(id || raw).trim().toLowerCase().replace(/[ -]+/g, "_");
+  if (QUESTION_LABELS[key]) return QUESTION_LABELS[key];
+  if (raw === id || /^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(raw)) {
+    const readable = raw.replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase());
+    return QUESTION_LABELS[readable.toLowerCase().replace(/ /g, "_")] || readable;
+  }
+  return raw;
+}
 
 function getReservationStart(reservation) {
   if (!reservation?.date) return null;
@@ -46,7 +69,7 @@ function normalizeAnswers(reservation) {
     return raw
       .map((item, index) => ({
         id: item?.id || item?.question_id || `question-${index}`,
-        label: item?.question || item?.question_text || item?.label || item?.question_id || `Question ${index + 1}`,
+        label: prettyQuestionLabel(item?.question || item?.question_text || item?.label || item?.question_id, item?.question_id || item?.id),
         value: item && typeof item === "object" ? (item.answer ?? item.answer_text ?? item.response ?? item.value) : item,
       }))
       .filter(item => item.value !== undefined && item.value !== null && item.value !== "" && !(Array.isArray(item.value) && item.value.length === 0));
@@ -58,7 +81,7 @@ function normalizeAnswers(reservation) {
     .filter(([key, value]) => !["notes", "comment", "commentaire", "created_at", "updated_at"].includes(key.toLowerCase()) && value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0))
     .map(([id, value]) => ({
       id,
-      label: labels[id] || value?.question || value?.question_text || value?.label || id,
+      label: prettyQuestionLabel(labels[id] || value?.question || value?.question_text || value?.label || id, id),
       value: value && typeof value === "object" && !Array.isArray(value)
         ? (value.answer ?? value.answer_text ?? value.response ?? value.value ?? value.selected ?? value)
         : value,
@@ -76,57 +99,62 @@ function getReservationComment(reservation) {
 function answerText(value) {
   if (Array.isArray(value)) return value.map(answerText).filter(Boolean).join(", ");
   if (typeof value === "object" && value !== null) return Object.values(value).map(answerText).filter(Boolean).join(", ");
+  if (typeof value === "boolean") return value ? "Oui" : "Non";
   return String(value);
 }
 
 function InformationPanel({ reservation, mode, onClose, modal = false }) {
+  const [query, setQuery] = useState("");
   const answers = normalizeAnswers(reservation);
+  const visibleAnswers = answers.filter(answer => `${answer.label} ${answerText(answer.value)}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const comment = getReservationComment(reservation);
   const title = mode === "client" ? "Informations de ma réservation" : "Informations du client";
 
   return (
-    <div className={`bg-white ${modal ? "w-full max-w-lg rounded-3xl shadow-2xl" : "rounded-3xl border border-sky-100 shadow-sm"} overflow-hidden`}>
-      <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 bg-gradient-to-r from-sky-50 to-indigo-50">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center shadow-sm">
-            <ClipboardList className="w-5 h-5 text-sky-600" />
+    <div role={modal ? "dialog" : undefined} aria-modal={modal ? "true" : undefined} aria-labelledby={modal ? "reservation-info-title" : undefined}
+      className={`flex flex-col bg-white ${modal ? "h-[100dvh] max-h-[100dvh] w-full rounded-none shadow-2xl md:h-auto md:max-h-[min(88dvh,820px)] md:max-w-2xl md:rounded-[28px]" : "rounded-3xl border border-sky-100 shadow-sm"} overflow-hidden`}>
+      <header className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 bg-white px-5 pb-4 pt-[calc(14px+env(safe-area-inset-top,0px))] md:pt-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
+            <ClipboardList className="h-5 w-5" />
           </div>
-          <div>
-            <p className="text-[14px] font-black text-gray-900">{title}</p>
-            <p className="text-[11px] text-gray-500 font-medium mt-0.5">Réponses du formulaire et commentaire</p>
+          <div className="min-w-0">
+            <p id={modal ? "reservation-info-title" : undefined} className="truncate text-[15px] font-black text-slate-900">{title}</p>
+            <p className="mt-0.5 text-[11px] font-medium text-slate-500">Réponses du formulaire et commentaire</p>
           </div>
         </div>
-        {modal && (
-          <button type="button" onClick={onClose} aria-label="Fermer" className="w-8 h-8 rounded-full bg-white flex items-center justify-center">
-            <X className="w-4 h-4 text-gray-500" />
-          </button>
-        )}
-      </div>
+        {modal && <button type="button" onClick={onClose} aria-label="Fermer" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200 active:scale-95"><X className="h-4 w-4" /></button>}
+      </header>
 
-      <div className="p-5 space-y-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#f7f8fb] px-4 py-4 md:px-6 md:py-5">
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm">
+          <div><p className="text-[10px] font-black uppercase tracking-[.14em] text-slate-400">Votre rendez-vous</p><p className="mt-1 text-[13px] font-extrabold text-slate-800">{answers.length} réponse{answers.length > 1 ? "s" : ""} enregistrée{answers.length > 1 ? "s" : ""}</p></div>
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><CheckCircle2 className="h-[18px] w-[18px]" /></span>
+        </div>
+
+        {answers.length > 6 && <label className="mb-4 flex h-11 items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3.5 text-slate-400 shadow-sm focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-100"><Search className="h-4 w-4 shrink-0" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher une réponse…" className="h-full min-w-0 flex-1 bg-transparent text-[12px] font-semibold text-slate-800 outline-none placeholder:text-slate-400" /></label>}
+
         {answers.length > 0 ? (
-          <div className="space-y-2">
-            {answers.map(answer => (
-              <div key={answer.id} className="rounded-2xl border border-gray-100 bg-gray-50 px-3.5 py-3">
-                <p className="text-[10px] font-bold text-gray-500">{answer.label}</p>
-                <p className="text-[13px] font-black text-gray-900 mt-0.5 break-words">{answerText(answer.value)}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-[12px] text-gray-400 font-medium bg-gray-50 rounded-2xl px-3.5 py-3">Aucune réponse au formulaire enregistrée.</p>
-        )}
+          <section aria-label="Réponses au formulaire">
+            <div className="mb-2 flex items-center justify-between px-1"><h3 className="text-[10px] font-black uppercase tracking-[.16em] text-slate-500">Réponses du formulaire</h3><span className="text-[10px] font-bold text-slate-400">{visibleAnswers.length}/{answers.length}</span></div>
+            {visibleAnswers.length ? <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              {visibleAnswers.map((answer, index) => (
+                <article key={answer.id} className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_3px_12px_rgba(15,23,42,.035)]">
+                  <div className="mb-2 flex items-start justify-between gap-2"><p className="text-[11px] font-semibold leading-snug text-slate-500">{answer.label}</p><span className="shrink-0 rounded-lg bg-slate-50 px-2 py-1 text-[9px] font-black text-slate-400">{String(index + 1).padStart(2, "0")}</span></div>
+                  <p className="break-words text-[14px] font-extrabold leading-snug text-slate-900">{answerText(answer.value)}</p>
+                </article>
+              ))}
+            </div> : <p className="rounded-2xl bg-white p-4 text-center text-[12px] font-medium text-slate-500">Aucune réponse ne correspond à cette recherche.</p>}
+          </section>
+        ) : <p className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-[12px] font-medium text-slate-500">Aucune réponse au formulaire n’a été enregistrée.</p>}
 
-        <div className="rounded-2xl border border-orange-100 bg-orange-50/70 px-3.5 py-3">
-          <div className="flex items-center gap-2 mb-1.5">
-            <MessageSquare className="w-4 h-4 text-orange-500" />
-            <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Commentaire</p>
-          </div>
-          <p className="text-[13px] text-gray-700 font-medium whitespace-pre-wrap break-words">
-            {comment || "Aucun commentaire ajouté."}
-          </p>
-        </div>
+        <section className="mt-5 rounded-2xl border border-orange-200/80 bg-gradient-to-br from-orange-50 to-white p-4">
+          <div className="mb-2 flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-100 text-orange-600"><MessageSquare className="h-4 w-4" /></span><h3 className="text-[11px] font-black uppercase tracking-[.12em] text-orange-700">Commentaire</h3></div>
+          <p className="whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-slate-700">{comment || "Aucun commentaire ajouté."}</p>
+        </section>
       </div>
+
+      {modal && <footer className="shrink-0 border-t border-slate-100 bg-white px-4 pb-[calc(12px+env(safe-area-inset-bottom,0px))] pt-3 md:px-6"><button type="button" onClick={onClose} className="w-full rounded-2xl bg-slate-900 py-3.5 text-[12px] font-black uppercase tracking-[.1em] text-white transition hover:bg-slate-800 active:scale-[.98]">Fermer les informations</button></footer>}
     </div>
   );
 }
@@ -161,9 +189,9 @@ export default function ReservationClientInfo({ reservation, mode = "client", au
 
   if (autoOnly) {
     return showDetails ? (
-      <div className="fixed inset-0 z-[500] flex items-center justify-center p-4" onClick={() => setShowDetails(false)}>
+      <div className="fixed inset-0 z-[500] flex items-center justify-center p-0 md:p-5" onClick={() => setShowDetails(false)}>
         <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" />
-        <div className="relative z-10 w-full max-w-lg" onClick={event => event.stopPropagation()}>
+        <div className="relative z-10 h-full w-full md:h-auto md:max-w-2xl" onClick={event => event.stopPropagation()}>
           <InformationPanel reservation={reservation} mode={mode} modal onClose={() => setShowDetails(false)} />
         </div>
       </div>
@@ -189,9 +217,9 @@ export default function ReservationClientInfo({ reservation, mode = "client", au
       </div>
 
       {showDetails && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4" onClick={() => setShowDetails(false)}>
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-0 md:p-5" onClick={() => setShowDetails(false)}>
           <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" />
-          <div className="relative z-10 w-full max-w-lg" onClick={event => event.stopPropagation()}>
+          <div className="relative z-10 h-full w-full md:h-auto md:max-w-2xl" onClick={event => event.stopPropagation()}>
             <InformationPanel reservation={reservation} mode={mode} modal onClose={() => setShowDetails(false)} />
           </div>
         </div>

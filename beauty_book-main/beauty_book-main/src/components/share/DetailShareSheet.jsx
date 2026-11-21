@@ -1,4 +1,5 @@
 import BeautyImage from "@/components/ui/BeautyImage";
+import BrandMark from "@/components/ui/BrandMark";
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Check, Instagram, Link2, Mail, MessageCircle, Share2, Sparkles, X } from "lucide-react";
@@ -21,8 +22,8 @@ export default function DetailShareSheet({
   const [qrCode, setQrCode] = useState("");
   const shareText = `${title || "Cette découverte BeautyBook"}${subtitle ? ` · ${subtitle}` : ""}`;
   const options = [
-    { label: "WhatsApp", tone: "bg-[#eafaf1] text-[#16a34a]", Icon: MessageCircle, href: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${url}`)}` },
-    { label: "Instagram", tone: "bg-gradient-to-br from-[#fff0f8] to-[#f0eaff] text-[#c026d3]", Icon: Instagram },
+    { label: "WhatsApp", brand: "whatsapp", tone: "bg-[#eafaf1] text-[#16a34a]", Icon: MessageCircle, href: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${url}`)}` },
+    { label: "Instagram", brand: "instagram", tone: "bg-gradient-to-br from-[#fff0f8] to-[#f0eaff] text-[#c026d3]", Icon: Instagram },
     { label: "Message", tone: "bg-[#edf5ff] text-blue-600", Icon: Mail, href: `sms:?body=${encodeURIComponent(`${shareText} ${url}`)}` },
     { label: "Copier le lien", tone: "bg-[#fff5ea] text-orange-600", Icon: Link2 },
   ];
@@ -132,7 +133,7 @@ export default function DetailShareSheet({
           {options.map(option => (
             <button key={option.label} onClick={() => handleShare(option)} className="group flex min-h-[76px] items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-md active:scale-[0.97]">
               <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl shadow-sm transition-transform group-hover:scale-105 ${option.tone}`}>
-                {option.label === "Copier le lien" && copied ? <Check className="h-5 w-5" /> : <option.Icon className="h-5 w-5" />}
+                {option.label === "Copier le lien" && copied ? <Check className="h-5 w-5" /> : option.brand ? <BrandMark brand={option.brand} label={option.label} size={23} /> : <option.Icon className="h-5 w-5" />}
               </div>
               <span className="text-[11px] font-black leading-tight text-slate-700">{option.label === "Copier le lien" && copied ? "Lien copié" : option.label}</span>
             </button>

@@ -85,8 +85,8 @@ export const createReservation = async (req, res) => {
       salon_name, salon_address, persons = 1,
       service_location = "salon", client_address, client_postal_code, client_city,
       client_latitude, client_longitude, transport_fee = 0, transport_distance_km = 0,
-      payment_type = "full", // "full" | "acompte"
-      crg_code
+      payment_type = "full", // "full" | "acompte" | "surplace"
+      night_surcharge = 0, seat_number = null, booking_code = null, crg_code
     } = req.body;
 
     if (!pro_email || !service_name || !date || !time_slot) {
@@ -139,7 +139,7 @@ export const createReservation = async (req, res) => {
     }
 
     const acompteAmount = payment_type === "acompte" ? Math.round(total_price * 0.3 * 100) / 100 : 0;
-    const paymentStatus = payment_type === "acompte" ? "acompte_paye" : "paye";
+    const paymentStatus = payment_type === "surplace" ? "non_paye" : payment_type === "acompte" ? "acompte_paye" : "paye";
     const reservationStatus = "en_attente";
 
     // Create reservation
@@ -152,11 +152,19 @@ export const createReservation = async (req, res) => {
         service_name,
         service_price,
         date,
-        time: time_slot,
+        time_slot,
         end_time_slot: endSlot,
         duration_min: dur,
         persons,
         total_price,
+        addons: addons || null,
+        payment_type,
+        payment_status: paymentStatus,
+        acompte_amount: acompteAmount,
+        night_surcharge: Number(night_surcharge) || 0,
+        seat_number: seat_number == null ? null : String(seat_number),
+        booking_code,
+        crg_code,
         service_location,
          client_name: userProfile?.full_name || user.user_metadata?.full_name || "",
         client_address,
@@ -173,6 +181,8 @@ export const createReservation = async (req, res) => {
          custom_answer_labels,
         seats_total: seatsTotal,
         status: reservationStatus,
+        source: "app",
+        created_by_id: user.id,
       })
       .select()
       .single();

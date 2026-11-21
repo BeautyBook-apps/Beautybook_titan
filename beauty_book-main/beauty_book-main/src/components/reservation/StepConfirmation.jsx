@@ -915,12 +915,14 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
     setError(null);
     try {
       // ── Sauvegarder la réservation via l'API Backend ──────────────────────
-      const payload = buildPayload(paymentMode);
+      const payload = buildPayload(payOnSite ? "surplace" : paymentMode);
       let res;
       try {
         res = await apiClient.callFunction('createReservation', payload);
       } catch (apiError) {
-        // The local API requires PostgreSQL configuration; keep reservations usable through Supabase.
+        // Do not bypass backend validation (opening hours, availability, etc.).
+        // Direct Supabase is only a fallback when the API itself is unavailable.
+        if (apiError?.status > 0 && apiError.status < 500) throw apiError;
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error('Connectez-vous pour confirmer la réservation.');
         const { data: reservation, error: reservationError } = await supabase.from('Reservation').insert({
@@ -941,19 +943,35 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
           })(),
           persons: payload.persons,
           total_price: payload.total_price,
+          addons: payload.addons,
+          night_surcharge: payload.night_surcharge,
+          transport_fee: payload.transport_fee,
+          transport_distance_km: payload.transport_distance_km,
+          service_location: payload.service_location,
+          client_address: payload.client_address,
+          client_postal_code: payload.client_postal_code,
+          client_city: payload.client_city,
+          client_latitude: payload.client_latitude,
+          client_longitude: payload.client_longitude,
+          seat_number: payload.seat_number,
+          acompte_amount: payload.payment_type === 'acompte' ? acompteAmount : 0,
           notes: payload.notes,
           custom_answers: payload.custom_answers,
           custom_answer_labels: payload.custom_answer_labels,
-          payment_type: payload.payment_type === 'acompte' ? 'acompte' : 'full',
+          payment_type: payload.payment_type,
           payment_status: payOnSite ? 'non_paye' : (payload.payment_type === 'acompte' ? 'acompte_paye' : 'paye'),
           status: 'en_attente',
           salon_name: payload.salon_name,
           salon_address: payload.salon_address,
           crg_code: payload.crg_code,
           booking_code: payload.booking_code,
+          source: payload.source,
           created_by_id: user.id,
         }).select().single();
-        if (reservationError) throw new Error(reservationError.message || apiError.message);
+        if (reservationError) {
+          console.error('[Reservation] Supabase insert failed:', reservationError.code, reservationError.message, reservationError.details, reservationError.hint);
+          throw new Error(reservationError.message || apiError.message);
+        }
         res = { data: { reservation } };
       }
 
