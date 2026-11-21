@@ -98,7 +98,12 @@ export function createAuthFlows(client) {
     if (error) throw error;
     if (data?.user?.identities?.length === 0) throw new Error('Un compte existe déjà. Connectez-vous ou réinitialisez votre mot de passe.');
     saveSignupDraft(storage, { prenom: form.prenom.trim(), nom: form.nom.trim(), email, mode: 'email' });
-    if (data?.session?.user) await ensureProfile(data.session.user);
+    // La création du profil métier complète Auth, mais ne doit pas annuler une
+    // inscription déjà acceptée par Supabase si la table/RLS est indisponible.
+    if (data?.session?.user) {
+      try { await ensureProfile(data.session.user); }
+      catch (profileError) { console.warn('[Auth] Inscription réussie, profil à synchroniser :', profileError); }
+    }
     return { verified: Boolean(data?.session?.user) };
   }
 

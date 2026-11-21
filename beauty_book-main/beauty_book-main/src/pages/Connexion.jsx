@@ -262,7 +262,11 @@ export default function Connexion() {
         return;
       }
       if (!data?.user) throw new Error('Session indisponible.');
-      await createAuthFlows(supabase).ensureProfile(data.user);
+      // Une session Supabase valide suffit pour ouvrir l'application. La
+      // synchronisation du profil ne doit pas transformer un succès Auth en
+      // échec de connexion si la table profiles ou ses policies sont en panne.
+      try { await createAuthFlows(supabase).ensureProfile(data.user); }
+      catch (profileError) { console.warn('[Auth] Connecté, profil à synchroniser :', profileError); }
       localStorage.setItem("bb_onboarded", "1");
       if (remember) { localStorage.setItem("bb_remember_email", email.trim()); localStorage.setItem("bb_remember", "1"); }
       else { localStorage.removeItem("bb_remember_email"); localStorage.removeItem("bb_remember"); }
