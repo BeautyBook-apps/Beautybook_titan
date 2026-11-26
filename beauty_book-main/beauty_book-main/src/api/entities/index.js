@@ -28,6 +28,60 @@ const remoteRepubPayload = input => ({
   user_email: input.user_email,
   reel_id: input.reel_id,
 });
+// Older Reel tables use music_title/music_url instead of the newer sound
+// fields. Keep publication edits compatible while the Supabase migration is
+// being deployed; Reels.jsx already reads both representations.
+const remoteReelPayload = input => {
+  const payload = { ...input };
+  if (Object.prototype.hasOwnProperty.call(payload, 'sound')) {
+    payload.music_title = typeof payload.sound === 'string' ? payload.sound : payload.sound?.title || '';
+    delete payload.sound;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'sound_preview_url')) {
+    payload.music_url = payload.sound_preview_url || '';
+    delete payload.sound_preview_url;
+  }
+  delete payload.sound_duration;
+  delete payload.sound_trim_start;
+  delete payload.sound_trim_end;
+  delete payload.pub_type;
+  return payload;
+};
+
+const isSchemaCompatibilityError = (error) => Boolean(error && (
+  error.code === 'PGRST204' || error.code === 'PGRST205' ||
+  /column|schema cache|does not exist/i.test(error.message || '')
+));
+
+const missingColumnFromSchemaError = (error) => {
+  const message = String(error?.message || '');
+  return message.match(/Could not find the '([^']+)' column/i)?.[1]
+    || message.match(/column ['"]([^'"]+)['"]/i)?.[1]
+    || null;
+};
+
+const retryReelWithCompatiblePayload = async (operation, input) => {
+  const payload = remoteReelPayload(input);
+  let result;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    result = await operation(payload);
+    if (!result.error || !isSchemaCompatibilityError(result.error)) return result;
+    const missingColumn = missingColumnFromSchemaError(result.error);
+    if (!missingColumn || (missingColumn !== 'tags' && !Object.prototype.hasOwnProperty.call(payload, missingColumn))) return result;
+    if (missingColumn === 'tags' && Array.isArray(input.tags) && input.tags.length > 0) {
+      const hashtagLine = input.tags
+        .map(tag => String(tag || '').trim())
+        .filter(Boolean)
+        .join(' ');
+      payload.description = [String(payload.description || '').trim(), hashtagLine]
+        .filter(Boolean)
+        .join('\n\n');
+    }
+    delete payload[missingColumn];
+  }
+  return result;
+};
+
 const createEntity = table => ({
   async filter(filters={},orderBy='-created_at',limit=1000){
     let query=supabase.from(table).select('*');
@@ -54,6 +108,13 @@ const createEntity = table => ({
       const remoteResult=await supabase.from(table).insert(remoteRepubPayload(input)).select().single();
       return checked(remoteResult);
     }
+    if(table==='Reel' && isSchemaCompatibilityError(result.error)){
+      const remoteResult=await retryReelWithCompatiblePayload(
+        payload => supabase.from(table).insert(payload).select().single(),
+        input,
+      );
+      return checked(remoteResult);
+    }
     return checked(result);
   },
   async update(id,input){
@@ -61,6 +122,13 @@ const createEntity = table => ({
     const result=await supabase.from(table).update(input).eq('id',id).select().single();
     if(table==='Avis'&&result.error?.code==='PGRST204'){
       const remoteResult=await supabase.from(table).update(remoteAvisUpdatePayload(input)).eq('id',id).select().single();
+      return checked(remoteResult);
+    }
+    if(table==='Reel' && isSchemaCompatibilityError(result.error)){
+      const remoteResult=await retryReelWithCompatiblePayload(
+        payload => supabase.from(table).update(payload).eq('id',id).select().single(),
+        input,
+      );
       return checked(remoteResult);
     }
     return checked(result);

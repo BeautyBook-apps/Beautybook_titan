@@ -1,5 +1,34 @@
 import React from "react";
 
+// Assets vectoriels inspirés des références fournies pour l'accueil.
+const VectorCategoryIcon = ({ asset, size = 28, className = "", strokeWidth: _strokeWidth, ...props }) => {
+  const mask = `url(/category-icons/${asset}.svg)`;
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block shrink-0 ${className}`}
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: "currentColor",
+        WebkitMaskImage: mask,
+        maskImage: mask,
+        WebkitMaskRepeat: "no-repeat",
+        maskRepeat: "no-repeat",
+        WebkitMaskPosition: "center",
+        maskPosition: "center",
+        WebkitMaskSize: "contain",
+        maskSize: "contain",
+      }}
+      {...props}
+    />
+  );
+};
+
+export const HomeCoiffureIcon = (props) => <VectorCategoryIcon asset="coiffure" {...props} />;
+export const HomePerruqueIcon = (props) => <VectorCategoryIcon asset="perruque" {...props} />;
+export const HomeTressesIcon = (props) => <VectorCategoryIcon asset="tresses" {...props} />;
+
 // ── 1. Tous : Étoile éclatante & découverte ──
 export const TousIcon = ({ size = 28, className = "", strokeWidth = 1.9, ...props }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>

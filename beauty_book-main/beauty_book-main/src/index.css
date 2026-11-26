@@ -122,6 +122,8 @@ html[data-bb-theme="night"] .analytics-page .hover\:bg-slate-50:hover { backgrou
 
   html {
     background-color: #f8f9fa;
+    -webkit-text-size-adjust: 100%;
+    touch-action: manipulation;
   }
 
   body {
@@ -130,6 +132,8 @@ html[data-bb-theme="night"] .analytics-page .hover\:bg-slate-50:hover { backgrou
     font-size: clamp(14px, 4vw, 17px);
     overscroll-behavior: none;
     -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    touch-action: manipulation;
     background-color: #f8f9fa;
   }
 
@@ -176,6 +180,14 @@ html[data-bb-theme="night"] .analytics-page .hover\:bg-slate-50:hover { backgrou
     -webkit-touch-callout: none;
     user-select: none;
     -webkit-user-select: none;
+  }
+
+  /* iOS zoome automatiquement les champs dont le texte est inférieur à 16px.
+     Garder cette taille minimale rend la recherche stable sans agrandir l'écran. */
+  @media (max-width: 767px) {
+    input, textarea, select {
+      font-size: 16px !important;
+    }
   }
 
   /* Les médias éditoriaux gardent un point focal visage ; les publicités

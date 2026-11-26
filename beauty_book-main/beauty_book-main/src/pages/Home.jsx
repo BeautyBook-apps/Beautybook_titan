@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import usePullToRefresh from "@/hooks/usePullToRefresh";
 import { SERVICE_HOME_CATEGORIES } from "@/lib/categories";
-import { BEAUTY_CATEGORY_ICONS } from "@/components/home/CategoryIcons";
+import { BEAUTY_CATEGORY_ICONS, HomeCoiffureIcon, HomePerruqueIcon, HomeTressesIcon } from "@/components/home/CategoryIcons";
 import { getPublicAds } from "@/lib/publicAds";
 import { entities } from '@/api/entities';
 import { useLocale } from "@/hooks/useLocale";
@@ -21,7 +21,12 @@ import {
   recordRecommendationEvent,
 } from "@/lib/recommendations";
 
-const HOME_CATEGORY_ICONS = BEAUTY_CATEGORY_ICONS;
+const HOME_CATEGORY_ICONS = {
+  ...BEAUTY_CATEGORY_ICONS,
+  coiffure: HomeCoiffureIcon,
+  perruque: HomePerruqueIcon,
+  tresses: HomeTressesIcon,
+};
 
 const HOME_CATEGORY_STYLES = {
   tous: { surface: "bg-amber-50/90", border: "border-amber-200/80", icon: "text-amber-600" },

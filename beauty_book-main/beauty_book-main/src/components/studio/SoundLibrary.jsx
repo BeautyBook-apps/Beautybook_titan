@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { useStudioPalette, STUDIO_ACCENT } from "./studioTheme";
 import initialTikTokSounds from "./tiktokSoundsData.json";
+import BeautyImage from "@/components/ui/BeautyImage";
 
 const ACCENT = STUDIO_ACCENT;
 
@@ -30,6 +31,73 @@ const QUICK_SUGGESTION_TAGS = [
   "Billie Eilish",
   "Doja Cat",
 ];
+
+// Audius fournit un catalogue mondial vivant avec recherche, tendances et
+// streaming de previews. Plusieurs discovery providers sont essayés pour
+// rester robuste si un point d'accès est momentanément indisponible.
+const AUDIO_DISCOVERY_HOSTS = [
+  "https://discoveryprovider.audius.co",
+  "https://discoveryprovider2.audius.co",
+  "https://api.audius.co",
+];
+
+const getAudiusArtwork = (artwork) => {
+  if (!artwork) return "";
+  if (typeof artwork === "string") return artwork;
+  return artwork["480x480"] || artwork["150x150"] || artwork["1000x1000"] || artwork["原图"] || "";
+};
+
+const getAudiusCategory = (track) => {
+  const genre = String(track?.genre || "").toLowerCase();
+  if (genre.includes("afro") || genre.includes("amapiano") || genre.includes("dancehall")) return "afro";
+  if (genre.includes("lofi") || genre.includes("chill") || genre.includes("ambient")) return "lofi";
+  if (genre.includes("pop") || genre.includes("hip hop") || genre.includes("r&b") || genre.includes("rap")) return "tiktok";
+  return "all";
+};
+
+const mapAudiusTrack = (track, host, categoryOverride) => {
+  const id = String(track?.id || track?.track_id || "");
+  if (!id) return null;
+  const title = String(track?.title || "Sans titre").trim();
+  const artist = String(track?.user?.name || track?.user?.handle || track?.artist || "Artiste indépendant").trim();
+  const durationSeconds = Number(track?.duration);
+  const durationMs = Number.isFinite(durationSeconds) ? Math.max(30000, durationSeconds * 1000) : 30000;
+  return {
+    id: `audius-${id}`,
+    title,
+    artist,
+    artwork: getAudiusArtwork(track?.artwork),
+    previewUrl: `${host}/v1/tracks/${encodeURIComponent(id)}/stream?app_name=BeautyBook`,
+    durationMs,
+    source: "audius",
+    category: categoryOverride || getAudiusCategory(track),
+  };
+};
+
+const dedupeTracks = (tracks) => {
+  const seen = new Set();
+  return tracks.filter(Boolean).filter((track) => {
+    const key = `${String(track.title || "").toLowerCase()}::${String(track.artist || "").toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const fetchAudius = async (path) => {
+  let lastError = null;
+  for (const host of AUDIO_DISCOVERY_HOSTS) {
+    try {
+      const response = await fetch(`${host}${path}`);
+      if (!response.ok) throw new Error(`Audius ${response.status}`);
+      const payload = await response.json();
+      return { host, tracks: Array.isArray(payload?.data) ? payload.data : [] };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Audius indisponible");
+};
 
 function Slider({ label, min, max, step = 1, value, fmtv, onChange }) {
   const { TXT, MUTED, TRACK } = useStudioPalette();
@@ -81,40 +149,55 @@ export default function SoundLibrary({
   const [showSuggestDropdown, setShowSuggestDropdown] = useState(false);
   const [suggestItems, setSuggestItems] = useState([]);
   const previewRef = useRef(null);
+  const previewTimerRef = useRef(null);
   const searchDebounceRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Catalogue public de previews Apple/iTunes : plusieurs marchés et genres
-  // sont interrogés pour garder une sélection mondiale renouvelée à chaque
-  // ouverture. On ne télécharge jamais les morceaux complets.
+  // Audius est la source principale pour les nouveautés mondiales et les
+  // recherches en direct. iTunes reste un repli de previews autorisées pour
+  // garder la bibliothèque utilisable même si Audius est indisponible.
   const loadGlobalRecentTracks = useCallback(async () => {
     setLoadingFeatured(true);
     const discoveryTerms = [
-      "new global hits",
-      "afrobeats 2026",
-      "pop 2026",
-      "latin hits 2026",
-      "k-pop 2026",
-      "francophone 2026",
+      "afrobeats",
+      "amapiano",
+      "pop",
+      "latin",
+      "k-pop",
+      "francophone",
+      "dancehall",
+      "lofi chill",
     ];
     try {
-      const responses = await Promise.allSettled(discoveryTerms.map((term) =>
-        fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=50`)
-          .then((res) => res.ok ? res.json() : { results: [] })
-      ));
-      const seen = new Set();
-      const tracks = [];
-      responses.forEach((response) => {
+      const [audiusResponses, appleResponses] = await Promise.all([
+        Promise.allSettled([
+          fetchAudius("/v1/tracks/trending?limit=100&app_name=BeautyBook"),
+          ...discoveryTerms.map((term) => fetchAudius(`/v1/tracks/search?query=${encodeURIComponent(term)}&limit=50&app_name=BeautyBook`)),
+        ]),
+        Promise.allSettled(discoveryTerms.map((term) =>
+          fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=50`)
+            .then((res) => res.ok ? res.json() : { results: [] })
+        )),
+      ]);
+
+      const audiusTracks = [];
+      audiusResponses.forEach((response) => {
+        if (response.status !== "fulfilled") return;
+        response.value.tracks.forEach((tr) => {
+          const mapped = mapAudiusTrack(tr, response.value.host);
+          if (mapped) audiusTracks.push(mapped);
+        });
+      });
+
+      const appleTracks = [];
+      appleResponses.forEach((response) => {
         if (response.status !== "fulfilled") return;
         (response.value?.results || []).forEach((tr) => {
           if (!tr.previewUrl) return;
-          const key = `${tr.trackName || ""}::${tr.artistName || ""}`.toLowerCase();
-          if (seen.has(key)) return;
-          seen.add(key);
-          tracks.push({
+          appleTracks.push({
             id: "it-" + tr.trackId,
-            title: tr.trackName,
-            artist: tr.artistName,
+            title: tr.trackName || "Sans titre",
+            artist: tr.artistName || "Artiste",
             artwork: tr.artworkUrl100 || tr.artworkUrl60,
             previewUrl: tr.previewUrl,
             durationMs: tr.trackTimeMillis || 30000,
@@ -123,7 +206,7 @@ export default function SoundLibrary({
           });
         });
       });
-      setFeaturedTracks(tracks);
+      setFeaturedTracks(dedupeTracks([...audiusTracks, ...appleTracks]));
       setLastUpdated(new Date());
     } catch (err) {
       console.warn("[SoundLibrary] Impossible d'actualiser la sélection mondiale:", err);
@@ -140,6 +223,7 @@ export default function SoundLibrary({
   useEffect(() => {
     return () => {
       previewRef.current?.pause();
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
   }, []);
@@ -155,25 +239,33 @@ export default function SoundLibrary({
 
     setSearching(true);
     try {
-      // Recherche par titre, artiste ou genre dans le catalogue musical.
-      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=200`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Catalogue indisponible (${res.status})`);
-      const data = await res.json();
+      const [audiusResponse, appleResponse] = await Promise.allSettled([
+        fetchAudius(`/v1/tracks/search?query=${encodeURIComponent(term)}&limit=100&app_name=BeautyBook`),
+        fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=200`)
+          .then((res) => res.ok ? res.json() : { results: [] }),
+      ]);
 
-      const tracks = (data.results || [])
-        .filter((tr) => Boolean(tr.previewUrl))
-        .map((tr) => ({
-          id: "it-" + tr.trackId,
-          title: tr.trackName,
-          artist: tr.artistName,
-          artwork: tr.artworkUrl100 || tr.artworkUrl60,
-          previewUrl: tr.previewUrl,
-          durationMs: tr.trackTimeMillis || 30000,
-          source: "global",
-        }));
-
-      setOnlineResults(tracks);
+      const tracks = [];
+      if (audiusResponse.status === "fulfilled") {
+        audiusResponse.value.tracks.forEach((tr) => {
+          const mapped = mapAudiusTrack(tr, audiusResponse.value.host);
+          if (mapped) tracks.push(mapped);
+        });
+      }
+      if (appleResponse.status === "fulfilled") {
+        (appleResponse.value?.results || [])
+          .filter((tr) => Boolean(tr.previewUrl))
+          .forEach((tr) => tracks.push({
+            id: "it-" + tr.trackId,
+            title: tr.trackName || "Sans titre",
+            artist: tr.artistName || "Artiste",
+            artwork: tr.artworkUrl100 || tr.artworkUrl60,
+            previewUrl: tr.previewUrl,
+            durationMs: tr.trackTimeMillis || 30000,
+            source: "global",
+          }));
+      }
+      setOnlineResults(dedupeTracks(tracks));
     } catch (err) {
       console.warn("[SoundLibrary] Erreur recherche en ligne:", err);
     } finally {
@@ -252,12 +344,14 @@ export default function SoundLibrary({
   const togglePreview = (tr) => {
     if (previewUrl === tr.previewUrl) {
       previewRef.current?.pause();
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       setPreviewUrl(null);
       setPreviewTrackId(null);
       return;
     }
 
     previewRef.current?.pause();
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     const audio = new Audio(tr.previewUrl);
     audio.volume = 0.7;
     audio
@@ -265,12 +359,18 @@ export default function SoundLibrary({
       .then(() => {
         setPreviewUrl(tr.previewUrl);
         setPreviewTrackId(tr.id);
+        previewTimerRef.current = setTimeout(() => {
+          audio.pause();
+          setPreviewUrl(null);
+          setPreviewTrackId(null);
+        }, 30000);
       })
       .catch((e) => {
         console.warn("[SoundLibrary] Erreur lecture preview:", e);
       });
 
     audio.onended = () => {
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       setPreviewUrl(null);
       setPreviewTrackId(null);
     };
@@ -279,11 +379,13 @@ export default function SoundLibrary({
 
   const handlePickTrack = (tr) => {
     previewRef.current?.pause();
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     onPick?.(tr);
   };
 
   const close = () => {
     previewRef.current?.pause();
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     onClose?.();
   };
 
@@ -335,6 +437,8 @@ export default function SoundLibrary({
             <input
               ref={inputRef}
               type="text"
+              inputMode="search"
+              aria-label="Rechercher un titre, un artiste ou une musique"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onFocus={() => {
@@ -384,7 +488,7 @@ export default function SoundLibrary({
                     className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left active:bg-orange-50/70 dark:active:bg-white/5 transition-colors"
                   >
                     {s.artwork ? (
-                      <img src={s.artwork} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+                      <BeautyImage src={s.artwork} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
                     ) : (
                       <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-orange-100 text-orange-600">
                         <Music2 className="w-4 h-4" />
@@ -602,7 +706,7 @@ export default function SoundLibrary({
                 style={{ background: TRACK }}
               >
                 {tr.artwork ? (
-                  <img src={tr.artwork} alt="" className="w-full h-full object-cover" loading="lazy" />
+                  <BeautyImage src={tr.artwork} alt="" className="w-full h-full object-cover" loading="lazy" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800 text-gray-400">
                     <Music2 className="w-5 h-5" />

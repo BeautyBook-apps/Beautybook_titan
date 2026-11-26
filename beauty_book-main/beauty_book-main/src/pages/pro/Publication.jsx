@@ -125,8 +125,8 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
       hashtags: pub.hashtags || pub.tags || [],
       pubType: categoryToPubType[pub.category] || pub.pub_type || "reel",
       visibility: pub.visibility || "public",
-      sound: pub.sound || null,
-      soundPreviewUrl: pub.sound_preview_url || null,
+      sound: pub.sound || pub.music_title || null,
+      soundPreviewUrl: pub.sound_preview_url || pub.music_url || null,
       soundDuration: pub.sound_duration || 0,
       soundTrimStart: pub.sound_trim_start || 0,
       soundTrimEnd: pub.sound_trim_end || 1,
@@ -1073,8 +1073,11 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
         )}
 
         {/* Ajouter un son — moderne */}
-        <button
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => { if (form.sound) { setShowAudioMixer(true); } else { setShowSoundPanel(true); } }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (form.sound) setShowAudioMixer(true); else setShowSoundPanel(true); } }}
           className={`flex items-center gap-2.5 rounded-full px-4 py-2.5 active:scale-95 transition-all border ${isDark ? "bg-white/10 backdrop-blur-md border-white/15" : "bg-black/5 backdrop-blur-md border-black/10"}`}
         >
           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 flex items-center justify-center">
@@ -1089,7 +1092,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
               <X className={`w-3 h-3 ${isDark ? "text-white/70" : "text-gray-500"}`} />
             </button>
           )}
-        </button>
+        </div>
 
         <div className="w-10" />
       </div>
@@ -1333,8 +1336,11 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
               </div>
               <div className="flex gap-2 overflow-x-auto pb-2 hide-scrollbar">
                 {allMedia.map((media, i) => (
-                  <button key={media.id || i}
+                  <div key={media.id || i}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setActiveTrackIdx(i)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveTrackIdx(i); } }}
                     className={`relative shrink-0 rounded-xl overflow-hidden border-2 transition-all active:scale-95 ${
                       activeTrackIdx === i ? "border-orange-500 shadow-lg shadow-orange-500/20" : "border-white/10"
                     }`} style={{ width: 80, height: 100 }}>
@@ -1358,7 +1364,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
                     }} className="absolute top-1 right-1 w-5 h-5 bg-red-500/80 rounded-full flex items-center justify-center">
                       <X className="w-3 h-3 text-white" />
                     </button>
-                  </button>
+                  </div>
                 ))}
                 {/* Ajouter un média */}
                 <button onClick={() => fileInputRef.current?.click()}
@@ -2653,12 +2659,23 @@ export default function Publication() {
     });
   };
 
+  // Le cache local peut conserver une publication supprimée côté Supabase.
+  // Vérifier l'identifiant avant le PATCH évite un 400 et permet de republier
+  // proprement le contenu comme une nouvelle ligne.
+  const resolveExistingReelId = async (id) => {
+    if (!id) return null;
+    const { data, error } = await supabase.from("Reel").select("id").eq("id", id).maybeSingle();
+    if (error) throw error;
+    return data?.id ? id : null;
+  };
+
   const handlePublish = async (form) => {
     setPublishing(true);
     localStorage.removeItem(DRAFT_KEY);
     const editId = form._editId || null;
     try {
       const user = await supabase.auth.getUser().then(({ data }) => data?.user).catch(() => null);
+      const targetEditId = await resolveExistingReelId(editId);
       const pubTypeToCategory = { reel: "Réels", tuto: "Tutos", conseil: "Conseils" };
 
       let thumbnail = form.images[0] || "";
@@ -2687,8 +2704,10 @@ export default function Publication() {
         author_avatar: user?.avatar_url || undefined,
         created_by_id: user?.id || undefined,
         tags: form.hashtags || [],
-        sound: form.sound || "",
-        sound_preview_url: form.soundPreviewUrl || "",
+        // Compatibilité avec la table Reel historique : les métadonnées audio
+        // sont enregistrées dans les colonnes music_* déjà présentes.
+        music_title: form.sound || "",
+        music_url: form.soundPreviewUrl || "",
         category: pubTypeToCategory[form.pubType] || "Réels",
         pub_type: form.pubType || "reel",
         status: "publie",
@@ -2700,29 +2719,29 @@ export default function Publication() {
       };
 
       let reel;
-      if (editId) {
-        const res = await entities.Reel.update(editId, payload);
-        reel = res?.data?.reel || res?.result || res || { ...payload, id: editId };
+      if (targetEditId) {
+        const res = await entities.Reel.update(targetEditId, payload);
+        reel = res?.data?.reel || res?.result || res || { ...payload, id: targetEditId };
       } else {
         const res = await entities.Reel.create(payload);
         reel = res?.data?.reel || res?.result || res;
       }
 
-      if (editId) {
+      if (targetEditId) {
         setPublications(prev => {
-          const next = prev.map(p => p.id === editId ? { ...p, ...reel } : p);
+          const next = prev.map(p => p.id === targetEditId ? { ...p, ...reel } : p);
           mergePageCache(cacheKey, { publications: next });
           return next;
         });
       } else {
         setPublications(prev => {
-          const next = [reel, ...prev];
+          const next = [reel, ...prev.filter(p => p.id !== editId)];
           mergePageCache(cacheKey, { publications: next });
           return next;
         });
       }
       window.dispatchEvent(new CustomEvent("professional-publications-updated", {
-        detail: { author_email: user?.email || "", reel_id: reel?.id || editId },
+        detail: { author_email: user?.email || "", reel_id: reel?.id || targetEditId },
       }));
       setEditingPub(null);
       setToolResult(null);
@@ -2737,6 +2756,7 @@ export default function Publication() {
     localStorage.removeItem(DRAFT_KEY);
     const editId = form._editId || null;
     try {
+      const targetEditId = await resolveExistingReelId(editId);
       const pubTypeToCategory = { reel: "Réels", tuto: "Tutos", conseil: "Conseils" };
       let finalDescription = form.caption || "Brouillon";
       if (form.callouts && form.callouts.length > 0) {
@@ -2752,8 +2772,8 @@ export default function Publication() {
         author_name: user?.full_name || "",
         created_by_id: user?.id || undefined,
         tags: form.hashtags || [],
-        sound: form.sound || "",
-        sound_preview_url: form.soundPreviewUrl || "",
+        music_title: form.sound || "",
+        music_url: form.soundPreviewUrl || "",
         category: pubTypeToCategory[form.pubType] || "Réels",
         pub_type: form.pubType,
         status: "brouillon",
@@ -2765,23 +2785,23 @@ export default function Publication() {
       };
 
       let reel;
-      if (editId) {
-        const res = await entities.Reel.update(editId, payload);
-        reel = res?.data?.reel || res?.result || res || { ...payload, id: editId };
+      if (targetEditId) {
+        const res = await entities.Reel.update(targetEditId, payload);
+        reel = res?.data?.reel || res?.result || res || { ...payload, id: targetEditId };
       } else {
         const res = await entities.Reel.create(payload);
         reel = res?.data?.reel || res?.result || res;
       }
 
-      if (editId) {
+      if (targetEditId) {
         setPublications(prev => {
-          const next = prev.map(p => p.id === editId ? { ...p, ...reel } : p);
+          const next = prev.map(p => p.id === targetEditId ? { ...p, ...reel } : p);
           mergePageCache(cacheKey, { publications: next });
           return next;
         });
       } else {
         setPublications(prev => {
-          const next = [reel, ...prev];
+          const next = [reel, ...prev.filter(p => p.id !== editId)];
           mergePageCache(cacheKey, { publications: next });
           return next;
         });

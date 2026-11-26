@@ -12,11 +12,13 @@ import { useToast } from "@/components/ui/use-toast";
 import SponsoredCard from "@/components/reels/SponsoredCard";
 import { getPublicAds } from "@/lib/publicAds";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
+import { useTheme } from "@/hooks/useTheme";
 import SearchMasonryResults from "@/components/search/SearchMasonryResults";
 import BrandMark from "@/components/ui/BrandMark";
 
 const TABS = ["Réels", "Conseils", "Tutos"];
 const SPEEDS = [0.5, 1, 1.5, 2, 5, 10];
+let reelEngagementRetryAt = 0;
 
 function formatReelAge(value) {
   if (!value) return "";
@@ -586,7 +588,7 @@ function SpeedSelector({ speed, onChange, onClose }) {
 }
 
 const getReelSoundKey = (reel) => String(
-  reel?.sound ||
+  typeof reel?.sound === "string" ? reel.sound : reel?.sound?.title ||
   [reel?.music_title, reel?.music_artist].filter(Boolean).join(" · ") ||
   (reel?.sound_preview_url ? "Son sélectionné" : "")
 ).trim();
@@ -599,6 +601,7 @@ const normalizeSoundKey = (value) => String(value || "")
 
 // ── Single Reel Card (plein écran, scroll vertical) ───────────────────────────
 function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, onRepub, followed, onFollow, onComment, onShare, onBuyProduits, onBuyServices, onSpeedChange, speed, currentUser, onAuthorClick, onSoundClick, navigate, toast }) {
+  const { theme } = useTheme();
   const videoRef = useRef(null);
   const audioRef = useRef(null); // piste musicale externe
   const progressRef = useRef(null);
@@ -631,7 +634,10 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
   const reelTags = (Array.isArray(reel.tags) ? reel.tags : String(reel.tags || "").split(/[\s,]+/))
     .map(tag => String(tag || "").trim().replace(/^#+/, ""))
     .filter(Boolean);
-  const musicLabel = reel.sound || [reel.music_title, reel.music_artist].filter(Boolean).join(" · ") || (reel.sound_preview_url ? "Son sélectionné" : "");
+  const musicLabel = (typeof reel.sound === "string" ? reel.sound : reel.sound?.title) || [reel.music_title, reel.music_artist].filter(Boolean).join(" · ") || (reel.sound_preview_url ? "Son sélectionné" : "");
+  const imageBadgeClass = theme === "light"
+    ? "bg-white text-gray-950 border-gray-200"
+    : "bg-white text-black border-white/70";
 
   // Découpe la description en phrases ; aperçu = 2 premières phrases + "Voir plus"
   const descSentences = (() => {
@@ -820,6 +826,18 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
             className="absolute inset-0 w-full h-full object-cover object-[center_55%]"
           />
 
+          {/* Indicateur discret : l'image active devient blanche après chaque glissement. */}
+          {reel.images?.length > 1 && (
+            <div className="absolute left-1/2 bottom-28 -translate-x-1/2 z-10 flex items-center gap-1.5 pointer-events-none" aria-hidden="true">
+              {reel.images.map((_, index) => (
+                <span
+                  key={`image-dot-${index}`}
+                  className={`w-1.5 h-1.5 rounded-full border shadow-sm transition-all duration-200 ${index === photoIdx ? "bg-white border-white scale-125" : "bg-white/35 border-white/60"}`}
+                />
+              ))}
+            </div>
+          )}
+
           {/* Callouts interactifs */}
           {calloutsVisible && parsedCallouts.filter(c => (c.imageIndex ?? 0) === photoIdx).map((c, i) => (
             <div
@@ -984,8 +1002,12 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <button onClick={() => onAuthorClick?.(reel)} className="text-white text-[13px] font-bold truncate text-left">{reel.author_name || reel.author_handle || "Utilisateur"}</button>
-              {!media && <span className="text-white/75 text-[10px] font-bold shrink-0">Image</span>}
               {reelAge && <span className="text-white/65 text-[10px] font-semibold shrink-0">· {reelAge}</span>}
+              {!media && (
+                <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[9px] font-black leading-none shadow-sm ${imageBadgeClass}`}>
+                  Image
+                </span>
+              )}
             </div>
           </div>
           {reel.author_email && reel.author_email !== currentUser?.email && (
@@ -1071,6 +1093,10 @@ export default function Reels() {
 
   const trackReelView = useCallback((reel) => {
     if (!reel?.id) return;
+    // En local, le proxy peut pointer vers un backend non configuré. Ne pas
+    // marteler la console ni le serveur avec une requête par slide dans ce cas.
+    const canUseEngagementApi = !(import.meta.env.DEV && !import.meta.env.VITE_BACKEND_URL);
+    if (!canUseEngagementApi || Date.now() < reelEngagementRetryAt) return;
     // Une vue correspond à la première consultation de cette publication
     // par ce profil. La clé reste stable : pas de nouvelle vue chaque jour.
     const viewerKey = user?.id
@@ -1093,7 +1119,10 @@ export default function Reels() {
         return;
       }
       setReelsData(prev => prev.map(item => String(item.id) === String(reel.id) ? { ...item, views: Number(result.value) } : item));
-    }).catch(() => trackedViewsRef.current.delete(key));
+    }).catch(() => {
+      trackedViewsRef.current.delete(key);
+      reelEngagementRetryAt = Date.now() + 120000;
+    });
   }, [setReelsData, user?.email, user?.id]);
 
   // ── À chaque (ré-)entrée sur la page Social, on repart du haut du fil ──
@@ -1418,10 +1447,10 @@ export default function Reels() {
     author_email: r.author_email || "",
     thumbnail_url: r.thumbnail_url || (r.images && r.images[0]) || "",
     images: r.images || [], video_url: r.video_url || null,
-    title: r.title, description: r.description || String(), sound: r.sound || null,
+    title: r.title, description: r.description || String(), sound: typeof r.sound === "string" ? r.sound : r.sound?.title || null,
     tags: r.tags || r.hashtags || [], created_at: r.created_at || r.updated_at || null,
-    music_title: r.music_title || r.sound_title || "", music_artist: r.music_artist || r.sound_artist || "",
-    sound_preview_url: r.sound_preview_url || r.music_url || null,
+    music_title: r.music_title || r.sound_title || r.audio_title || r.music_name || "", music_artist: r.music_artist || r.sound_artist || r.audio_artist || "",
+    sound_preview_url: r.sound_preview_url || r.music_url || r.audio_url || null,
     likes: reelLikeCounts[String(r.id)] ?? reelLikeCounts[r.id] ?? r.likes ?? 0,
     realLikes: reelLikeCounts[String(r.id)] ?? reelLikeCounts[r.id] ?? r.likes ?? 0,
     comments: r.comments || 0,
@@ -1567,6 +1596,9 @@ export default function Reels() {
               <Search className={`w-4 h-4 shrink-0 ${isCurrentAd || searchResultsMode ? "text-gray-500" : "text-white/70"}`} />
               <input
                 autoFocus
+                type="search"
+                inputMode="search"
+                aria-label="Rechercher des réels"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Rechercher des réels..."
