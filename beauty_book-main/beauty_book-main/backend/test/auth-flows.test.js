@@ -43,10 +43,11 @@ test('verification cannot advance without a session or a readable saved profile'
   await assert.rejects(createAuthFlows(clientFixture({ session: null })).verifySignup({ email: user.email }, '123456'), /session/);
   await assert.rejects(createAuthFlows(clientFixture({ profileError: { message: 'network failure' } })).verifySignup({ email: user.email }, '123456'), /profil/);
 });
-test('a new profile is created with ordinary user privileges', async () => {
+test('a new profile leaves the role to the database default', async () => {
   const client = clientFixture({ profile: null });
   const profile = await createAuthFlows(client).ensureProfile(user);
-  assert.equal(profile.role, 'user'); assert.equal(profile.id, user.id); assert.equal(client.writes.length, 1);
+  assert.equal(profile.role, undefined); assert.equal(profile.id, user.id); assert.equal(client.writes.length, 1);
+  assert.equal('role' in client.writes[0], false);
 });
 test('signup stores only a safe draft and resend reports provider failure', async () => {
   const client = clientFixture({ session: null }), store = storage();

@@ -56,13 +56,12 @@ CREATE POLICY "Admins and Vendeurs can update orders."
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, full_name, avatar_url, role)
+  INSERT INTO public.profiles (id, email, full_name, avatar_url)
   VALUES (
     new.id,
     new.email,
     new.raw_user_meta_data->>'full_name',
-    new.raw_user_meta_data->>'avatar_url',
-    'user' -- Default role is 'user'
+    new.raw_user_meta_data->>'avatar_url'
   );
   RETURN new;
 END;

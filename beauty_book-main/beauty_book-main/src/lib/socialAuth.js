@@ -45,8 +45,14 @@ export async function startSocialAuth(client, provider, { mode = 'login', origin
     provider,
     options: {
       redirectTo: callback.href,
-      skipBrowserRedirect: false,
+      // SocialAuthButtons performs the browser navigation with the returned URL.
+      // Avoid letting Supabase start a second navigation at the same time.
+      skipBrowserRedirect: true,
       ...(provider === 'google' ? { queryParams: { prompt: 'select_account' } } : {}),
+      // Apple only exposes the user's name on the first consent when these
+      // scopes are requested. The callback still collects the name when Apple
+      // does not return it (for example on a later sign-in).
+      ...(provider === 'apple' ? { scopes: 'name email' } : {}),
     }
   });
 

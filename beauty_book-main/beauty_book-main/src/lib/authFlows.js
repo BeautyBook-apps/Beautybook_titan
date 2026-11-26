@@ -63,7 +63,11 @@ export function createAuthFlows(client) {
       return updated || data;
     }
     const username = await findAvailableUsername(client, user.user_metadata?.username || user.user_metadata?.full_name || user.email?.split('@')[0], user.id).catch(() => 'user_' + user.id.slice(0, 8));
-    const record = { id: user.id, email: user.email, role: 'user', username,
+    // Do not force a role here. The deployed profiles table uses `client` as
+    // its default, while older local schemas use `user`; letting Postgres
+    // apply the column default keeps signup compatible with both schemas and
+    // avoids a 400 from the role CHECK constraint.
+    const record = { id: user.id, email: user.email, username,
       full_name: user.user_metadata?.full_name || user.user_metadata?.name || '',
       avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || '' };
     

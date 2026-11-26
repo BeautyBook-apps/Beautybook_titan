@@ -1,12 +1,14 @@
 import BeautyImage from '@/components/ui/BeautyImage';
+import DeliveryLogoButtons from "@/components/restaurant/DeliveryLogoButtons";
+import AvatarPresetPicker from "@/components/ui/AvatarPresetPicker";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, Camera, Plus, Trash2, ChevronDown, ChevronUp, X,
+  ArrowLeft, Camera, Plus, Trash2, ChevronDown, X,
   Scissors, Clock, Star, Zap, Check, Store, Phone, MapPin,
   Building2, FileText, Image, Palette, Wifi, Car, Snowflake,
   Baby, Coffee, CreditCard, Accessibility, Shirt, Sofa, ShowerHead,
-  Wine, Music, UtensilsCrossed, ArrowRight, CircleDot, Save, Sun, Moon, PawPrint, Copy, Home, Package
+  Wine, Music, UtensilsCrossed, ArrowRight, CircleDot, Save, Sun, Moon, PawPrint, Home, Package
 } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/api/supabaseClient";
@@ -14,6 +16,7 @@ import { uploadFile } from "@/api/entities";
 import { apiClient } from "@/lib/apiClient";
 import { useTheme, useThemeBg } from "@/hooks/useTheme";
 import AddressInput from "@/components/ui/AddressInput";
+import { createRestaurantMenuItem, isMenuItemFree } from "@/lib/restaurantMenu";
 
 const SPECIALITES_LIST = [
   "Coiffure afro", "Coiffure lisse", "Balayage", "Colorations", "Tresses",
@@ -205,19 +208,33 @@ export default function ModifierProfilPro() {
   };
 
   // Menu restaurant helpers
-  const addMenuItem = () => setData(d => ({ ...d, menu_restaurant: [...(d.menu_restaurant || []), { nom: "", prix: "", description: "", image_url: "" }] }));
+  const addMenuItem = () => setData(d => ({ ...d, menu_restaurant: [...(d.menu_restaurant || []), createRestaurantMenuItem()] }));
   const updateMenuItem = (i, field, val) => {
     const arr = [...(data.menu_restaurant || [])];
     arr[i] = { ...arr[i], [field]: val };
     setData(d => ({ ...d, menu_restaurant: arr }));
   };
+  const toggleMenuItemFree = (i) => {
+    const arr = [...(data.menu_restaurant || [])];
+    const item = arr[i] || createRestaurantMenuItem();
+    const nextFree = !isMenuItemFree(item);
+    arr[i] = { ...item, is_free: nextFree, gratuit: undefined, prix: nextFree ? "" : (String(item.prix).toLowerCase() === "gratuit" ? "" : item.prix) };
+    setData(d => ({ ...d, menu_restaurant: arr }));
+  };
   const removeMenuItem = (i) => setData(d => ({ ...d, menu_restaurant: (d.menu_restaurant || []).filter((_, idx) => idx !== i) }));
 
   // Menu bar helpers
-  const addBarItem = () => setData(d => ({ ...d, menu_bar: [...(d.menu_bar || []), { nom: "", prix: "", description: "", image_url: "" }] }));
+  const addBarItem = () => setData(d => ({ ...d, menu_bar: [...(d.menu_bar || []), { nom: "", prix: "", description: "", image_url: "", is_free: false }] }));
   const updateBarItem = (i, field, val) => {
     const arr = [...(data.menu_bar || [])];
     arr[i] = { ...arr[i], [field]: val };
+    setData(d => ({ ...d, menu_bar: arr }));
+  };
+  const toggleBarItemFree = (i) => {
+    const arr = [...(data.menu_bar || [])];
+    const item = arr[i] || { nom: "", prix: "", description: "", image_url: "" };
+    const nextFree = !isMenuItemFree(item);
+    arr[i] = { ...item, is_free: nextFree, gratuit: undefined, prix: nextFree ? "" : (String(item.prix).toLowerCase() === "gratuit" ? "" : item.prix) };
     setData(d => ({ ...d, menu_bar: arr }));
   };
   const removeBarItem = (i) => setData(d => ({ ...d, menu_bar: (d.menu_bar || []).filter((_, idx) => idx !== i) }));
@@ -462,11 +479,25 @@ export default function ModifierProfilPro() {
               <button onClick={() => avatarRef.current?.click()} className="absolute -bottom-1 -right-1 w-8 h-8 bg-gray-900 rounded-full border-2 border-white flex items-center justify-center shadow-lg">
                 <Camera className="w-3.5 h-3.5 text-white" />
               </button>
+              {data.avatar_url && (
+                <button
+                  type="button"
+                  onClick={() => setData(d => ({ ...d, avatar_url: "" }))}
+                  aria-label="Supprimer la photo de profil"
+                  className="absolute -top-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-red-500 shadow-lg active:scale-90"
+                >
+                  <X className="h-3.5 w-3.5 text-white" />
+                </button>
+              )}
             </div>
             <button onClick={() => avatarRef.current?.click()} className="text-[12px] font-black text-[#E8732A] active:scale-95 transition-transform">
               {uploadingAvatar ? "Upload..." : "CHANGER LA PHOTO"}
             </button>
             <input ref={avatarRef} type="file" accept="image/*" className="hidden" onChange={e => handlePhotoUpload(e, 'avatar')} />
+            <AvatarPresetPicker
+              selectedUrl={data.avatar_url}
+              onSelect={(url) => setData(d => ({ ...d, avatar_url: url }))}
+            />
           </div>
           <div onClick={() => bannerRef.current?.click()} className="relative mt-3 h-28 rounded-2xl overflow-hidden border-2 border-dashed border-gray-200 cursor-pointer hover:border-[#E8732A]/40 transition-colors">
             {data.cover_url
@@ -476,6 +507,16 @@ export default function ModifierProfilPro() {
                   <span className="text-[11px] text-gray-400 font-medium">MODIFIER LA BANNIERE</span>
                 </div>
             }
+            {data.cover_url && (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); setData(d => ({ ...d, cover_url: "" })); }}
+                aria-label="Supprimer la bannière"
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 active:scale-90"
+              >
+                <X className="h-4 w-4 text-white" />
+              </button>
+            )}
           </div>
           <input ref={bannerRef} type="file" accept="image/*" className="hidden" onChange={e => handlePhotoUpload(e, 'cover')} />
         </div>
@@ -784,13 +825,18 @@ export default function ModifierProfilPro() {
                             )}
                           </div>
                         </div>
-                        <input value={item.nom} onChange={e => updateMenuItem(i, "nom", e.target.value)} placeholder="Nom du plat"
-                          className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[13px] font-bold text-gray-700 outline-none" />
-                        <div className="flex items-center gap-1 shrink-0">
-                          <input type="number" value={item.prix} onChange={e => updateMenuItem(i, "prix", e.target.value)} placeholder="0"
-                            className="w-14 bg-white border border-gray-200 rounded-xl px-2 py-2 text-[13px] font-black text-primary text-right outline-none" />
-                          <span className="text-[12px] font-black text-primary">€</span>
-                        </div>
+                         <input value={item.nom} onChange={e => updateMenuItem(i, "nom", e.target.value)} placeholder="Nom du plat"
+                           className="flex-1 min-w-0 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[13px] font-bold text-gray-700 outline-none" />
+                         <div className="flex items-center gap-1 shrink-0">
+                           <input type="number" value={isMenuItemFree(item) ? "" : (item.prix ?? "")} onChange={e => updateMenuItem(i, "prix", e.target.value)} placeholder="0"
+                             disabled={isMenuItemFree(item)}
+                             className="w-14 bg-white border border-gray-200 rounded-xl px-2 py-2 text-[13px] font-black text-primary text-right outline-none disabled:bg-gray-100 disabled:text-gray-300" />
+                           <span className="text-[12px] font-black text-primary">€</span>
+                           <button type="button" onClick={() => toggleMenuItemFree(i)} aria-pressed={isMenuItemFree(item)}
+                             className={`min-h-11 px-2.5 rounded-xl border text-[10px] font-black transition-colors ${isMenuItemFree(item) ? "bg-emerald-50 border-emerald-200 text-emerald-600" : "bg-white border-gray-200 text-gray-400"}`}>
+                             Offert
+                           </button>
+                         </div>
                         <button onClick={() => removeMenuItem(i)} className="w-7 h-7 bg-red-50 rounded-full flex items-center justify-center active:scale-95">
                           <X className="w-3.5 h-3.5 text-red-400" />
                         </button>
@@ -806,16 +852,8 @@ export default function ModifierProfilPro() {
                   )}
                 </div>
                 {data.address && (
-                  <div className="mt-3 flex gap-2">
-                    <button onClick={openUber}
-                      className="flex-1 flex items-center justify-center gap-2 bg-black text-white rounded-2xl py-3 text-[12px] font-black active:scale-95 transition-all">
-                      <span className="text-[16px]">🚗</span> Uber Eats
-                    </button>
-                    <button onClick={openDeliveroo}
-                      className="flex-1 flex items-center justify-center gap-2 rounded-2xl py-3 text-[12px] font-black active:scale-95 transition-all border-2 border-[#00CCBC]"
-                      style={{ color: "#00CCBC" }}>
-                      <span className="text-[16px]">🛵</span> Deliveroo
-                    </button>
+                  <div className="mt-3 flex justify-end">
+                    <DeliveryLogoButtons onUber={openUber} onDeliveroo={openDeliveroo} />
                   </div>
                 )}
                 {!data.address && (
@@ -856,9 +894,14 @@ export default function ModifierProfilPro() {
                         <input value={item.nom} onChange={e => updateBarItem(i, "nom", e.target.value)} placeholder="Nom de la boisson"
                           className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[13px] font-bold text-gray-700 outline-none" />
                         <div className="flex items-center gap-1 shrink-0">
-                          <input type="number" value={item.prix} onChange={e => updateBarItem(i, "prix", e.target.value)} placeholder="0"
-                            className="w-14 bg-white border border-gray-200 rounded-xl px-2 py-2 text-[13px] font-black text-primary text-right outline-none" />
+                          <input type="number" value={isMenuItemFree(item) ? "" : item.prix} onChange={e => updateBarItem(i, "prix", e.target.value)} placeholder="0"
+                            disabled={isMenuItemFree(item)}
+                            className="w-14 bg-white border border-gray-200 rounded-xl px-2 py-2 text-[13px] font-black text-primary text-right outline-none disabled:bg-gray-100 disabled:text-gray-300" />
                           <span className="text-[12px] font-black text-primary">€</span>
+                          <button type="button" onClick={() => toggleBarItemFree(i)} aria-pressed={isMenuItemFree(item)}
+                            className={`min-h-11 px-2.5 rounded-xl border text-[10px] font-black transition-colors ${isMenuItemFree(item) ? "bg-emerald-50 border-emerald-200 text-emerald-600" : "bg-white border-gray-200 text-gray-400"}`}>
+                            Offert
+                          </button>
                         </div>
                         <button onClick={() => removeBarItem(i)} className="w-7 h-7 bg-red-50 rounded-full flex items-center justify-center active:scale-95">
                           <X className="w-3.5 h-3.5 text-red-400" />
@@ -875,16 +918,8 @@ export default function ModifierProfilPro() {
                   )}
                 </div>
                 {data.address && (
-                  <div className="mt-3 flex gap-2">
-                    <button onClick={openUber}
-                      className="flex-1 flex items-center justify-center gap-2 bg-black text-white rounded-2xl py-3 text-[12px] font-black active:scale-95 transition-all">
-                      <span className="text-[16px]">🚗</span> Uber Eats
-                    </button>
-                    <button onClick={openDeliveroo}
-                      className="flex-1 flex items-center justify-center gap-2 rounded-2xl py-3 text-[12px] font-black active:scale-95 transition-all border-2 border-[#00CCBC]"
-                      style={{ color: "#00CCBC" }}>
-                      <span className="text-[16px]">🛵</span> Deliveroo
-                    </button>
+                  <div className="mt-3 flex justify-end">
+                    <DeliveryLogoButtons onUber={openUber} onDeliveroo={openDeliveroo} />
                   </div>
                 )}
               </div>

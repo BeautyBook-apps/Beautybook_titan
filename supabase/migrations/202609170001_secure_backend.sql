@@ -111,7 +111,7 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.profiles FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.profiles TO authenticated;
 CREATE POLICY bb_profile_read ON public.profiles FOR SELECT TO authenticated USING (id = auth.uid());
-CREATE POLICY bb_profile_create ON public.profiles FOR INSERT TO authenticated WITH CHECK (id = auth.uid() AND role = 'user');
+CREATE POLICY bb_profile_create ON public.profiles FOR INSERT TO authenticated WITH CHECK (id = auth.uid() AND role IN ('user', 'client'));
 CREATE POLICY bb_profile_update ON public.profiles FOR UPDATE TO authenticated USING (id = auth.uid()) WITH CHECK (id = auth.uid());
 CREATE OR REPLACE FUNCTION public.bb_protect_profile() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
@@ -119,7 +119,7 @@ BEGIN
     IF TG_OP = 'UPDATE' AND (NEW.role IS DISTINCT FROM OLD.role OR NEW.email IS DISTINCT FROM OLD.email OR NEW.id IS DISTINCT FROM OLD.id) THEN
       RAISE EXCEPTION 'Profile identity and privileges are server-managed' USING ERRCODE='42501';
     END IF;
-    IF TG_OP = 'INSERT' AND (NEW.role IS DISTINCT FROM 'user' OR NEW.email IS DISTINCT FROM auth.jwt()->>'email') THEN
+    IF TG_OP = 'INSERT' AND (NEW.role IS NULL OR NEW.role NOT IN ('user', 'client') OR NEW.email IS DISTINCT FROM auth.jwt()->>'email') THEN
       RAISE EXCEPTION 'Profile identity and privileges are server-managed' USING ERRCODE='42501';
     END IF;
   END IF;

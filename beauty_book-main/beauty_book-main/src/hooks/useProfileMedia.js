@@ -29,6 +29,18 @@ export function useProfileMedia(user) {
     setCoverUrl(URL.createObjectURL(file));
   };
 
+  const setAvatar = (url) => {
+    pendingAvatar.current = null;
+    setAvatarUrl(url || null);
+  };
+
+  const removeAvatar = () => setAvatar("");
+
+  const removeCover = () => {
+    pendingCover.current = null;
+    setCoverUrl(null);
+  };
+
   const commitMedia = async () => {
     const updates = {};
 
@@ -72,6 +84,9 @@ export function useProfileMedia(user) {
     uploadingCover,
     selectAvatar,
     selectCover,
+    setAvatar,
+    removeAvatar,
+    removeCover,
     commitMedia,
   };
 }

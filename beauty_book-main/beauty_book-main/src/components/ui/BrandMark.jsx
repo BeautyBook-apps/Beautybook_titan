@@ -1,7 +1,9 @@
 import { useState } from "react";
 
 const SIMPLE_ICON_BRANDS = {
-  uber: { slug: "uber", color: "FFFFFF" },
+  uber: { slug: "uber", color: "000000" },
+  ubereats: { slug: "ubereats", color: "000000" },
+  deliveroo: { slug: "deliveroo", color: "00CCBC" },
   whatsapp: { slug: "whatsapp", color: "25D366" },
   instagram: { slug: "instagram", color: "E4405F" },
   tiktok: { slug: "tiktok", color: "111111" },

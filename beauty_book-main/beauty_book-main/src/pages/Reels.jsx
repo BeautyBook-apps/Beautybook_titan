@@ -585,8 +585,20 @@ function SpeedSelector({ speed, onChange, onClose }) {
   );
 }
 
+const getReelSoundKey = (reel) => String(
+  reel?.sound ||
+  [reel?.music_title, reel?.music_artist].filter(Boolean).join(" · ") ||
+  (reel?.sound_preview_url ? "Son sélectionné" : "")
+).trim();
+
+const normalizeSoundKey = (value) => String(value || "")
+  .toLocaleLowerCase()
+  .replace(/[·–—-]/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
 // ── Single Reel Card (plein écran, scroll vertical) ───────────────────────────
-function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, onRepub, followed, onFollow, onComment, onShare, onBuyProduits, onBuyServices, onSpeedChange, speed, currentUser, onAuthorClick, navigate, toast }) {
+function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, onRepub, followed, onFollow, onComment, onShare, onBuyProduits, onBuyServices, onSpeedChange, speed, currentUser, onAuthorClick, onSoundClick, navigate, toast }) {
   const videoRef = useRef(null);
   const audioRef = useRef(null); // piste musicale externe
   const progressRef = useRef(null);
@@ -597,6 +609,8 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
   const [descExpanded, setDescExpanded] = useState(false);
   const [photoIdx, setPhotoIdx] = useState(0);
   const [calloutsVisible, setCalloutsVisible] = useState(false);
+  const photoTouchStartRef = useRef(null);
+  const photoSwipeRef = useRef(false);
   const keepAliveTimer = useRef(null);
   const lastPositionRef = useRef(0);
 
@@ -630,6 +644,33 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
   const descHasMore = descSentences.length > 2;
 
   const hasMusicTrack = !!reel.sound_preview_url;
+
+  const handlePhotoTouchStart = (event) => {
+    if (!reel.images || reel.images.length < 2) return;
+    const touch = event.touches[0];
+    photoTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    photoSwipeRef.current = false;
+  };
+
+  const handlePhotoTouchEnd = (event) => {
+    const start = photoTouchStartRef.current;
+    if (!start || !reel.images || reel.images.length < 2) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    photoTouchStartRef.current = null;
+    if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;
+    photoSwipeRef.current = true;
+    setPhotoIdx((index) => Math.max(0, Math.min(reel.images.length - 1, index + (dx < 0 ? 1 : -1))));
+  };
+
+  const handlePhotoClick = () => {
+    if (photoSwipeRef.current) {
+      photoSwipeRef.current = false;
+      return;
+    }
+    setCalloutsVisible((visible) => !visible);
+  };
 
   // Autoplay when active
   useEffect(() => {
@@ -762,7 +803,16 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
           )}
         </>
       ) : (
-        <div className="relative w-full h-full" onClick={() => setCalloutsVisible(v => !v)}>
+        <div
+          className="relative w-full h-full"
+          role="group"
+          aria-roledescription="carrousel d’images"
+          aria-label="Galerie d’images, faites glisser horizontalement pour changer d’image"
+          onClick={handlePhotoClick}
+          onTouchStart={handlePhotoTouchStart}
+          onTouchEnd={handlePhotoTouchEnd}
+          style={{ touchAction: "pan-y" }}
+        >
           {/* Image active */}
           <BeautyImage
             src={(reel.images && reel.images.length > 0) ? (reel.images[photoIdx] || reel.images[0]) : thumb}
@@ -809,32 +859,6 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
             </button>
           )}
 
-          {/* Navigation slider si plusieurs photos */}
-          {reel.images && reel.images.length > 1 && (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); setPhotoIdx(i => Math.max(0, i - 1)); }}
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/40 backdrop-blur-md rounded-full flex items-center justify-center z-20 active:scale-90 text-white font-black text-[22px]"
-              >
-                ‹
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setPhotoIdx(i => Math.min(reel.images.length - 1, i + 1)); }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/40 backdrop-blur-md rounded-full flex items-center justify-center z-20 active:scale-90 text-white font-black text-[22px]"
-              >
-                ›
-              </button>
-              {/* Pagination Dots */}
-              <div className="absolute top-16 left-0 right-0 flex justify-center gap-1.5 z-20">
-                {reel.images.map((_, i) => (
-                  <div
-                    key={i}
-                    className={`rounded-full transition-all ${i === photoIdx ? "w-5 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/40"}`}
-                  />
-                ))}
-              </div>
-            </>
-          )}
         </div>
       )}
 
@@ -960,6 +984,7 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <button onClick={() => onAuthorClick?.(reel)} className="text-white text-[13px] font-bold truncate text-left">{reel.author_name || reel.author_handle || "Utilisateur"}</button>
+              {!media && <span className="text-white/75 text-[10px] font-bold shrink-0">Image</span>}
               {reelAge && <span className="text-white/65 text-[10px] font-semibold shrink-0">· {reelAge}</span>}
             </div>
           </div>
@@ -987,16 +1012,19 @@ function ReelCard({ reel, isActive, muted, onMuteToggle, liked, onLike, repub, o
         {reelTags.length > 0 && <div className="flex flex-wrap gap-x-2 gap-y-0.5">
           {reelTags.map((tag, index) => <span key={`${tag}-${index}`} className="text-white/90 text-[11px] font-bold">#{tag}</span>)}
         </div>}
-        <div className="flex items-center gap-2">
-          {musicLabel && (
-            <>
-              <div className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center">
-                <Music className="w-3 h-3 text-white" />
-              </div>
-              <p className="text-white/80 text-[12px] font-medium truncate">{musicLabel}</p>
-            </>
-          )}
-        </div>
+        {musicLabel && (
+          <button
+            type="button"
+            onClick={(event) => { event.stopPropagation(); onSoundClick?.(reel); }}
+            aria-label={`Voir les publications utilisant ${musicLabel}`}
+            className="min-h-[44px] max-w-full flex items-center gap-2 text-left active:opacity-70 transition-opacity"
+          >
+            <span className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center shrink-0">
+              <Music className="w-3 h-3 text-white" />
+            </span>
+            <span className="text-white/80 text-[12px] font-medium truncate underline underline-offset-2 decoration-white/30">{musicLabel}</span>
+          </button>
+        )}
       </div>
 
       {/* ── Sheets ── */}
@@ -1013,6 +1041,7 @@ export default function Reels() {
   const [searchParams] = useSearchParams();
   // Les liens de partage utilisent ?id=, les liens internes ?reelId=
   const targetReelId = searchParams.get("reelId") || searchParams.get("id");
+  const soundQuery = (searchParams.get("sound") || "").trim();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("Réels");
   const [reelsData, setReelsData] = useCachedState("reels_page", [], c => c?.reels || []);
@@ -1392,7 +1421,7 @@ export default function Reels() {
     title: r.title, description: r.description || String(), sound: r.sound || null,
     tags: r.tags || r.hashtags || [], created_at: r.created_at || r.updated_at || null,
     music_title: r.music_title || r.sound_title || "", music_artist: r.music_artist || r.sound_artist || "",
-    sound_preview_url: r.sound_preview_url || null,
+    sound_preview_url: r.sound_preview_url || r.music_url || null,
     likes: reelLikeCounts[String(r.id)] ?? reelLikeCounts[r.id] ?? r.likes ?? 0,
     realLikes: reelLikeCounts[String(r.id)] ?? reelLikeCounts[r.id] ?? r.likes ?? 0,
     comments: r.comments || 0,
@@ -1402,10 +1431,14 @@ export default function Reels() {
     product_id: r.product_id || null,
   }));
 
+  const soundFilteredReels = soundQuery
+    ? REELS.filter(reel => normalizeSoundKey(getReelSoundKey(reel)) === normalizeSoundKey(soundQuery))
+    : REELS;
+
   // Construit la liste intercalée : réels + pub toutes les 5 slides
   const feed = [];
   let adInsertCount = 0;
-  REELS.forEach((reel, idx) => {
+  soundFilteredReels.forEach((reel, idx) => {
     feed.push({ type: "reel", reel, idx });
     if ((idx + 1) % 5 === 0 && annonces.length > 0) {
       const adIdx = adInsertCount % annonces.length;
@@ -1418,7 +1451,7 @@ export default function Reels() {
   const isCurrentAd = feed[currentIdx]?.type === "ad";
   const searchResultsMode = Boolean(searchQuery.trim());
   const socialSearchResults = searchResultsMode
-    ? REELS.filter(reel => [reel.title, reel.description, reel.author_name, reel.category].some(value => String(value || "").toLocaleLowerCase().includes(searchQuery.trim().toLocaleLowerCase())))
+    ? soundFilteredReels.filter(reel => [reel.title, reel.description, reel.author_name, reel.category].some(value => String(value || "").toLocaleLowerCase().includes(searchQuery.trim().toLocaleLowerCase())))
       .map(reel => ({ ...reel, entityKind: "social", image_url: reel.thumbnail_url, avatar_url: reel.author_avatar, likes_count: reel.likes }))
     : [];
 
@@ -1484,6 +1517,10 @@ export default function Reels() {
                 speed={speed}
                 currentUser={user}
                 onAuthorClick={handleAuthorClick}
+                onSoundClick={(soundReel) => {
+                  const soundKey = getReelSoundKey(soundReel);
+                  if (soundKey) navigate(`/reels?sound=${encodeURIComponent(soundKey)}`);
+                }}
                 navigate={navigate}
                 toast={toast}
               />
@@ -1511,8 +1548,8 @@ export default function Reels() {
             ) : (
               <>
                 <p className="text-[40px]">🎬</p>
-                <p className="text-white text-[15px] font-bold">Aucun réel pour le moment</p>
-                <p className="text-white/50 text-[13px]">Les nouvelles vidéos apparaîtront ici.</p>
+                <p className="text-white text-[15px] font-bold">{soundQuery ? "Aucune publication avec ce son" : "Aucun réel pour le moment"}</p>
+                <p className="text-white/50 text-[13px]">{soundQuery ? "Les nouvelles publications utilisant ce son apparaîtront ici." : "Les nouvelles vidéos apparaîtront ici."}</p>
               </>
             )}
           </div>
@@ -1538,6 +1575,19 @@ export default function Reels() {
             </div>
             <button onClick={() => { setShowSearch(false); setSearchQuery(""); }} className="pointer-events-auto shrink-0">
               <span className={`text-[13px] font-black ${isCurrentAd || searchResultsMode ? "text-gray-700" : "text-white"}`}>Annuler</span>
+            </button>
+          </div>
+        ) : soundQuery ? (
+          <div className="flex items-center gap-2 pointer-events-auto">
+            <button onClick={() => navigate(-1)} aria-label="Retour" className="w-11 h-11 flex items-center justify-center active:scale-95 shrink-0">
+              <ArrowLeft className="w-5 h-5 text-white" />
+            </button>
+            <div className="flex-1 min-w-0 text-center">
+              <p className="text-white text-[12px] font-black">Publications avec ce son</p>
+              <p className="text-white/70 text-[11px] truncate">{soundQuery}</p>
+            </div>
+            <button onClick={() => setShowSearch(true)} aria-label="Rechercher" className="w-11 h-11 flex items-center justify-center active:scale-95 shrink-0">
+              <Search className="w-5 h-5 text-white" />
             </button>
           </div>
         ) : (

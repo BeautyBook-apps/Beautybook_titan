@@ -296,6 +296,10 @@ export default function ProfilPro() {
     },
   ];
   const drawerBg = theme === "night" ? "#05070c" : theme === "dark" ? "#0c1322" : "#101a33";
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate("/", { replace: true });
+  };
 
   return (
     <div className="font-display pb-4 min-h-full" style={{ background: getPageBg(theme) }}>
@@ -421,6 +425,11 @@ export default function ProfilPro() {
         ) : (
           <div className="w-full h-full" style={{ background: getBannerFallback(theme) }} />
         )}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-28 z-[1]"
+          style={{ background: `linear-gradient(to bottom, transparent 0%, ${getPageBg(theme)} 100%)` }}
+        />
 
         {/* Top Buttons */}
         {(() => {
@@ -454,8 +463,18 @@ export default function ProfilPro() {
           );
         })()}
 
+        <button
+          type="button"
+          onClick={handleBack}
+          aria-label="Retour à la page précédente"
+          className={`absolute top-[5.25rem] left-5 z-10 inline-flex items-center gap-2 rounded-full px-4 py-2.5 shadow-md transition-all active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600 ${theme === "night" || theme === "dark" ? "border border-gray-700 bg-gray-900/90 text-gray-200" : "bg-white/95 text-gray-800"}`}
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          <span className="text-[12px] font-black uppercase tracking-widest">Retour</span>
+        </button>
+
         {/* Profile Photo */}
-        <div className="absolute -bottom-12 left-5">
+        <div className="absolute -bottom-12 left-5 z-10">
           <div className="relative">
             <div className="w-[100px] h-[100px] rounded-full border-4 border-white shadow-xl overflow-hidden bg-gray-100">
               {proInfoCurrent?.avatar_url || clientProfile?.avatar_url ? (

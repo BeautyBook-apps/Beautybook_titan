@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   X, Play, Pause, Volume2, VolumeX, Plus, Music2, Search, Trash2, AudioLines,
-  Flame, Sparkles, Radio, Disc3, Check, Loader2, TrendingUp, Heart
+  Flame, Sparkles, Radio, Disc3, Check, Loader2, TrendingUp, Heart, RotateCw
 } from "lucide-react";
 import { useStudioPalette, STUDIO_ACCENT } from "./studioTheme";
 import initialTikTokSounds from "./tiktokSoundsData.json";
@@ -12,9 +12,9 @@ const SOUND_CATEGORIES = [
   { id: "all", label: "Tout voir", icon: Flame },
   { id: "beauty", label: "Beauté & glow", icon: Sparkles },
   { id: "tiktok", label: "Populaires", icon: TrendingUp },
-  { id: "afro", label: "🌴 Afrobeats", icon: Disc3 },
-  { id: "hits_fr", label: "🇫🇷 Hits France", icon: Radio },
-  { id: "lofi", label: "🎧 Lofi & Chill", icon: Music2 },
+  { id: "afro", label: "Afrobeats", icon: Disc3 },
+  { id: "hits_fr", label: "Hits France", icon: Radio },
+  { id: "lofi", label: "Lofi & Chill", icon: Music2 },
 ];
 
 // Puces de suggestions rapides pour la saisie sur mobile
@@ -71,6 +71,9 @@ export default function SoundLibrary({
   const [q, setQ] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [curatedTracks] = useState(initialTikTokSounds || []);
+  const [featuredTracks, setFeaturedTracks] = useState([]);
+  const [loadingFeatured, setLoadingFeatured] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [onlineResults, setOnlineResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -80,6 +83,58 @@ export default function SoundLibrary({
   const previewRef = useRef(null);
   const searchDebounceRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Catalogue public de previews Apple/iTunes : plusieurs marchés et genres
+  // sont interrogés pour garder une sélection mondiale renouvelée à chaque
+  // ouverture. On ne télécharge jamais les morceaux complets.
+  const loadGlobalRecentTracks = useCallback(async () => {
+    setLoadingFeatured(true);
+    const discoveryTerms = [
+      "new global hits",
+      "afrobeats 2026",
+      "pop 2026",
+      "latin hits 2026",
+      "k-pop 2026",
+      "francophone 2026",
+    ];
+    try {
+      const responses = await Promise.allSettled(discoveryTerms.map((term) =>
+        fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=50`)
+          .then((res) => res.ok ? res.json() : { results: [] })
+      ));
+      const seen = new Set();
+      const tracks = [];
+      responses.forEach((response) => {
+        if (response.status !== "fulfilled") return;
+        (response.value?.results || []).forEach((tr) => {
+          if (!tr.previewUrl) return;
+          const key = `${tr.trackName || ""}::${tr.artistName || ""}`.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          tracks.push({
+            id: "it-" + tr.trackId,
+            title: tr.trackName,
+            artist: tr.artistName,
+            artwork: tr.artworkUrl100 || tr.artworkUrl60,
+            previewUrl: tr.previewUrl,
+            durationMs: tr.trackTimeMillis || 30000,
+            source: "global-recent",
+            category: "tiktok",
+          });
+        });
+      });
+      setFeaturedTracks(tracks);
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.warn("[SoundLibrary] Impossible d'actualiser la sélection mondiale:", err);
+    } finally {
+      setLoadingFeatured(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadGlobalRecentTracks();
+  }, [loadGlobalRecentTracks]);
 
   // Arrêter l'audio en quittant
   useEffect(() => {
@@ -140,7 +195,8 @@ export default function SoundLibrary({
     }
 
     // Suggestions instantanées depuis la sélection locale.
-    const localMatches = curatedTracks.filter(
+    const discoveryTracks = [...featuredTracks, ...curatedTracks];
+    const localMatches = discoveryTracks.filter(
       (t) =>
         t.title.toLowerCase().includes(term.toLowerCase()) ||
         t.artist.toLowerCase().includes(term.toLowerCase())
@@ -154,15 +210,17 @@ export default function SoundLibrary({
     }, 220);
 
     return () => clearTimeout(searchDebounceRef.current);
-  }, [q, curatedTracks, searchMusicCatalog]);
+  }, [q, curatedTracks, featuredTracks, searchMusicCatalog]);
 
   // ── Filtrage des pistes à afficher ──
   const displayedTracks = useMemo(() => {
     const term = q.trim().toLowerCase();
 
+    const discoveryTracks = [...featuredTracks, ...curatedTracks];
+
     // Si une recherche est saisie, combiner la sélection locale et le catalogue.
     if (term.length > 0) {
-      const matchedLocal = curatedTracks.filter(
+      const matchedLocal = discoveryTracks.filter(
         (t) =>
           t.title.toLowerCase().includes(term) ||
           t.artist.toLowerCase().includes(term)
@@ -185,10 +243,10 @@ export default function SoundLibrary({
 
     // Mode découverte : filtrer selon la catégorie sélectionnée.
     if (selectedCategory === "all") {
-      return curatedTracks;
+      return discoveryTracks;
     }
-    return curatedTracks.filter((t) => t.category === selectedCategory);
-  }, [q, selectedCategory, curatedTracks, onlineResults]);
+    return discoveryTracks.filter((t) => t.category === selectedCategory);
+  }, [q, selectedCategory, curatedTracks, featuredTracks, onlineResults]);
 
   // ── Écoute d'un extrait audio de 30 secondes ──
   const togglePreview = (tr) => {
@@ -448,8 +506,9 @@ export default function SoundLibrary({
         )}
 
         {/* Titre de section */}
-        <div className="flex items-center justify-between mb-2 px-1">
-          <p className="text-[11px] font-black uppercase tracking-widest flex items-center gap-1.5" style={{ color: MUTED }}>
+        <div className="flex items-center justify-between mb-2 px-1 gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-widest flex items-center gap-1.5" style={{ color: MUTED }}>
             {q ? (
               <>
                 <Search className="w-3.5 h-3.5 text-primary" />
@@ -458,10 +517,28 @@ export default function SoundLibrary({
             ) : (
               <>
                 <Flame className="w-3.5 h-3.5 text-orange-500" />
-                Sélection musicale ({displayedTracks.length})
+                {featuredTracks.length > 0 ? "Nouveautés mondiales" : "Sélection musicale"} ({displayedTracks.length})
               </>
             )}
-          </p>
+            </p>
+            {!q && lastUpdated && (
+              <p className="text-[10px] mt-1" style={{ color: MUTED }}>
+                Catalogue public actualisé à {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </p>
+            )}
+          </div>
+          {!q && (
+            <button
+              type="button"
+              onClick={loadGlobalRecentTracks}
+              disabled={loadingFeatured}
+              aria-label="Actualiser les nouveautés musicales"
+              className="min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center shrink-0 active:scale-95 transition-transform disabled:opacity-50"
+              style={{ background: CARD, border: `1px solid ${BORDER}` }}
+            >
+              <RotateCw className={`w-4 h-4 ${loadingFeatured ? "animate-spin" : ""}`} style={{ color: ACCENT }} />
+            </button>
+          )}
         </div>
 
         {/* Message d'état vide / chargement */}

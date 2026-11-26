@@ -60,6 +60,7 @@ function StepBar({ step, total, label, isDark = false }) {
 // ─── Image Slider Preview ─────────────────────────────────────────────────────
 function ImageSlider({ images, style = {} }) {
   const [idx, setIdx] = useState(0);
+  const touchStartRef = useRef(null);
   if (!images || images.length === 0) return (
     <div className="w-full h-full flex flex-col items-center justify-center gap-3">
       <Camera className="w-16 h-16 text-white/20" />
@@ -67,32 +68,29 @@ function ImageSlider({ images, style = {} }) {
     </div>
   );
   return (
-    <div className="relative w-full h-full">
+    <div
+      className="relative w-full h-full"
+      role="group"
+      aria-roledescription="carrousel d’images"
+      aria-label="Galerie d’images, faites glisser horizontalement pour changer d’image"
+      onTouchStart={(event) => {
+        if (images.length < 2) return;
+        const touch = event.touches[0];
+        touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+      }}
+      onTouchEnd={(event) => {
+        const start = touchStartRef.current;
+        if (!start || images.length < 2) return;
+        const touch = event.changedTouches[0];
+        const dx = touch.clientX - start.x;
+        const dy = touch.clientY - start.y;
+        touchStartRef.current = null;
+        if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;
+        setIdx((current) => Math.max(0, Math.min(images.length - 1, current + (dx < 0 ? 1 : -1))));
+      }}
+      style={{ touchAction: "pan-y" }}
+    >
       <BeautyImage src={images[idx]} alt="" className="w-full h-full object-cover" style={style} />
-      {images.length > 1 && (
-        <>
-          <button
-            onClick={() => setIdx(i => Math.max(0, i - 1))}
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/40 rounded-full flex items-center justify-center"
-          >
-            <ChevronLeft className="w-4 h-4 text-white" />
-          </button>
-          <button
-            onClick={() => setIdx(i => Math.min(images.length - 1, i + 1))}
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/40 rounded-full flex items-center justify-center"
-          >
-            <ChevronRight className="w-4 h-4 text-white" />
-          </button>
-          <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
-            {images.map((_, i) => (
-              <div key={i} className={`rounded-full transition-all ${i === idx ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/40"}`} />
-            ))}
-          </div>
-          <div className="absolute top-3 right-3 bg-black/50 rounded-full px-2 py-1">
-            <span className="text-white text-[10px] font-black">{idx + 1}/{images.length}</span>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -211,6 +209,8 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
   const videoInputRef = useRef(null);
   const videoRef = useRef(null);
   const previewContainerRef = useRef(null);
+  const previewTouchStartRef = useRef(null);
+  const previewSwipeRef = useRef(false);
   const previewAudioRef = useRef(null); // audio pour la musique jouée sur la vidéo preview
   const trimBarRef = useRef(null); // ref pour la barre de trim audio
   const [showAudioMixer, setShowAudioMixer] = useState(false);
@@ -574,6 +574,14 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
     }));
   };
 
+  const addCustomHashtag = () => {
+    const raw = customHashtag.trim().replace(/^#+/, "").replace(/\s+/g, "");
+    if (!raw) return;
+    const tag = `#${raw.toUpperCase()}`;
+    setForm(f => f.hashtags.includes(tag) ? f : { ...f, hashtags: [...f.hashtags, tag] });
+    setCustomHashtag("");
+  };
+
   const next = () => {
     if (step === 2) {
       if (!form.caption.trim()) { alert("La légende est obligatoire."); return; }
@@ -664,6 +672,7 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
     setCaptureMode(mode);
   };
   const [showSoundPanel, setShowSoundPanel] = useState(false);
+  const [customHashtag, setCustomHashtag] = useState("");
   const [recSeconds, setRecSeconds] = useState(0);
   const recTimerRef = useRef(null);
   // Fond texte
@@ -690,6 +699,24 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
 
   // Charger sons au montage — recherche iTunes par défaut "beauty"
   const hasMedia = form.video_url || form.images.length > 0;
+
+  const handlePreviewPhotoTouchStart = (event) => {
+    if (form.images.length < 2) return;
+    const touch = event.touches[0];
+    previewTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handlePreviewPhotoTouchEnd = (event) => {
+    const start = previewTouchStartRef.current;
+    if (!start || form.images.length < 2) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    previewTouchStartRef.current = null;
+    if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;
+    previewSwipeRef.current = true;
+    setPreviewIdx((current) => Math.max(0, Math.min(form.images.length - 1, current + (dx < 0 ? 1 : -1))));
+  };
 
   // ── Retour anticipé : VideoEditor plein écran ──
   if (showVideoEditor) {
@@ -1870,7 +1897,22 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
             <video src={form.video_url} autoPlay loop playsInline muted={false}
               className="w-full h-full" style={{ objectFit: form.objectFit || "cover", ...getImageStyle() }} />
           ) : form.images.length > 0 ? (
-            <div className="relative w-full h-full" onClick={() => setPreviewCalloutsVisible(v => !v)}>
+            <div
+              className="relative w-full h-full"
+              role="group"
+              aria-roledescription="carrousel d’images"
+              aria-label="Galerie d’images, faites glisser horizontalement pour changer d’image"
+              onClick={() => {
+                if (previewSwipeRef.current) {
+                  previewSwipeRef.current = false;
+                  return;
+                }
+                setPreviewCalloutsVisible(v => !v);
+              }}
+              onTouchStart={handlePreviewPhotoTouchStart}
+              onTouchEnd={handlePreviewPhotoTouchEnd}
+              style={{ touchAction: "pan-y" }}
+            >
               <BeautyImage src={form.images[previewIdx]} alt="" className="w-full h-full object-cover" style={getImageStyle()} />
               {/* Callouts sur cette image de prévisualisation */}
               {previewCalloutsVisible && (form.callouts || []).filter(c => (c.imageIndex ?? 0) === previewIdx).map((c, i) => (
@@ -1899,24 +1941,6 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
                   </div>
                 </div>
               ))}
-              {form.images.length > 1 && (
-                <>
-                  <button onClick={(e) => { e.stopPropagation(); setPreviewIdx(i => Math.max(0, i - 1)); }}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 rounded-full flex items-center justify-center z-10">
-                    <ChevronLeft className="w-5 h-5 text-white" />
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); setPreviewIdx(i => Math.min(form.images.length - 1, i + 1)); }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 rounded-full flex items-center justify-center z-10">
-                    <ChevronRight className="w-5 h-5 text-white" />
-                  </button>
-                  {/* Dots */}
-                  <div className="absolute top-20 left-0 right-0 flex justify-center gap-1.5 z-10">
-                    {form.images.map((_, i) => (
-                      <div key={i} className={`rounded-full transition-all ${i === previewIdx ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/40"}`} />
-                    ))}
-                  </div>
-                </>
-              )}
             </div>
           ) : (
             <div className="w-full h-full bg-[#1a1a2e]" />
@@ -2049,12 +2073,36 @@ function PublicationWizard({ onClose, onPublish, onDraft, editData }) {
           </p>
           <div className="flex flex-wrap gap-2 mb-3">
             {HASHTAGS.map(tag => (
-              <button key={tag} onClick={() => toggleHashtag(tag)}
-                className={`px-4 py-2 rounded-full border text-[12px] font-bold transition-all active:scale-[0.97] ${form.hashtags.includes(tag) ? "bg-primary text-white border-primary" : stepIsDark ? "bg-white/5 text-white/60 border-white/10" : "bg-gray-100 text-gray-600 border-transparent"}`}>
+              <button type="button" key={tag} onClick={() => toggleHashtag(tag)} aria-pressed={form.hashtags.includes(tag)}
+                className={`min-h-[44px] px-4 py-2 rounded-full border text-[12px] font-bold transition-all active:scale-[0.97] ${form.hashtags.includes(tag) ? "bg-primary text-white border-primary" : stepIsDark ? "bg-white/5 text-white/60 border-white/10" : "bg-gray-100 text-gray-600 border-transparent"}`}>
                 {tag}
               </button>
             ))}
           </div>
+          {form.hashtags.filter(tag => !HASHTAGS.includes(tag)).length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {form.hashtags.filter(tag => !HASHTAGS.includes(tag)).map(tag => (
+                <button type="button" key={tag} onClick={() => toggleHashtag(tag)} aria-label={`Retirer ${tag}`}
+                  className="min-h-[44px] px-4 py-2 rounded-full border border-primary bg-primary text-white text-[12px] font-bold active:scale-[0.97]">
+                  {tag} ×
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <input
+              value={customHashtag}
+              onChange={e => setCustomHashtag(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomHashtag(); } }}
+              placeholder="#VotreHashtag"
+              aria-label="Créer un hashtag"
+              className={`min-h-[44px] flex-1 rounded-xl border px-3 text-[12px] outline-none ${stepIsDark ? "bg-white/5 text-white placeholder:text-white/30 border-white/10" : "bg-gray-50 text-gray-800 placeholder:text-gray-400 border-gray-200"}`}
+            />
+            <button type="button" onClick={addCustomHashtag} className="min-h-[44px] px-4 rounded-xl bg-primary text-white text-[12px] font-black active:scale-95">
+              Ajouter
+            </button>
+          </div>
+          <p className={`text-[10px] mt-2 ${stepIsDark ? "text-white/40" : "text-gray-400"}`}>Ajoutez un hashtag existant ou créez le vôtre.</p>
         </div>
 
         {/* Visibilité */}
@@ -2703,6 +2751,9 @@ export default function Publication() {
         author_email: user?.email || "",
         author_name: user?.full_name || "",
         created_by_id: user?.id || undefined,
+        tags: form.hashtags || [],
+        sound: form.sound || "",
+        sound_preview_url: form.soundPreviewUrl || "",
         category: pubTypeToCategory[form.pubType] || "Réels",
         pub_type: form.pubType,
         status: "brouillon",

@@ -21,6 +21,8 @@ import VisitorVoiceCall from "@/components/voice/VisitorVoiceCall";
 import { useTheme } from "@/hooks/useTheme";
 import VTCSection from "@/components/service/VTCSection";
 import SalonMap from "@/components/map/SalonMap";
+import MenuCard from "@/components/restaurant/MenuCard";
+import DeliveryLogoButtons from "@/components/restaurant/DeliveryLogoButtons";
 import { isOpenNow, getEffectiveOpening, formatOpeningHours, getOpeningStatus, applyNightMode } from "@/lib/hours";
 import { getSalonAISettings } from "@/lib/salonAI";
 
@@ -823,10 +825,10 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, p
           const btnIcon = isDark ? "text-gray-200" : "text-gray-800";
           return (
             <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
-              <button onClick={handleClose}
+              <button type="button" onClick={handleClose} aria-label="Retour à la page précédente"
                 className={`flex items-center gap-2 ${btnBg} rounded-full px-4 py-2 shadow-md active:scale-95 transition-all`}>
                 <ArrowLeft className={`w-4 h-4 ${btnIcon}`} />
-                <span className={`text-[12px] font-black ${btnIcon} uppercase tracking-widest`}>Quitter</span>
+                <span className={`text-[12px] font-black ${btnIcon} uppercase tracking-widest`}>Retour</span>
               </button>
               <div className="flex items-center gap-2">
                 <button onClick={handleToggleProfileFavorite} aria-label={likedProfile ? "Retirer le profil des favoris" : "Ajouter le profil aux favoris"}
@@ -1240,47 +1242,23 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, p
 
           {/* Menu Restaurant */}
           {proInfo?.menu_restaurant?.length > 0 && (
-            <div className="px-4 mt-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[11px] font-black text-gray-900 uppercase tracking-widest">Menu / Carte</p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      const q = encodeURIComponent(proInfo?.salon_name || proAddress);
-                      const loc = proInfo?.address ? encodeURIComponent(proInfo.address) : "";
-                      window.open(`https://www.ubereats.com/search?q=${q}&pl=JTdCJTIyYWRkcmVzcyUyMiUzQSUyMiR7bG9jfSUyMiU3RA==`, "_blank");
-                    }}
-                    className="flex items-center gap-1.5 bg-black text-white text-[10px] font-black px-3 py-1.5 rounded-full active:scale-95">
-                    🛵 Uber Eats
-                  </button>
-                  <button
-                    onClick={() => {
-                      const q = encodeURIComponent(proInfo?.salon_name || proAddress);
-                      window.open(`https://deliveroo.fr/fr/restaurants/search?q=${q}`, "_blank");
-                    }}
-                    className="flex items-center gap-1.5 bg-[#00CCBC] text-white text-[10px] font-black px-3 py-1.5 rounded-full active:scale-95">
-                    🦘 Deliveroo
-                  </button>
-                </div>
+            <div className="px-4 mt-7">
+              <div className="mb-4 flex items-center justify-between">
+                <p className="text-[13px] font-black uppercase tracking-[.18em] text-gray-950">Menu / Carte</p>
+                <DeliveryLogoButtons
+                  onUber={() => {
+                    const q = encodeURIComponent(proInfo?.salon_name || proAddress);
+                    window.open(`https://www.ubereats.com/search?q=${q}&pl=JTdCJTIyYWRkcmVzcyUyMiUzQSUyMiR7bG9jfSUyMiU3RA==`, "_blank");
+                  }}
+                  onDeliveroo={() => {
+                    const q = encodeURIComponent(proInfo?.salon_name || proAddress);
+                    window.open(`https://deliveroo.fr/fr/restaurants/search?q=${q}`, "_blank");
+                  }}
+                />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-4">
                 {proInfo.menu_restaurant.map((item, i) => (
-                  <div key={i} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm flex cursor-pointer active:scale-[0.99] transition-all" onClick={() => setSelectedPlat(item)}>
-                    {item.image_url ? (
-                      <div className="w-24 h-24 shrink-0">
-                        <BeautyImage src={item.image_url} alt={item.nom} className="w-full h-full object-cover" />
-                      </div>
-                    ) : (
-                      <div className="w-24 h-24 shrink-0 bg-gray-100 flex items-center justify-center">
-                        <span className="text-[28px]">🍽️</span>
-                      </div>
-                    )}
-                    <div className="flex-1 p-3 flex flex-col justify-center">
-                      <p className="text-[14px] font-black text-gray-800">{item.nom}</p>
-                      {item.description && <p className="text-[11px] text-gray-400 font-medium mt-0.5 line-clamp-2">{item.description}</p>}
-                      {item.prix > 0 && <span className="text-[15px] font-black text-primary mt-1">{item.prix}€</span>}
-                    </div>
-                  </div>
+                  <MenuCard key={i} item={item} onClick={() => setSelectedPlat(item)} />
                 ))}
               </div>
             </div>
@@ -1288,26 +1266,11 @@ export default function VueClient({ onClose, proEmail: proEmailProp, proPhone, p
 
           {/* Menu Bar & Boissons */}
           {proInfo?.menu_bar?.length > 0 && (
-            <div className="px-4 mt-4">
-              <p className="text-[11px] font-black text-gray-900 uppercase tracking-widest mb-3">Menu Bar & Boissons</p>
-              <div className="space-y-2">
+            <div className="px-4 mt-7">
+              <p className="mb-4 text-[13px] font-black uppercase tracking-[.18em] text-gray-950">Menu Bar & Boissons</p>
+              <div className="space-y-4">
                 {proInfo.menu_bar.map((item, i) => (
-                  <div key={i} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm flex cursor-pointer active:scale-[0.99] transition-all" onClick={() => setSelectedPlat(item)}>
-                    {item.image_url ? (
-                      <div className="w-24 h-24 shrink-0">
-                        <BeautyImage src={item.image_url} alt={item.nom} className="w-full h-full object-cover" />
-                      </div>
-                    ) : (
-                      <div className="w-24 h-24 shrink-0 bg-gray-100 flex items-center justify-center">
-                        <span className="text-[28px]">🍷</span>
-                      </div>
-                    )}
-                    <div className="flex-1 p-3 flex flex-col justify-center">
-                      <p className="text-[14px] font-black text-gray-800">{item.nom}</p>
-                      {item.description && <p className="text-[11px] text-gray-400 font-medium mt-0.5 line-clamp-2">{item.description}</p>}
-                      {item.prix > 0 && <span className="text-[15px] font-black text-primary mt-1">{item.prix}€</span>}
-                    </div>
-                  </div>
+                  <MenuCard key={i} item={item} kind="bar" onClick={() => setSelectedPlat(item)} />
                 ))}
               </div>
             </div>

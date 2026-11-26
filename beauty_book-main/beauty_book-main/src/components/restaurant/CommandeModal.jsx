@@ -1,11 +1,10 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState } from "react";
 import { X, Plus, Minus, Send } from "lucide-react";
-import { entities } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
 import { useAuth } from "@/lib/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from '@/lib/apiClient';
+import { isMenuItemFree, menuItemPriceLabel } from '@/lib/restaurantMenu';
 
 export default function CommandeModal({ plat, proEmail, proName, onClose }) {
   const { user } = useAuth();
@@ -15,13 +14,15 @@ export default function CommandeModal({ plat, proEmail, proName, onClose }) {
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
 
-  const total = plat.prix * qty;
+  const itemIsFree = isMenuItemFree(plat);
+  const total = (Number(plat.prix) || 0) * qty;
+  const totalLabel = itemIsFree ? "Offert" : `${total}€`;
 
   const handleCommander = async () => {
     setSending(true);
     const content = `🍽️ *Nouvelle commande depuis BeautyBook*\n\n` +
       `📦 ${plat.nom} × ${qty}\n` +
-      `💰 Total : ${total}€\n` +
+      `💰 Total : ${totalLabel}\n` +
       (note ? `📝 Note : ${note}\n` : "") +
       `\nMerci de confirmer la commande !`;
 
@@ -59,7 +60,9 @@ export default function CommandeModal({ plat, proEmail, proName, onClose }) {
           <div>
             <p className="text-[16px] font-black text-gray-900">{plat.nom}</p>
             {plat.description && <p className="text-[12px] text-gray-400 font-medium mt-0.5 line-clamp-2">{plat.description}</p>}
-            <p className="text-[18px] font-black text-primary mt-1">{plat.prix}€</p>
+            <p className={`text-[18px] font-black mt-1 ${itemIsFree ? "text-emerald-600" : "text-primary"}`}>
+              {menuItemPriceLabel(plat) || "Prix à définir"}
+            </p>
           </div>
         </div>
 
@@ -91,7 +94,7 @@ export default function CommandeModal({ plat, proEmail, proName, onClose }) {
         {/* Total + bouton */}
         <div className="flex items-center justify-between mb-4">
           <span className="text-[13px] font-black text-gray-500 uppercase tracking-widest">Total</span>
-          <span className="text-[24px] font-black text-primary">{total}€</span>
+          <span className={`text-[24px] font-black ${itemIsFree ? "text-emerald-600" : "text-primary"}`}>{totalLabel}</span>
         </div>
 
         <button
@@ -102,7 +105,7 @@ export default function CommandeModal({ plat, proEmail, proName, onClose }) {
           {done ? "✅ Commande envoyée !" : sending ? (
             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
           ) : (
-            <><Send className="w-4 h-4" /> Commander · {total}€</>
+            <><Send className="w-4 h-4" /> Commander · {totalLabel}</>
           )}
         </button>
         {!user && <p className="text-center text-[11px] text-red-400 font-medium mt-2">Connectez-vous pour commander</p>}

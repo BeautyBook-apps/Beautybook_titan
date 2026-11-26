@@ -6,6 +6,8 @@ import { ArrowLeft, Share2, Heart, MapPin, Clock, Star, CheckCircle, ShoppingCar
 import VTCSection from "@/components/service/VTCSection";
 import SalonMap from "@/components/map/SalonMap";
 import CommandeModal from "@/components/restaurant/CommandeModal";
+import MenuCard from "@/components/restaurant/MenuCard";
+import DeliveryLogoButtons from "@/components/restaurant/DeliveryLogoButtons";
 import PostServiceReview from "@/components/reservation/PostServiceReview";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import Lightbox from "@/components/ui/Lightbox";
@@ -792,45 +794,16 @@ export default function ServiceDetail() {
         {/* ── Menu / Carte ── */}
         {proData?.menu_restaurant?.length > 0 && (
           <div>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-5 h-0.5 bg-primary rounded-full" />
-              <span className="text-[16px] font-black text-gray-900">Menu & Carte</span>
-              <div className="ml-auto flex gap-2">
-                <button
-                  onClick={() => window.open(`https://www.ubereats.com/search?q=${encodeURIComponent(proData?.salon_name || "")}`, "_blank")}
-                  className="flex items-center gap-1 bg-black text-white text-[9px] font-black px-2.5 py-1.5 rounded-full active:scale-95">
-                  🛵 Uber Eats
-                </button>
-                <button
-                  onClick={() => window.open(`https://deliveroo.fr/fr/restaurants/search?q=${encodeURIComponent(proData?.salon_name || "")}`, "_blank")}
-                  className="flex items-center gap-1 bg-[#00CCBC] text-white text-[9px] font-black px-2.5 py-1.5 rounded-full active:scale-95">
-                  🦘 Deliveroo
-                </button>
-              </div>
+            <div className="mb-4 flex items-center justify-between">
+              <span className="text-[13px] font-black uppercase tracking-[.18em] text-gray-950">Menu / Carte</span>
+              <DeliveryLogoButtons
+                onUber={() => window.open(`https://www.ubereats.com/search?q=${encodeURIComponent(proData?.salon_name || "")}`, "_blank")}
+                onDeliveroo={() => window.open(`https://deliveroo.fr/fr/restaurants/search?q=${encodeURIComponent(proData?.salon_name || "")}`, "_blank")}
+              />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-4">
               {proData.menu_restaurant.map((item, i) => (
-                <div
-                  key={i}
-                  onClick={() => setSelectedPlat(item)}
-                  className="bg-white border border-gray-100 rounded-2xl overflow-hidden flex items-center gap-3 p-3 shadow-sm cursor-pointer active:scale-[0.99] transition-all"
-                >
-                  {item.image_url ? (
-                    <BeautyImage src={item.image_url} alt={item.nom} className="w-20 h-20 rounded-xl object-cover shrink-0" />
-                  ) : (
-                    <div className="w-20 h-20 rounded-xl bg-orange-50 flex items-center justify-center shrink-0">
-                      <span className="text-[28px]">🍽️</span>
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[14px] font-black text-gray-900">{item.nom}</p>
-                    {item.description && <p className="text-[11px] text-gray-400 font-medium mt-0.5 line-clamp-2">{item.description}</p>}
-                    {item.prix > 0 && <span className="text-[15px] font-black text-primary mt-1 block">{item.prix}€</span>}
-                  </div>
-                  <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
-                    <span className="text-primary text-[16px]">+</span>
-                  </div>
-                </div>
+                <MenuCard key={i} item={item} onClick={() => setSelectedPlat(item)} />
               ))}
             </div>
           </div>
@@ -839,33 +812,12 @@ export default function ServiceDetail() {
         {/* ── Menu Bar & Boissons ── */}
         {proData?.menu_bar?.length > 0 && (
           <div>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-5 h-0.5 bg-primary rounded-full" />
-              <span className="text-[16px] font-black text-gray-900">Menu Bar & Boissons</span>
+            <div className="mb-4 flex items-center">
+              <span className="text-[13px] font-black uppercase tracking-[.18em] text-gray-950">Menu Bar & Boissons</span>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-4">
               {proData.menu_bar.map((item, i) => (
-                <div
-                  key={i}
-                  onClick={() => setSelectedPlat(item)}
-                  className="bg-white border border-gray-100 rounded-2xl overflow-hidden flex items-center gap-3 p-3 shadow-sm cursor-pointer active:scale-[0.99] transition-all"
-                >
-                  {item.image_url ? (
-                    <BeautyImage src={item.image_url} alt={item.nom} className="w-20 h-20 rounded-xl object-cover shrink-0" />
-                  ) : (
-                    <div className="w-20 h-20 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
-                      <span className="text-[28px]">🍷</span>
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[14px] font-black text-gray-900">{item.nom}</p>
-                    {item.description && <p className="text-[11px] text-gray-400 font-medium mt-0.5 line-clamp-2">{item.description}</p>}
-                    {item.prix > 0 && <span className="text-[15px] font-black text-primary mt-1 block">{item.prix}€</span>}
-                  </div>
-                  <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
-                    <span className="text-primary text-[16px]">+</span>
-                  </div>
-                </div>
+                <MenuCard key={i} item={item} kind="bar" onClick={() => setSelectedPlat(item)} />
               ))}
             </div>
           </div>

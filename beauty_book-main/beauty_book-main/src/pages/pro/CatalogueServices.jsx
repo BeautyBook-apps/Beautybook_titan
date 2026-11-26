@@ -14,14 +14,16 @@ function ImageSlider({ images, onClick }) {
   const [current, setCurrent] = useState(0);
   const [failed, setFailed] = useState({});
   const touchStartX = useRef(null);
+  const viewportRef = useRef(null);
+  const suppressClickRef = useRef(false);
 
   const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
   const handleTouchEnd = (e) => {
     if (touchStartX.current === null) return;
     const diff = touchStartX.current - e.changedTouches[0].clientX;
     if (Math.abs(diff) > 30) {
-      if (diff > 0) setCurrent(c => Math.min(c + 1, images.length - 1));
-      else setCurrent(c => Math.max(c - 1, 0));
+      suppressClickRef.current = true;
+      window.setTimeout(() => { suppressClickRef.current = false; }, 0);
     }
     touchStartX.current = null;
   };
@@ -33,13 +35,45 @@ function ImageSlider({ images, onClick }) {
     return <div className="w-full h-full bg-gray-100 flex items-center justify-center"><Scissors className="w-10 h-10 text-gray-300" /></div>;
   }
 
+  const handleScroll = () => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const slideWidth = viewport.clientWidth - (validImages.length > 1 ? 72 : 0) + (validImages.length > 1 ? 12 : 0);
+    if (slideWidth > 0) setCurrent(Math.min(validImages.length - 1, Math.round(viewport.scrollLeft / slideWidth)));
+  };
+
   return (
-    <div className="relative w-full h-full overflow-hidden" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onClick={onClick}>
-      {validImages.map((url, i) => (
-        <BeautyImage key={url} src={url} alt="" className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 ease-in-out"
-          style={{ transform: `translateX(${(i - clampedCurrent) * 100}%)` }}
-          onError={() => setFailed(p => ({ ...p, [url]: true }))} />
-      ))}
+    <div
+      ref={viewportRef}
+      className="relative w-full h-full overflow-x-auto overflow-y-hidden snap-x snap-mandatory hide-scrollbar"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onScroll={handleScroll}
+      onClick={(event) => {
+        if (suppressClickRef.current) {
+          event.stopPropagation();
+          return;
+        }
+        onClick?.(event);
+      }}
+      aria-label={validImages.length > 1 ? "Carrousel d’images, faites glisser pour voir les images suivantes" : "Image du service"}
+    >
+      <div className="flex h-full gap-3 pr-3">
+        {validImages.map((url) => (
+          <div
+            key={url}
+            className="relative h-full shrink-0 snap-start overflow-hidden rounded-none"
+            style={{ width: validImages.length > 1 ? "calc(100% - 72px)" : "100%" }}
+          >
+            <BeautyImage
+              src={url}
+              alt=""
+              className="w-full h-full object-cover"
+              onError={() => setFailed(p => ({ ...p, [url]: true }))}
+            />
+          </div>
+        ))}
+      </div>
       {validImages.length > 1 && (
         <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 flex gap-1 z-10">
           {validImages.map((_, i) => (
@@ -182,6 +216,39 @@ export default function CatalogueServices() {
 
   const draftsCount = services.filter(s => s.status !== "actif").length;
   const isPackTab = activeFilter === "BUNDLES";
+
+  const renderBundlePreview = (bundle) => {
+    const isActive = bundle.is_active !== false;
+    const includedCount = bundle.service_ids?.length || 0;
+    return (
+      <button
+        key={bundle.id}
+        type="button"
+        onClick={() => navigate(bundle.is_group ? `/bundle-groupe/${bundle.id}` : `/bundle/${bundle.id}`, { state: { bundle } })}
+        className={`flex w-full items-center gap-3 rounded-3xl border border-gray-100 bg-white p-3 text-left shadow-sm transition-all active:scale-[0.99] ${!isActive ? "opacity-60 grayscale" : ""}`}
+      >
+        <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-pink-100 to-orange-100">
+          {bundle.image_url ? (
+            <BeautyImage src={bundle.image_url} alt={bundle.name} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-orange-50">
+              <Zap className="h-7 w-7 text-orange-400" />
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-black text-gray-900">{bundle.name || "Bundle"}</p>
+          <p className="mt-1 text-[11px] font-medium text-gray-400">
+            {includedCount} service{includedCount !== 1 ? "s" : ""} · {isActive ? "Actif" : "Désactivé"}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-[17px] font-black leading-none text-gray-900">{bundle.bundle_price ?? "—"} €</p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-orange-500">Bundle</p>
+        </div>
+      </button>
+    );
+  };
 
   const renderContent = () => {
     // Gate : aucun spinner si des données en cache sont déjà affichées.
@@ -357,7 +424,7 @@ export default function CatalogueServices() {
       );
     }
 
-    if (filtered.length === 0) {
+    if (filtered.length === 0 && !(activeFilter === "Tous" && bundles.length > 0)) {
       return (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
           <div className="w-20 h-20 rounded-full bg-orange-50 flex items-center justify-center">
@@ -443,6 +510,21 @@ export default function CatalogueServices() {
             </div>
           );
         })}
+        {activeFilter === "Tous" && bundles.length > 0 && (
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between px-1">
+              <p className="text-[11px] font-black uppercase tracking-[.16em] text-gray-900">Bundles</p>
+              <button
+                type="button"
+                onClick={() => setActiveFilter("BUNDLES")}
+                className="text-[11px] font-black text-primary active:opacity-70"
+              >
+                Voir tout
+              </button>
+            </div>
+            <div className="space-y-3">{bundles.map(renderBundlePreview)}</div>
+          </div>
+        )}
       </div>
     );
   };

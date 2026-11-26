@@ -198,13 +198,17 @@ const AuthenticatedApp = () => {
   const isSpecialRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/vendeur');
   const isAuthPage = location.pathname === '/connexion' || location.pathname === '/onboarding' || location.pathname.startsWith('/auth/callback');
 
-  // Si le retour OAuth ou un code arrive sur '/', rediriger immédiatement vers '/auth/callback'
+  // Si le retour OAuth arrive sur '/', rediriger immédiatement vers le callback
+  // afin d'afficher l'erreur réelle au lieu de la supprimer silencieusement.
   useEffect(() => {
-    if (location.pathname === '/' && (location.search.includes('code=') || location.hash.includes('access_token='))) {
+    const hasOAuthResult = location.search.includes('code=') ||
+      location.search.includes('error=') ||
+      location.search.includes('error_description=') ||
+      location.hash.includes('access_token=') ||
+      location.hash.includes('error=') ||
+      location.hash.includes('error_description=');
+    if (location.pathname === '/' && hasOAuthResult) {
       navigate(`/auth/callback${location.search}${location.hash}`, { replace: true });
-    } else if (location.pathname === '/' && (location.search.includes('error=') || location.hash.includes('error='))) {
-      // Nettoyer les paramètres d'erreur OAuth obsolètes de la barre d'adresse
-      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [location, navigate]);
 

@@ -1,4 +1,5 @@
 import BeautyImage from '@/components/ui/BeautyImage';
+import AvatarPresetPicker from "@/components/ui/AvatarPresetPicker";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Camera, Image, Mail, ShieldCheck, CheckCircle2, Pencil, X } from "lucide-react";
@@ -28,7 +29,7 @@ async function uploadToSupabase(file) {
 export default function ModifierProfilClient() {
   const navigate = useNavigate();
   const { user, profile, refreshUser } = useAuth();
-  const { avatarUrl, coverUrl, uploadingAvatar, uploadingCover, selectAvatar, selectCover } = useProfileMedia(user);
+  const { avatarUrl, coverUrl, uploadingAvatar, uploadingCover, selectAvatar, selectCover, setAvatar, removeAvatar, removeCover } = useProfileMedia(user);
   const avatarInputRef = useRef(null);
   const bannerInputRef = useRef(null);
   const [saving, setSaving] = useState(false);
@@ -188,6 +189,8 @@ export default function ModifierProfilClient() {
       if (form.instagram !== undefined) profileData.instagram = form.instagram;
       if (form.facebook !== undefined) profileData.facebook = form.facebook;
       if (form.website !== undefined) profileData.website = form.website;
+      profileData.avatar_url = avatarUrl || "";
+      profileData.cover_url = coverUrl || "";
 
       // Upload avatar via Supabase Storage
       if (pendingAvatarRef.current) {
@@ -274,11 +277,25 @@ export default function ModifierProfilClient() {
                 className="absolute bottom-0 right-0 w-8 h-8 bg-gray-900 rounded-full border-2 border-white flex items-center justify-center shadow active:scale-95">
                 {uploadingAvatar ? <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" /> : <Camera className="w-4 h-4 text-white" />}
               </button>
+              {avatarUrl && (
+                <button
+                  type="button"
+                  onClick={() => { pendingAvatarRef.current = null; removeAvatar(); }}
+                  aria-label="Supprimer la photo de profil"
+                  className="absolute -top-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-red-500 shadow active:scale-90"
+                >
+                  <X className="h-3.5 w-3.5 text-white" />
+                </button>
+              )}
             </div>
             <button onClick={() => avatarInputRef.current?.click()} className="mt-2 text-[12px] font-black text-primary uppercase tracking-widest">
               Changer la photo
             </button>
             <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+            <AvatarPresetPicker
+              selectedUrl={avatarUrl}
+              onSelect={(url) => { pendingAvatarRef.current = null; setAvatar(url); }}
+            />
           </div>
 
           <div onClick={() => bannerInputRef.current?.click()}
@@ -289,6 +306,16 @@ export default function ModifierProfilClient() {
                 ? <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 : <><Image className="w-5 h-5 text-gray-500" /><span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Modifier la bannière</span></>}
             </div>
+            {coverUrl && (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); pendingCoverRef.current = null; removeCover(); }}
+                aria-label="Supprimer la bannière"
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 active:scale-90"
+              >
+                <X className="h-4 w-4 text-white" />
+              </button>
+            )}
           </div>
           <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={handleBannerChange} />
         </div>

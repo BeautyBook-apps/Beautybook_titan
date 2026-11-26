@@ -1,14 +1,15 @@
 import BeautyImage from '@/components/ui/BeautyImage';
+import DeliveryLogoButtons from "@/components/restaurant/DeliveryLogoButtons";
+import AvatarPresetPicker from "@/components/ui/AvatarPresetPicker";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, X, Clock, Phone, Mail, Building2, Car, Moon, ImagePlus, CheckCircle, Store, AtSign, Plus, Trash2, AlertCircle, Camera, Upload, MapPin, Wifi, ParkingCircle, Wind, Baby, Coffee, CreditCard, Sofa, Music, UtensilsCrossed, Wine, Tv, Lightbulb, Thermometer, Star, Lock, Sun, GripVertical, Volume2, Accessibility, Shirt, ShowerHead, PawPrint, BookOpen, Sparkles, Zap } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import { useAuth } from "@/lib/AuthContext";
 import { writeIsProCache } from "@/hooks/useIsPro";
 import { entities, uploadFile } from "@/api/entities";
-import { apiClient } from "@/lib/apiClient";
 import { supabase } from '@/api/supabaseClient';
 import { SALON_CATEGORIES } from "@/lib/categories";
+import { createRestaurantMenuItem, isMenuItemFree } from "@/lib/restaurantMenu";
 
 const TOTAL_STEPS = 5;
 const DRAFT_KEY = "bb_devenir_pro_draft";
@@ -343,10 +344,17 @@ function Step2({ data, setData }) {
   const barImgRefs = useRef({});
 
   // Menu restaurant
-  const addMenuItem = () => setData(d => ({ ...d, menu_restaurant: [...(d.menu_restaurant || []), { nom: "", prix: "", description: "", image_url: "" }] }));
+  const addMenuItem = () => setData(d => ({ ...d, menu_restaurant: [...(d.menu_restaurant || []), createRestaurantMenuItem()] }));
   const updateMenuItem = (i, field, val) => {
     const arr = [...(data.menu_restaurant || [])];
     arr[i] = { ...arr[i], [field]: val };
+    setData(d => ({ ...d, menu_restaurant: arr }));
+  };
+  const toggleMenuItemFree = (i) => {
+    const arr = [...(data.menu_restaurant || [])];
+    const item = arr[i] || createRestaurantMenuItem();
+    const nextFree = !isMenuItemFree(item);
+    arr[i] = { ...item, is_free: nextFree, gratuit: undefined, prix: nextFree ? "" : (String(item.prix).toLowerCase() === "gratuit" ? "" : item.prix) };
     setData(d => ({ ...d, menu_restaurant: arr }));
   };
   const removeMenuItem = (i) => setData(d => ({ ...d, menu_restaurant: (d.menu_restaurant || []).filter((_, idx) => idx !== i) }));
@@ -361,10 +369,17 @@ function Step2({ data, setData }) {
   };
 
   // Menu bar
-  const addBarItem = () => setData(d => ({ ...d, menu_bar: [...(d.menu_bar || []), { nom: "", prix: "", description: "", image_url: "" }] }));
+  const addBarItem = () => setData(d => ({ ...d, menu_bar: [...(d.menu_bar || []), { nom: "", prix: "", description: "", image_url: "", is_free: false }] }));
   const updateBarItem = (i, field, val) => {
     const arr = [...(data.menu_bar || [])];
     arr[i] = { ...arr[i], [field]: val };
+    setData(d => ({ ...d, menu_bar: arr }));
+  };
+  const toggleBarItemFree = (i) => {
+    const arr = [...(data.menu_bar || [])];
+    const item = arr[i] || { nom: "", prix: "", description: "", image_url: "" };
+    const nextFree = !isMenuItemFree(item);
+    arr[i] = { ...item, is_free: nextFree, gratuit: undefined, prix: nextFree ? "" : (String(item.prix).toLowerCase() === "gratuit" ? "" : item.prix) };
     setData(d => ({ ...d, menu_bar: arr }));
   };
   const removeBarItem = (i) => setData(d => ({ ...d, menu_bar: (d.menu_bar || []).filter((_, idx) => idx !== i) }));
@@ -482,11 +497,16 @@ function Step2({ data, setData }) {
                   </div>
                 </div>
                 <input value={item.nom} onChange={e => updateMenuItem(i, "nom", e.target.value)} placeholder="Nom du plat"
-                  className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[13px] font-bold text-gray-700 outline-none" />
+                  className="flex-1 min-w-0 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[13px] font-bold text-gray-700 outline-none" />
                 <div className="flex items-center gap-1 shrink-0">
-                  <input type="number" value={item.prix} onChange={e => updateMenuItem(i, "prix", e.target.value)} placeholder="0"
-                    className="w-14 bg-white border border-gray-200 rounded-xl px-2 py-2 text-[13px] font-black text-primary text-right outline-none" />
+                  <input type="number" value={isMenuItemFree(item) ? "" : (item.prix ?? "")} onChange={e => updateMenuItem(i, "prix", e.target.value)} placeholder="0"
+                    disabled={isMenuItemFree(item)}
+                    className="w-14 bg-white border border-gray-200 rounded-xl px-2 py-2 text-[13px] font-black text-primary text-right outline-none disabled:bg-gray-100 disabled:text-gray-300" />
                   <span className="text-[12px] font-black text-primary">€</span>
+                  <button type="button" onClick={() => toggleMenuItemFree(i)} aria-pressed={isMenuItemFree(item)}
+                    className={`min-h-11 px-2.5 rounded-xl border text-[10px] font-black transition-colors ${isMenuItemFree(item) ? "bg-emerald-50 border-emerald-200 text-emerald-600" : "bg-white border-gray-200 text-gray-400"}`}>
+                    Offert
+                  </button>
                 </div>
                 <button onClick={() => removeMenuItem(i)} className="w-7 h-7 bg-red-50 rounded-full flex items-center justify-center active:scale-95">
                   <X className="w-3.5 h-3.5 text-red-400" />
@@ -505,16 +525,8 @@ function Step2({ data, setData }) {
 
         {/* Liens Uber / Deliveroo */}
         {data.address && (
-          <div className="mt-3 flex gap-2">
-            <button onClick={openUber}
-              className="flex-1 flex items-center justify-center gap-2 bg-black text-white rounded-2xl py-3 text-[12px] font-black active:scale-95 transition-all">
-              <span className="text-[16px]">🚗</span> Uber Eats
-            </button>
-            <button onClick={openDeliveroo}
-              className="flex-1 flex items-center justify-center gap-2 rounded-2xl py-3 text-[12px] font-black active:scale-95 transition-all border-2 border-[#00CCBC]"
-              style={{ color: "#00CCBC" }}>
-              <span className="text-[16px]">🛵</span> Deliveroo
-            </button>
+          <div className="mt-3 flex justify-end">
+            <DeliveryLogoButtons onUber={openUber} onDeliveroo={openDeliveroo} />
           </div>
         )}
         {!data.address && (
@@ -556,9 +568,14 @@ function Step2({ data, setData }) {
                 <input value={item.nom} onChange={e => updateBarItem(i, "nom", e.target.value)} placeholder="Nom de la boisson"
                   className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-[13px] font-bold text-gray-700 outline-none" />
                 <div className="flex items-center gap-1 shrink-0">
-                  <input type="number" value={item.prix} onChange={e => updateBarItem(i, "prix", e.target.value)} placeholder="0"
-                    className="w-14 bg-white border border-gray-200 rounded-xl px-2 py-2 text-[13px] font-black text-primary text-right outline-none" />
+                  <input type="number" value={isMenuItemFree(item) ? "" : item.prix} onChange={e => updateBarItem(i, "prix", e.target.value)} placeholder="0"
+                    disabled={isMenuItemFree(item)}
+                    className="w-14 bg-white border border-gray-200 rounded-xl px-2 py-2 text-[13px] font-black text-primary text-right outline-none disabled:bg-gray-100 disabled:text-gray-300" />
                   <span className="text-[12px] font-black text-primary">€</span>
+                  <button type="button" onClick={() => toggleBarItemFree(i)} aria-pressed={isMenuItemFree(item)}
+                    className={`min-h-11 px-2.5 rounded-xl border text-[10px] font-black transition-colors ${isMenuItemFree(item) ? "bg-emerald-50 border-emerald-200 text-emerald-600" : "bg-white border-gray-200 text-gray-400"}`}>
+                    Offert
+                  </button>
                 </div>
                 <button onClick={() => removeBarItem(i)} className="w-7 h-7 bg-red-50 rounded-full flex items-center justify-center active:scale-95">
                   <X className="w-3.5 h-3.5 text-red-400" />
@@ -577,16 +594,8 @@ function Step2({ data, setData }) {
 
         {/* Liens Uber / Deliveroo aussi pour le bar */}
         {data.address && (
-          <div className="mt-3 flex gap-2">
-            <button onClick={openUber}
-              className="flex-1 flex items-center justify-center gap-2 bg-black text-white rounded-2xl py-3 text-[12px] font-black active:scale-95 transition-all">
-              <span className="text-[16px]">🚗</span> Uber Eats
-            </button>
-            <button onClick={openDeliveroo}
-              className="flex-1 flex items-center justify-center gap-2 rounded-2xl py-3 text-[12px] font-black active:scale-95 transition-all border-2 border-[#00CCBC]"
-              style={{ color: "#00CCBC" }}>
-              <span className="text-[16px]">🛵</span> Deliveroo
-            </button>
+          <div className="mt-3 flex justify-end">
+            <DeliveryLogoButtons onUber={openUber} onDeliveroo={openDeliveroo} />
           </div>
         )}
       </div>
@@ -730,6 +739,16 @@ function Step3({ data, setData, errors }) {
               style={{ background: "#E8732A" }}>
               <Camera className="w-3 h-3 text-white" />
             </button>
+            {data.avatar_url && (
+              <button
+                type="button"
+                onClick={() => setData(d => ({ ...d, avatar_url: "" }))}
+                aria-label="Supprimer la photo de profil"
+                className="absolute -top-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-red-500 shadow-lg active:scale-90"
+              >
+                <X className="h-3.5 w-3.5 text-white" />
+              </button>
+            )}
           </div>
           <div>
             <p className="text-[13px] font-black text-gray-800">Photo de profil ou logo</p>
@@ -739,6 +758,10 @@ function Step3({ data, setData, errors }) {
             </button>
           </div>
         </div>
+        <AvatarPresetPicker
+          selectedUrl={data.avatar_url}
+          onSelect={(url) => setData(d => ({ ...d, avatar_url: url }))}
+        />
       </div>
 
       {/* Médias — Photos & Vidéos fusionnées avec drag & drop */}
@@ -1593,6 +1616,31 @@ export default function DevenirPro() {
     });
   }, []);
 
+  // Reprendre le menu déjà enregistré dans ModifierProfilPro lorsqu'un
+  // professionnel rouvre le parcours Devenir Pro. Les deux écrans utilisent
+  // ainsi la même source ProfilPro au lieu de garder deux brouillons séparés.
+  useEffect(() => {
+    if (Array.isArray(data.menu_restaurant) || Array.isArray(data.menu_bar)) return;
+    let cancelled = false;
+    supabase.auth.getUser().then(async ({ data: authData }) => {
+      const email = authData?.user?.email;
+      if (!email || cancelled) return;
+      const { data: profiles } = await supabase.from("ProfilPro")
+        .select("menu_restaurant,menu_bar")
+        .eq("user_email", email)
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      const profile = profiles?.[0];
+      if (!profile || cancelled) return;
+      setData(current => ({
+        ...current,
+        ...(Array.isArray(current.menu_restaurant) ? {} : { menu_restaurant: profile.menu_restaurant || [] }),
+        ...(Array.isArray(current.menu_bar) ? {} : { menu_bar: profile.menu_bar || [] }),
+      }));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [data.menu_bar, data.menu_restaurant, setData]);
+
   // ── Sync bannière & avatar avec le profil client ─────────────────────────────
   useEffect(() => {
     if (data.avatar_url || data.cover_url) {
@@ -1639,7 +1687,8 @@ export default function DevenirPro() {
       try {
         const user = await supabase.auth.getUser().then(({ data }) => data?.user).catch(() => null);
 
-        // Payload assaini pour DemandeProV2 (exclut menu_bar & menu_restaurant qui ne sont pas des colonnes de table)
+        // Le menu est conservé dans la demande pour rester disponible pendant
+        // la validation, puis recopié dans ProfilPro à l'activation.
         const demandeData = {
           user_email: user?.email || data.email_pro || "pro@beautybook.fr",
           salon_name: data.salon_name || "",
@@ -1663,6 +1712,8 @@ export default function DevenirPro() {
           days: data.days || ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"],
           time_slots: data.time_slots || [],
           commodites: data.commodites || [],
+          menu_restaurant: data.menu_restaurant || [],
+          menu_bar: data.menu_bar || [],
           seats_count: data.type === "Particulier" ? 1 : (data.seats_count || 1),
           se_deplace: data.deplace || false,
           travail_nuit: data.nuit || false,
@@ -1704,6 +1755,8 @@ export default function DevenirPro() {
             categorie: data.salon_category || "",
             travail_nuit: data.nuit || false,
             galerie_urls: data.gallery || [],
+            menu_restaurant: data.menu_restaurant || [],
+            menu_bar: data.menu_bar || [],
             updated_at: new Date().toISOString(),
           };
 
