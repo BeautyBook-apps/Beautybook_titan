@@ -12,10 +12,16 @@ import { apiClient } from '@/lib/apiClient';
 
 // ── Cache local de la galerie (les photos ne disparaissent plus à l'actualisation) ──
 const AI_STYLES_CACHE = "bb_ai_style_gallery";
+const STYLE_PAGE_SIZE = 12;
 function readAIStylesCache() {
   try {
     const raw = JSON.parse(localStorage.getItem(AI_STYLES_CACHE) || "[]");
-    return Array.isArray(raw) ? raw : [];
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((style, index, list) => (
+      style?.id != null
+        ? list.findIndex(item => String(item?.id) === String(style.id)) === index
+        : true
+    ));
   } catch { return []; }
 }
 
@@ -46,6 +52,45 @@ function styleTargetArea(category) {
     tatouage: "zone du tatouage",
   };
   return targets[String(category || "").toLowerCase()] || "cheveux";
+}
+
+// Les galeries de styles peuvent contenir plus d'une centaine de photos.
+// Ne créer l'élément image que lorsqu'il approche de la fenêtre visible afin
+// d'éviter un pic mémoire sur les appareils mobiles pendant « Voir plus ».
+function DeferredStyleImage({ src, alt, className = "" }) {
+  const hostRef = useRef(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || typeof IntersectionObserver === "undefined") {
+      setShouldLoad(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setShouldLoad(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "320px 0px" });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <span ref={hostRef} className="block h-full w-full overflow-hidden bg-gray-100">
+      {shouldLoad ? (
+        <BeautyImage
+          src={src}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          fetchPriority="low"
+          className={className}
+        />
+      ) : null}
+    </span>
+  );
 }
 
 
@@ -93,7 +138,11 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
             allImages: [...(s.images || []), s.thumbnail_url].map(imageUrl).filter(Boolean),
             author: s.author_name || null,
             category: s.category,
-          }));
+          }))
+          // Une publication peut être renvoyée plusieurs fois après une
+          // fusion de cache. Ne garder qu'une carte par identifiant évite les
+          // clés React dupliquées et les rendus inutiles.
+          .filter((style, index, list) => list.findIndex(item => String(item.id) === String(style.id)) === index);
 
         // N'écraser le cache que si le réseau a renvoyé des données :
         // les photos restent visibles même en cas d'échec réseau.
@@ -118,7 +167,11 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
 
   // Pagination : 12 par 12 avec bouton « Voir plus »
   const visibleStyles = filteredStyles.slice(0, visibleCount);
-  useEffect(() => { setVisibleCount(12); }, [styleSearch]);
+  useEffect(() => { setVisibleCount(STYLE_PAGE_SIZE); }, [styleSearch]);
+
+  const showMoreStyles = () => {
+    setVisibleCount(current => Math.min(current + STYLE_PAGE_SIZE, filteredStyles.length));
+  };
 
   // Pre-select the exact style sent by the detail page. We keep the local
   // payload visible immediately, then enrich it with the canonical gallery
@@ -528,10 +581,15 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                             <button
                               key={ref.id}
                               onClick={() => setSelectedStyle(ref)}
+                              style={{ contentVisibility: "auto", containIntrinsicSize: "0 118px" }}
                               className="relative flex flex-col items-center gap-1 active:scale-95 transition-all"
                             >
                               <div className={`w-full aspect-square rounded-xl overflow-hidden border-2 transition-all ${selectedStyle?.id === ref.id ? "border-primary shadow-md shadow-primary/20 scale-105" : "border-transparent"}`}>
-                                <BeautyImage src={ref.img} alt={ref.label} className="w-full h-full object-cover" />
+                                <DeferredStyleImage
+                                  src={ref.img}
+                                  alt={ref.label}
+                                  className="w-full h-full object-cover"
+                                />
                               </div>
                               {favIds.has(ref.id) && !styleSearch && (
                                 <div className="absolute top-1 left-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
@@ -555,7 +613,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                         {/* Voir plus : 12 styles par série */}
                         {visibleCount < filteredStyles.length && (
                           <button
-                            onClick={() => setVisibleCount(c => c + 12)}
+                            onClick={showMoreStyles}
                             className="w-full mt-3 py-3.5 rounded-2xl border-2 border-primary/30 bg-primary/5 text-primary font-black text-[12px] uppercase tracking-widest active:scale-95 transition-all"
                           >
                             Voir plus ({filteredStyles.length - visibleCount} restants)
