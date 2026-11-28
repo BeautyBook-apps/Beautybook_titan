@@ -1,7 +1,7 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, Share2, Heart, Clock, Star, MapPin, Sparkles, MessageSquare, Send, X, ShoppingCart, Scissors, Eye, Quote, MessageCircle, Instagram, Music2, Link2, Mail, Check } from "lucide-react";
+import { ArrowLeft, Share2, Heart, Clock, Star, MapPin, Sparkles, MessageSquare, Send, X, ShoppingCart, Scissors, Eye, Quote, MessageCircle, Instagram, Music2, Link2, Mail, Check, ChevronRight } from "lucide-react";
 import VueClient from "@/pages/pro/VueClient";
 import FiltreAIModal from "@/components/modals/FiltreAIModal";
 import { entities } from '@/api/entities';
@@ -580,6 +580,7 @@ export default function StyleDetail() {
   const [providers, setProviders] = useState(initialCache.providers || { salons: [], particuliers: [] });
   const [loadingProviders, setLoadingProviders] = useState(() => !initialCache.providers);
   const [similarStyles, setSimilarStyles] = useState(initialCache.similarStyles || []);
+  const [loadingSimilarStyles, setLoadingSimilarStyles] = useState(() => initialCache.similarStyles === undefined);
   const [liked, setLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(s.likes || initialCache.likesCount || 0);
   const [showAIModal, setShowAIModal] = useState(false);
@@ -684,14 +685,14 @@ export default function StyleDetail() {
     if (!style?.title) return;
 
     const cacheKey = style.id ? `style_${style.id}` : null;
+    setLoadingSimilarStyles(true);
 
     Promise.all([
       // Charger tous les services actifs + les filtrer côté client (insensible à la casse/espaces)
       entities.Service.filter({ status: "actif" }, "-created_at", 200).catch(() => []),
-      // Styles similaires (même catégorie)
-      style.category
-        ? entities.Style.filter({ status: "publie" }, "-created_at", 30).catch(() => [])
-        : Promise.resolve([]),
+      // Charger assez de styles publiés pour trouver des correspondances même
+      // lorsque le style courant n'a pas de catégorie renseignée.
+      entities.Style.filter({ status: "publie" }, "-created_at", 80).catch(() => []),
     ]).then(async ([allServices, allStyles]) => {
       // Filtre insensible à la casse et aux espaces superflus
       // Match sur style OU sur le titre du service (contient des mots-clés du style)
@@ -713,11 +714,29 @@ export default function StyleDetail() {
         }
         return false;
       });
-      // Styles similaires (même catégorie, exclu celui-ci)
+      // Styles similaires : la catégorie et la sous-catégorie donnent la
+      // priorité, puis les mots communs du titre permettent un fallback utile.
+      const normaliseStyle = (value) => String(value || "").trim().toLowerCase();
+      const styleCategory = normaliseStyle(style.category);
+      const styleSubcategory = normaliseStyle(style.subcategory);
       const similar = allStyles
-        .filter(st => st.id !== style.id && (!style.category || st.category === style.category))
-        .slice(0, 8);
+        .filter(st => String(st.id) !== String(style.id))
+        .map(st => {
+          const category = normaliseStyle(st.category);
+          const subcategory = normaliseStyle(st.subcategory);
+          const searchable = `${normaliseStyle(st.title)} ${category} ${subcategory}`;
+          let score = 0;
+          if (styleCategory && category === styleCategory) score += 6;
+          if (styleSubcategory && subcategory === styleSubcategory) score += 4;
+          score += styleWords.filter(word => searchable.includes(word)).length * 2;
+          return { style: st, score };
+        })
+        .filter(({ score }) => score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8)
+        .map(({ style: similarStyle }) => similarStyle);
       setSimilarStyles(similar);
+      setLoadingSimilarStyles(false);
       if (cacheKey) mergePageCache(cacheKey, { similarStyles: similar });
 
       if (services.length === 0) {
@@ -762,8 +781,10 @@ export default function StyleDetail() {
       setProviders({ salons, particuliers });
       setLoadingProviders(false);
       if (cacheKey) mergePageCache(cacheKey, { providers: { salons, particuliers } });
+    }).catch(() => {
+      setLoadingSimilarStyles(false);
     });
-  }, [style?.title, style?.id, style?.category]);
+  }, [style?.title, style?.id, style?.category, style?.subcategory]);
 
   useEffect(() => {
     if (!s._scrollTo) return;
@@ -984,40 +1005,83 @@ export default function StyleDetail() {
           />
         </div>
 
-        {/* Conseils */}
-        <ConseilsSection style={st} />
-
-        {/* Styles similaires — données réelles */}
-        {similarStyles.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[20px] font-black text-gray-900">Styles similaires</h2>
-              <button onClick={() => navigate("/reseau-social")} className="text-[12px] font-black text-primary uppercase tracking-widest">VOIR TOUT</button>
+        {/* Styles similaires — toujours visible, même si la liste est vide */}
+        <section aria-labelledby="similar-styles-title" className="rounded-[1.75rem] border border-orange-100 bg-gradient-to-br from-[#fffaf5] via-white to-[#fff7ed] p-4 shadow-[0_14px_36px_-28px_rgba(234,88,12,0.65)]">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <div className="mb-1 flex items-center gap-2">
+                <span className="h-1.5 w-7 rounded-full bg-primary" aria-hidden="true" />
+                <span className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">À découvrir</span>
+              </div>
+              <h2 id="similar-styles-title" className="text-[20px] font-black tracking-tight text-slate-950">Styles similaires</h2>
             </div>
-            <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-5 px-5 pb-1">
+            <button
+              type="button"
+              onClick={() => navigate("/services-salons?tab=STYLES")}
+              className="flex min-h-11 items-center gap-1 rounded-full border border-orange-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-primary shadow-sm transition-all hover:bg-orange-50 active:scale-95"
+            >
+              Voir tout
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+
+          {loadingSimilarStyles ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-busy="true" aria-label="Chargement des styles similaires">
+              {[1, 2, 3].map((item) => (
+                <div key={item} className="overflow-hidden rounded-2xl border border-orange-100 bg-white">
+                  <div className="h-44 animate-pulse bg-orange-100/70" />
+                  <div className="space-y-2 p-3">
+                    <div className="h-3 w-4/5 animate-pulse rounded-full bg-slate-100" />
+                    <div className="h-2.5 w-1/2 animate-pulse rounded-full bg-slate-100" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : similarStyles.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-orange-200 bg-white/80 px-5 py-8 text-center">
+              <Scissors className="mx-auto mb-2 h-8 w-8 text-orange-200" aria-hidden="true" />
+              <p className="text-[13px] font-black text-slate-600">Aucun style similaire pour le moment</p>
+              <p className="mt-1 text-[11px] font-medium text-slate-400">De nouvelles inspirations arrivent bientôt.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {similarStyles.map((item) => {
-                const imgs = item.images?.length > 0 ? item.images : (item.image_url ? [item.image_url] : []);
+                const imgs = (Array.isArray(item.images) ? item.images : [])
+                  .map(image => image?.url || image)
+                  .filter(Boolean);
+                const cover = imgs[0] || item.image_url || item.cover || "";
+                const itemImages = imgs.length > 0 ? imgs : (cover ? [cover] : []);
                 return (
-                  <button key={item.id}
-                    onClick={() => navigate(`/style/${item.id}`, { state: { ...item, cover: item.image_url, images: imgs } })}
-                    className="shrink-0 w-40 rounded-2xl overflow-hidden relative active:scale-[0.98] transition-all bg-gray-100">
-                    {imgs[0]
-                      ? <BeautyImage src={imgs[0]} alt={item.title} className="w-full h-52 object-cover" />
-                      : <div className="w-full h-52 flex items-center justify-center"><Scissors className="w-8 h-8 text-gray-300" /></div>
-                    }
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-                    <div className="absolute bottom-0 left-0 right-0 p-3">
-                      <p className="text-white text-[12px] font-black leading-tight">{item.title}</p>
-                      {item.category && (
-                        <span className="inline-block mt-1 bg-primary/80 text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-full">{item.category}</span>
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-label={`Ouvrir le style ${item.title || "similaire"}`}
+                    onClick={() => navigate(`/style/${item.id}`, { state: { ...item, cover, images: itemImages } })}
+                    className="group relative min-h-[220px] overflow-hidden rounded-2xl bg-slate-100 text-left shadow-sm ring-1 ring-black/5 transition-transform duration-200 hover:-translate-y-0.5 active:scale-[0.98]"
+                  >
+                    {cover ? (
+                      <BeautyImage src={cover} alt={item.title || "Style similaire"} loading="lazy" decoding="async" className="h-full min-h-[220px] w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                    ) : (
+                      <div className="flex min-h-[220px] items-center justify-center bg-orange-50"><Scissors className="h-8 w-8 text-orange-200" aria-hidden="true" /></div>
+                    )}
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/10 to-transparent" />
+                    <div className="absolute inset-x-0 bottom-0 p-3">
+                      <p className="line-clamp-2 text-[12px] font-black leading-tight text-white">{item.title || "Style beauté"}</p>
+                      {(item.subcategory || item.category) && (
+                        <span className="mt-1 inline-flex max-w-full rounded-full bg-white/90 px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-slate-700">
+                          {item.subcategory || item.category}
+                        </span>
                       )}
                     </div>
                   </button>
                 );
               })}
             </div>
-          </div>
-        )}
+          )}
+        </section>
+
+        {/* Conseils */}
+        <ConseilsSection style={st} />
 
       </div>
 

@@ -23,6 +23,7 @@ import {aiCredits} from './services/ai-credits.js';
 import {imageSearch} from './services/image-search.js';
 import { chatCompletion } from './services/xai.js';
 import { isMuseConfigured, museOrchestrate } from './services/muse.js';
+import { isFalConfigured } from './services/fal.js';
 import {inspectSchema} from './services/readiness.js';
 import contentRoutes from './routes/content.routes.js';
 import mapsRoutes from './routes/maps.routes.js';
@@ -99,7 +100,7 @@ export function createApp() {
   app.get('/api/ai/credits',asyncRoute(async(req,res)=>res.json(await aiCredits.summary(req.user.id,Number(process.env.AI_IMAGE_FREE_DAILY_LIMIT||process.env.AI_IMAGE_DAILY_LIMIT||5)))));
   app.post('/api/ai/credits/checkout',asyncRoute(async(req,res)=>res.json(await aiCredits.checkout(req.user,req.body.package_id,req.body.request_key||req.headers['idempotency-key'],req.body.return_path))));
   app.get('/api/capabilities',(req,res)=>res.json({
-    ai:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY || isMuseConfigured()),speech:Boolean(process.env.OPENAI_API_KEY),images:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY || isMuseConfigured()),
+    ai:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY || isMuseConfigured() || isFalConfigured()),speech:Boolean(process.env.OPENAI_API_KEY),images:Boolean(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.GROK_API_KEY || isMuseConfigured() || isFalConfigured()),
     phone:false,
     social:false,
     payments:Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET && process.env.APP_URL),

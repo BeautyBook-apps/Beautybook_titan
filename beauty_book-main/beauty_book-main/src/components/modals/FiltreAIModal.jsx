@@ -4,7 +4,7 @@ import AICreditsCard from '@/components/ai/AICreditsCard';
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronUp, Shield, Download, Heart, Check, Search, Sparkles, ImageIcon, GalleryHorizontalEnd, Loader2, Camera, Scissors } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, Shield, Download, Heart, Check, Search, Sparkles, ImageIcon, GalleryHorizontalEnd, Loader2, Camera, Scissors } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { apiClient } from '@/lib/apiClient';
 
@@ -104,7 +104,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
   const [userPhotoUrl, setUserPhotoUrl] = useState(null);
   const [userPhotoUploadedUrl, setUserPhotoUploadedUrl] = useState(null);
   const [selectedStyle, setSelectedStyle] = useState(() => initialStyle);
-  const [stylesExpanded, setStylesExpanded] = useState(() => !initialStyle);
+  const stylesExpanded = !initialStyle;
   const [result, setResult] = useState(null);
   const [progress, setProgress] = useState(0);
   const [progressMsg, setProgressMsg] = useState("");
@@ -525,15 +525,6 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
               <div>
                 <div className="flex items-center justify-between mb-3 gap-3">
                   <h3 className="text-[15px] font-black text-gray-900 flex items-center gap-2"><GalleryHorizontalEnd className="w-4 h-4 text-primary" strokeWidth={1.5} /> Choisir un style</h3>
-                  <button
-                    type="button"
-                    onClick={() => setStylesExpanded(value => !value)}
-                    aria-expanded={stylesExpanded}
-                    className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl border border-orange-200 bg-orange-50 px-3 text-[10px] font-black uppercase tracking-wider text-primary transition-all active:scale-95"
-                  >
-                    {stylesExpanded ? "Replier" : "Modifier"}
-                    {stylesExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  </button>
                 </div>
 
               {selectedStyle && (

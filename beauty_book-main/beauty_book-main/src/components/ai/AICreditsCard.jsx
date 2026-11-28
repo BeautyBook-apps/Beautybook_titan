@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Coins, Loader2, Sparkles, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Check, Coins, Loader2, Sparkles, ShieldCheck } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 
 const DEFAULT_PACKAGES = [
@@ -12,6 +12,7 @@ export default function AICreditsCard({ compact = false, returnPath = '/sh-ai' }
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState('');
+  const [selectedPackage, setSelectedPackage] = useState(null);
   const [error, setError] = useState('');
 
   const load = async () => {
@@ -35,6 +36,7 @@ export default function AICreditsCard({ compact = false, returnPath = '/sh-ai' }
   }, []);
 
   const buy = async (pkg) => {
+    if (!pkg) return;
     setBuying(pkg.id);
     setError('');
     try {
@@ -86,21 +88,50 @@ export default function AICreditsCard({ compact = false, returnPath = '/sh-ai' }
             <Coins className="h-3.5 w-3.5 text-primary" /> Acheter des crédits
           </div>
           <div className="grid grid-cols-3 gap-2">
-          {packages.map(pkg => (
+          {packages.map(pkg => {
+            const isSelected = selectedPackage?.id === pkg.id;
+            return (
             <button
               key={pkg.id}
               type="button"
-              onClick={() => buy(pkg)}
+              onClick={() => { setSelectedPackage(pkg); setError(''); }}
               disabled={Boolean(buying)}
-              className={`relative rounded-2xl border px-2 py-3 text-center transition active:scale-95 disabled:opacity-60 ${pkg.highlight ? 'border-primary bg-primary text-white shadow-md shadow-primary/20' : 'border-gray-200 bg-white text-gray-900'}`}
+              aria-pressed={isSelected}
+              className={`relative rounded-2xl border px-2 py-3 text-center transition active:scale-95 disabled:opacity-60 ${isSelected ? 'border-primary ring-2 ring-primary/25 shadow-lg shadow-primary/15' : ''} ${pkg.highlight ? 'bg-primary text-white shadow-md shadow-primary/20' : 'border-gray-200 bg-white text-gray-900'}`}
             >
               {pkg.highlight && <span className="absolute -top-2 left-1/2 -translate-x-1/2 rounded-full bg-gray-900 px-2 py-0.5 text-[8px] font-black uppercase text-white">Populaire</span>}
-              {buying === pkg.id ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : <Coins className="mx-auto h-4 w-4 opacity-70" />}
+              {isSelected ? <Check className="mx-auto h-4 w-4" /> : <Coins className="mx-auto h-4 w-4 opacity-70" />}
               <span className="mt-1 block text-[12px] font-black">{pkg.credits} crédits</span>
               <span className={`mt-0.5 block text-[11px] font-bold ${pkg.highlight ? 'text-white/80' : 'text-primary'}`}>{(pkg.amount_cents / 100).toFixed(2)}€</span>
             </button>
-          ))}
+            );
+          })}
           </div>
+
+          {selectedPackage && (
+            <div className="mt-3 rounded-2xl border border-primary/20 bg-white p-3 shadow-sm" aria-live="polite">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-primary">Pack sélectionné</p>
+                  <p className="mt-1 truncate text-[13px] font-black text-gray-900">{selectedPackage.name} · {selectedPackage.credits} crédits</p>
+                  <p className="mt-0.5 text-[11px] font-medium text-gray-500">Paiement sécurisé par Stripe</p>
+                </div>
+                <p className="shrink-0 text-[16px] font-black text-gray-900">{(selectedPackage.amount_cents / 100).toFixed(2)}€</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => buy(selectedPackage)}
+                disabled={Boolean(buying)}
+                className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-md shadow-primary/20 transition active:scale-[0.98] disabled:opacity-60"
+              >
+                {buying === selectedPackage.id ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Préparation du paiement…</>
+                ) : (
+                  <>Continuer vers le paiement <ArrowRight className="h-4 w-4" /></>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

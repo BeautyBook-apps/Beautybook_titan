@@ -5,6 +5,7 @@ import {assert,HttpError} from '../lib/errors.js';
 import {checkedImage,openaiRequest} from './openai.js';
 import {isXaiConfigured,xaiImageEdit} from './xai.js';
 import {isMuseConfigured,museImageEdit,museImagePrompt} from './muse.js';
+import {isFalConfigured,falMuseImageEdit} from './fal.js';
 import {aiCredits} from './ai-credits.js';
 
 export function imageInput(input){
@@ -54,14 +55,16 @@ export const imageStorage={
 };
 function provider() {
  const configured=String(process.env.AI_IMAGE_PROVIDER||'').toLowerCase();
+ if(configured==='fal')return 'fal';
  if(configured==='muse')return 'muse';
  if(configured==='openai')return 'openai';
  if(configured==='grok'||configured==='xai')return 'grok';
- return isMuseConfigured()?'muse':isXaiConfigured()?'grok':'openai';
+ return isFalConfigured()?'fal':isMuseConfigured()?'muse':isXaiConfigured()?'grok':'openai';
 }
-export function createImageJobs(database=db,{storage=imageStorage,configured=()=>provider()==='muse'?isMuseConfigured():provider()==='grok'?isXaiConfigured():!!process.env.OPENAI_API_KEY,generate,dailyLimit=()=>Number(process.env.AI_IMAGE_FREE_DAILY_LIMIT||process.env.AI_IMAGE_DAILY_LIMIT||5),billing=aiCredits}={}){
+export function createImageJobs(database=db,{storage=imageStorage,configured=()=>provider()==='fal'?isFalConfigured():provider()==='muse'?isMuseConfigured():provider()==='grok'?isXaiConfigured():!!process.env.OPENAI_API_KEY,generate,dailyLimit=()=>Number(process.env.AI_IMAGE_FREE_DAILY_LIMIT||process.env.AI_IMAGE_DAILY_LIMIT||5),billing=aiCredits}={}){
  const generateImage=generate||(async(input)=>{
   const selectedProvider=provider();
+  if(selectedProvider==='fal')return falMuseImageEdit({images:input.images,prompt:promptFor(input)});
   if(selectedProvider==='muse')return museImageEdit({images:input.images,prompt:promptFor(input)});
   if(selectedProvider==='grok')return xaiImageEdit({images:input.images,prompt:promptFor(input)});
   return openaiRequest('images/edits',{model:process.env.OPENAI_IMAGE_MODEL||'gpt-image-2.5-flare',images:input.images.map(image_url=>({image_url})),prompt:promptFor(input),n:1,size:'1024x1024',quality:'medium',output_format:'png',moderation:'auto'},{timeoutMs:180000});
