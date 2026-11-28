@@ -160,7 +160,13 @@ export function createApp() {
   }));
 
   app.use('/api/ai',rateLimit({max:20}));
-  app.post(['/api/ai/try-on','/api/ai/simulate-hairstyle'],asyncRoute(async(req,res)=>res.status(202).json(await imageJobs.create(req.user,req.path.endsWith('simulate-hairstyle')?{...req.body,mode:'hair'}:req.body,req.headers['idempotency-key']))));
+  app.post(['/api/ai/try-on','/api/ai/simulate-hairstyle'],asyncRoute(async(req,res)=>{
+    const job=await imageJobs.create(req.user,req.path.endsWith('simulate-hairstyle')?{...req.body,mode:'hair'}:req.body,req.headers['idempotency-key']);
+    // The server owns the generation lifecycle. It continues even when a web
+    // tab or a mobile app is backgrounded immediately after this response.
+    imageJobs.start();
+    res.status(202).json(job);
+  }));
   app.get('/api/image-jobs',asyncRoute(async(req,res)=>res.json(await imageJobs.list(req.user,req.query))));
   app.get('/api/image-jobs/:id',asyncRoute(async(req,res)=>res.json(await imageJobs.get(req.user,req.params.id))));
   app.delete('/api/image-jobs/:id',asyncRoute(async(req,res)=>res.json(await imageJobs.remove(req.user,req.params.id))));

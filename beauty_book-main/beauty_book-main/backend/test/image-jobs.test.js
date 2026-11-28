@@ -13,19 +13,20 @@ test('image inputs reject invalid schemes, modes and oversized payloads',()=>{
  for(const bad of [{mode:'arbitrary'},{user_photo:'file:///private.txt'},{user_photo:'https://user:secret@host.invalid/photo'},{garment_photo:null},{user_photo:'data:image/svg+xml;base64,PHN2Zz4='}])assert.throws(()=>imageInput({...input,...bad}));
  assert.equal(imageInput({...input,mode:'outfit',outfit_pieces:{top:input.garment_photo,bottom:input.garment_photo}}).images.length,3);
 });
-test('image jobs isolate owners, cap requests and never fabricate or automatically repeat a failed generation',async t=>{
+test('image jobs isolate owners, queue requests and never fabricate or automatically repeat a failed generation',async t=>{
  const db=await databaseFixture(),files=new Map();let generated=0,mode='success';
  const storage={save:async(path,bytes)=>{files.set(path,bytes);if(mode==='storage-timeout')throw new Error('Disconnected after upload');},url:async p=>'https://signed.test.invalid/'+p,exists:async p=>files.has(p),remove:async p=>{files.delete(p);}};
  const service=createImageJobs(db,{configured:()=>true,storage,generate:async()=>{generated++;if(mode==='network')throw new HttpError(502,'AI_NETWORK_ERROR','Timeout');if(mode==='bad-result')return {data:[]};return {data:[{b64_json:png.toString('base64')}]};}});
  try{
   let first;
-  await t.test('idempotency does not queue a second provider call; concurrent jobs are limited without a daily quota',async()=>{
+  await t.test('idempotency does not queue a duplicate provider call and additional generations wait their turn',async()=>{
    const key=randomUUID();first=await service.create(users.client,input,key);
    assert.equal(first.status,'queued');assert.equal((await service.create(users.client,input,key)).id,first.id);
    await assert.rejects(service.create(users.client,{...input,garment_name:'Autre'},key),{code:'IDEMPOTENCY_CONFLICT'});
    const second=await service.create(users.client,input,randomUUID());
-   await assert.rejects(service.create(users.client,input,randomUUID()),{code:'AI_GENERATION_BUSY'});
-   await service.remove(users.client,second.id);assert.equal(generated,0);
+   const third=await service.create(users.client,input,randomUUID());
+   assert.equal(second.status,'queued');assert.equal(third.status,'queued');
+   await service.remove(users.client,second.id);await service.remove(users.client,third.id);assert.equal(generated,0);
   });
   await t.test('only persisted provider bytes produce a private result; another user cannot read or delete it',async()=>{
    await assert.rejects(service.get(users.other,first.id),{code:'IMAGE_NOT_FOUND'});
@@ -52,6 +53,17 @@ test('image jobs isolate owners, cap requests and never fabricate or automatical
    await assert.rejects(service.remove(users.client,job.id),{code:'IMAGE_PROCESSING'});
    await db.query("UPDATE bb_image_jobs SET started_at=now()-interval '11 minutes' WHERE id=$1",[job.id]);
    const count=generated;await service.runOne();assert.equal(generated,count);assert.equal((await service.get(users.client,job.id)).status,'completed');
+  });
+  await t.test('embedded runner finishes a queued job without a standalone worker process',async()=>{
+   mode='success';const job=await service.create(users.client,input,randomUUID());
+   const runner=service.start({idleMs:5,errorMs:5});
+   let status='queued';
+   for(let attempt=0;attempt<100&&status!=='completed';attempt++){
+    await new Promise(resolve=>setTimeout(resolve,5));
+    status=(await service.get(users.client,job.id)).status;
+   }
+   service.stop();await runner;
+   assert.equal(status,'completed');
   });
  }finally{await db.close();}
 });

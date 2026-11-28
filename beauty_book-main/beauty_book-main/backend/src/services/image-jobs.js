@@ -73,6 +73,8 @@ function provider(input = null) {
  return isFalConfigured()?'fal':isMuseConfigured()?'muse':isXaiConfigured()?'grok':'openai';
 }
 export function createImageJobs(database=db,{storage=imageStorage,configured=()=>provider()==='fal'?isFalConfigured():provider()==='muse'?isMuseConfigured():provider()==='grok'?isXaiConfigured():!!process.env.OPENAI_API_KEY,generate,billing=aiCredits}={}){
+ let runner=null,runnerStopping=false;
+ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  const generateImage=generate||(async(input)=>{
   const selectedProvider=provider(input);
   if(selectedProvider==='fal')return falMuseImageEdit({images:input.images,prompt:promptFor(input)});
@@ -100,8 +102,6 @@ export function createImageJobs(database=db,{storage=imageStorage,configured=()=
    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['image-quota:'+user.id]);
    const {rows:[previous]}=await client.query('SELECT * FROM bb_image_jobs WHERE user_id=$1 AND request_key=$2',[user.id,key]);
    if(previous){assert(previous.request_hash===hash,409,'IDEMPOTENCY_CONFLICT','Cet identifiant correspond déjà à une autre génération.');return previous;}
-   const {rows:[counts]}=await client.query("SELECT count(*) FILTER(WHERE status IN ('queued','processing'))::integer AS active FROM bb_image_jobs WHERE user_id=$1",[user.id]);
-   assert(counts.active<2,429,'AI_GENERATION_BUSY','Deux générations sont déjà en cours. Attendez leur fin avant d’en lancer une autre.');
    const reservation=await billing.reserve(client,user.id);
    const {rows:[job]}=await client.query('INSERT INTO bb_image_jobs(user_id,request_key,request_hash,kind,label,input,billing_source,credit_cost) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING *',[user.id,key,hash,input.kind,input.label,JSON.stringify(input),reservation.source,reservation.credit_cost]);
    await billing.recordGeneration(client,user.id,job.id,reservation);
@@ -134,7 +134,25 @@ export function createImageJobs(database=db,{storage=imageStorage,configured=()=
    for(const extension of ['.png','.jpg','.webp']){const candidate=stale.user_id+'/'+stale.id+extension;if(await storage.exists(candidate)){path=candidate;break;}}
    await database.query("UPDATE bb_image_jobs SET status=$1,output_path=$2,error_code=$3,input='{}',finished_at=now() WHERE id=$4 AND status='processing'",[path?'completed':'uncertain',path,path?null:'PROVIDER_RESULT_UNKNOWN',stale.id]);return true;
   }
-  const row=await database.transaction(async client=>{const {rows:[job]}=await client.query("SELECT * FROM bb_image_jobs WHERE status='queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1");if(!job)return null;await client.query("UPDATE bb_image_jobs SET status='processing',started_at=now() WHERE id=$1",[job.id]);return job;});
+  const row=await database.transaction(async client=>{
+   const {rows:[job]}=await client.query(`SELECT queued.* FROM bb_image_jobs queued
+    WHERE queued.status='queued'
+      AND NOT EXISTS (
+       SELECT 1 FROM bb_image_jobs active
+       WHERE active.user_id=queued.user_id AND active.status='processing'
+      )
+    ORDER BY queued.created_at,queued.id
+    FOR UPDATE SKIP LOCKED LIMIT 1`);
+   if(!job)return null;
+   // Multiple API/worker replicas may be alive. Serialize the final status
+   // check for this owner so only one of their generations can run at once.
+   const {rows:[lock]}=await client.query("SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS locked",['image-worker:'+job.user_id]);
+   if(!lock?.locked)return null;
+   const {rows:[active]}=await client.query("SELECT id FROM bb_image_jobs WHERE user_id=$1 AND status='processing' LIMIT 1",[job.user_id]);
+   if(active)return null;
+   await client.query("UPDATE bb_image_jobs SET status='processing',started_at=now() WHERE id=$1",[job.id]);
+   return job;
+  });
   if(!row)return false;
   let providerReturned=false;
   try{
@@ -155,6 +173,21 @@ export function createImageJobs(database=db,{storage=imageStorage,configured=()=
   }
   return true;
  }
- return {create,get,list,remove,runOne};
+ function start({idleMs=1500,errorMs=5000}={}){
+  if(runner)return runner;
+  runnerStopping=false;
+  runner=(async()=>{
+   while(!runnerStopping){
+    try{if(!await runOne())await wait(idleMs);}
+    catch(error){
+     console.error(JSON.stringify({event:'image_worker_error',code:error.code||'IMAGE_WORKER_FAILED'}));
+     await wait(errorMs);
+    }
+   }
+  })().finally(()=>{runner=null;});
+  return runner;
+ }
+ function stop(){runnerStopping=true;}
+ return {create,get,list,remove,runOne,start,stop};
 }
 export const imageJobs=createImageJobs();

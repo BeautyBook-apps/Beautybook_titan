@@ -7,7 +7,7 @@ export function waitForPoll(ms,signal){return new Promise((resolve,reject)=>{
  signal?.addEventListener('abort',onAbort,{once:true});
 });}
 
-export async function requestImageJob(request,payload,{signal,idempotencyKey=crypto.randomUUID(),onProgress,pollMs=4000,wait=waitForPoll,maxWaitMs=240000,maxReadRetries=6}={}){
+export async function requestImageJob(request,payload,{signal,idempotencyKey=crypto.randomUUID(),onProgress,pollMs=4000,wait=waitForPoll,maxWaitMs=600000,maxReadRetries=6}={}){
  signal?.throwIfAborted();
  let job=await request('/api/ai/try-on',{method:'POST',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify(payload),signal});
 
