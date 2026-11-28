@@ -1,6 +1,6 @@
 import pg from 'pg';
 const pool = new pg.Pool({
-  connectionString: 'postgresql://postgres.grlinrqxctmiegaluupi:Gm%21sr98xjB1pK0%40@aws-0-eu-west-2.pooler.supabase.com:6543/postgres',
+  connectionString: process.env.DATABASE_URL || '',
   ssl: { rejectUnauthorized: false }
 });
 try {

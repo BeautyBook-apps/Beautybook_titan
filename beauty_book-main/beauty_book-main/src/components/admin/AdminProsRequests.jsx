@@ -3,8 +3,8 @@ import { useState, useEffect } from "react";
 import { supabase } from '@/api/supabaseClient';
 import { Search, CheckCircle, XCircle, Trash2, FileText, ChevronRight, X, ExternalLink, AlertTriangle } from "lucide-react";
 
-const SERVICE_ROLE_KEY = '';
-const SUPABASE_URL = 'https://vimusrczrjvefsbljtmf.supabase.co';
+const SERVICE_ROLE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || import.meta.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL || '';
 
 const FILTERS = ["Tous", "En attente", "Approuvés", "Refusés"];
 

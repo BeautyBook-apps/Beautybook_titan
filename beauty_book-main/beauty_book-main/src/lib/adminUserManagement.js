@@ -1,12 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/api/supabaseClient';
 
-const SUPABASE_URL = 'https://vimusrczrjvefsbljtmf.supabase.co';
-const SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpbXVzcmN6cmp2ZWZzYmxqdG1mIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTk4ODUwOSwiZXhwIjoyMDk3NTY0NTA5fQ.tZZQe1H7ZkWkv53ytqzQGDs7AJIzpQO3JArntrwMKqU';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL || '';
+const SERVICE_ROLE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || import.meta.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-export const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false }
-});
+export const supabaseAdmin = (SUPABASE_URL && SERVICE_ROLE_KEY)
+  ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    })
+  : supabase;
 
 export function getDeviceId() {
   let devId = localStorage.getItem("bb_device_id");

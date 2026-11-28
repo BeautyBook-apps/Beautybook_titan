@@ -5,8 +5,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const supabaseUrl = 'https://grlinrqxctmiegaluupi.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdybGlucnF4Y3RtaWVnYWx1dXBpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4Mjc3NDY0MSwiZXhwIjoyMDk4MzUwNjQxfQ.YTOLV-V8FNaa0Pol9uS6FYgUuqerOvKeGUnOO0UEZTs';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -35,7 +35,7 @@ async function initDb() {
     console.log(`Executed ${successCount} statements, ${failCount} failed`);
     if (failCount > 0) {
       console.log('\nPlease run the schema manually:');
-      console.log('1. Go to https://supabase.com/dashboard/project/grlinrqxctmiegaluupi');
+      console.log('1. Go to your Supabase project dashboard');
       console.log('2. Open SQL Editor');
       console.log('3. Paste and run the content of supabase/schema.sql');
     }
