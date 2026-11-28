@@ -64,3 +64,93 @@ test('netlify functions support v2 Request/Response and normalize function rewri
   assert.equal(shopRes.status,503);
  }finally{globalThis.fetch=oldFetch;if(oldBase===undefined)delete process.env.BEAUTYBOOK_BACKEND_URL;else process.env.BEAUTYBOOK_BACKEND_URL=oldBase;}
 });
+
+test('netlify api works standalone without BEAUTYBOOK_BACKEND_URL for AI image jobs',async()=>{
+ const oldFetch=globalThis.fetch,oldBase=process.env.BEAUTYBOOK_BACKEND_URL,oldUrl=process.env.SUPABASE_URL,oldService=process.env.SUPABASE_SERVICE_ROLE_KEY,oldFal=process.env.FAL_KEY;
+ const png=Buffer.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137]);
+ const jobs=new Map();
+ try{
+  delete process.env.BEAUTYBOOK_BACKEND_URL;
+  process.env.SUPABASE_URL='https://supabase.test.invalid';
+  process.env.SUPABASE_SERVICE_ROLE_KEY='service-key-test';
+  process.env.FAL_KEY='fal-key-test';
+
+  globalThis.fetch=async(url,options={})=>{
+   if(url==='https://supabase.test.invalid/auth/v1/user'){
+    return Response.json({id:'11111111-1111-1111-1111-111111111111',email:'user@test.invalid'});
+   }
+   if(url==='https://queue.fal.run/meta/muse-image/edit'){
+    return Response.json({
+     request_id:'fal-req-1',
+     status_url:'https://queue.fal.run/meta/muse-image/requests/fal-req-1/status',
+     response_url:'https://queue.fal.run/meta/muse-image/requests/fal-req-1',
+    });
+   }
+   if(url==='https://queue.fal.run/meta/muse-image/requests/fal-req-1/status'){
+    return Response.json({status:'COMPLETED'});
+   }
+   if(url==='https://queue.fal.run/meta/muse-image/requests/fal-req-1'){
+    return Response.json({images:[{url:'https://fal.media.test.invalid/result.png'}]});
+   }
+   if(url==='https://fal.media.test.invalid/result.png'){
+    return new Response(png,{status:200,headers:{'content-type':'image/png'}});
+   }
+   if(url.startsWith('https://supabase.test.invalid/rest/v1/bb_image_jobs')){
+    const method=(options.method||'GET').toUpperCase();
+    if(method==='GET'){
+     if(url.includes('request_key=eq.'))return Response.json([]);
+     const row=jobs.get('22222222-2222-2222-2222-222222222222');
+     return Response.json(row?[row]:[]);
+    }
+    if(method==='POST'){
+     const payload=JSON.parse(options.body);
+     const row={id:'22222222-2222-2222-2222-222222222222',created_at:'2026-11-28T03:00:00Z',error_code:null,...payload};
+     jobs.set(row.id,row);
+     return Response.json([row],{status:201});
+    }
+    if(method==='PATCH'){
+     const patch=JSON.parse(options.body);
+     const row={...jobs.get('22222222-2222-2222-2222-222222222222'),...patch};
+     jobs.set(row.id,row);
+     return Response.json([row]);
+    }
+   }
+   if(url.startsWith('https://supabase.test.invalid/storage/v1/object/ai-results/')){
+    return Response.json({Key:'ai-results/ok.png'});
+   }
+   if(url.startsWith('https://supabase.test.invalid/storage/v1/object/sign/ai-results/')){
+    return Response.json({signedURL:'/object/sign/ai-results/ok.png?token=abc'});
+   }
+   throw new Error('Unexpected URL in serverless test: '+url);
+  };
+
+  const healthRes=await netlifyApi(new Request('https://beautybook.netlify.app/api/health',{method:'GET'}));
+  assert.equal(healthRes.status,200);
+  assert.equal((await healthRes.json()).mode,'serverless');
+
+  const createRes=await netlifyApi(new Request('https://beautybook.netlify.app/.netlify/functions/api/ai/try-on',{
+   method:'POST',
+   headers:{'content-type':'application/json','authorization':'Bearer user-jwt','idempotency-key':'serverless-key-123456'},
+   body:JSON.stringify({mode:'hair',category:'coiffure',user_photo:'data:image/png;base64,aGVsbG8=',garment_photo:'https://cdn.test.invalid/style.png',garment_name:'Edgar Cut'}),
+  }));
+  assert.equal(createRes.status,202);
+  const created=await createRes.json();
+  assert.equal(created.status,'processing');
+  assert.equal(created.id,'22222222-2222-2222-2222-222222222222');
+
+  const pollRes=await netlifyApi(new Request('https://beautybook.netlify.app/.netlify/functions/api/image-jobs/22222222-2222-2222-2222-222222222222',{
+   method:'GET',
+   headers:{'authorization':'Bearer user-jwt'},
+  }));
+  assert.equal(pollRes.status,200);
+  const polled=await pollRes.json();
+  assert.equal(polled.status,'completed');
+  assert.equal(polled.result_url,'https://supabase.test.invalid/storage/v1/object/sign/ai-results/ok.png?token=abc');
+ }finally{
+  globalThis.fetch=oldFetch;
+  if(oldBase===undefined)delete process.env.BEAUTYBOOK_BACKEND_URL;else process.env.BEAUTYBOOK_BACKEND_URL=oldBase;
+  if(oldUrl===undefined)delete process.env.SUPABASE_URL;else process.env.SUPABASE_URL=oldUrl;
+  if(oldService===undefined)delete process.env.SUPABASE_SERVICE_ROLE_KEY;else process.env.SUPABASE_SERVICE_ROLE_KEY=oldService;
+  if(oldFal===undefined)delete process.env.FAL_KEY;else process.env.FAL_KEY=oldFal;
+ }
+});
