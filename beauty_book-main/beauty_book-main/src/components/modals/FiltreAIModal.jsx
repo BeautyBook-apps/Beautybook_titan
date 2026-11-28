@@ -443,7 +443,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
 
   const modal = (
     <div className="fixed inset-0 bg-black/70 z-[9999] flex items-end">
-      <div ref={modalScrollRef} className="w-full bg-white rounded-t-3xl max-h-[92vh] overflow-y-auto flex flex-col">
+      <div ref={modalScrollRef} className="w-full min-w-0 max-w-full bg-white rounded-t-3xl max-h-[92vh] overflow-x-hidden overflow-y-auto flex flex-col">
 
         {/* Header */}
         <div className="sticky top-0 bg-white px-5 py-4 border-b border-gray-100 flex items-center justify-between z-10">
@@ -481,7 +481,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-gray-400 text-[18px]">✕</button>
         </div>
 
-        <div className="flex-1 px-5 py-6">{errorMsg && <p role="alert" className="mb-4 p-3 rounded-xl bg-red-50 text-red-800 text-sm">{errorMsg}</p>}
+        <div className="min-w-0 w-full flex-1 px-5 py-6">{errorMsg && <p role="alert" className="mb-4 p-3 rounded-xl bg-red-50 text-red-800 text-sm">{errorMsg}</p>}
           {[2,4].includes(step) && <button onClick={() => { setErrorMsg(null); setStep(5); }} className="mb-4 min-h-11 w-full rounded-xl border border-orange-100 bg-orange-50 px-4 text-sm font-bold text-primary">Historique des générations</button>}
           {step === 5 && <ImageJobHistory kinds="hair" onClose={() => setStep(result ? 4 : 2)} onSelect={(url, job) => {
             setResult({generatedImageUrl:url,styleLabel:job.label,styleImg:url,fromHistory:true});
