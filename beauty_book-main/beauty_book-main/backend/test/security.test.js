@@ -14,6 +14,14 @@ test('expired session is rejected',async()=>{
   const error=await invoke(authMiddleware(()=>({auth:{getUser:async()=>({data:{user:null},error:{}})}})),{headers:{authorization:'Bearer expired'}});
   assert.equal(error.status,401);
 });
+
+test('authentication outages are not misreported as invalid sessions',async()=>{
+  for(const authError of [{name:'AuthRetryableFetchError',status:0},{status:503},{status:429}]){
+    const error=await invoke(authMiddleware(()=>({auth:{getUser:async()=>({data:{user:null},error:authError})}})),{headers:{authorization:'Bearer current'}});
+    assert.equal(error.status,503);
+    assert.equal(error.code,'AUTH_UNAVAILABLE');
+  }
+});
 const adminStub=membership=>()=>({from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:membership,error:null})})})})});
 test('user metadata admin claim never grants administrative access',async()=>{
   const error=await invoke(adminMiddleware('users:write',adminStub(null),{}),{user:{id:'u',user_metadata:{role:'admin'},app_metadata:{role:'admin'}}});

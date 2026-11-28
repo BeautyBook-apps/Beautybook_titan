@@ -15,3 +15,32 @@ test('request attaches the current session and preserves request ID errors',asyn
     return Response.json({error:'Expired',code:'SESSION_INVALID',request_id:'req-1'},{status:401});
   }}),error=>error.status===401 && error.requestId==='req-1');
 });
+
+test('private history does not send an anonymous request',async()=>{
+  await assert.rejects(requestApi('/image-jobs',{requireAuth:true},{
+    getSession:async()=>null,fetchImpl:async()=>assert.fail('No anonymous request'),
+  }),error=>error.status===401&&error.code==='AUTH_REQUIRED');
+});
+
+test('a refreshed token restores the authenticated request',async()=>{
+  let calls=0;
+  const result=await requestApi('/image-jobs',{requireAuth:true},{
+    getSession:async()=>({access_token:'old',refresh_token:'refresh'}),
+    refreshSession:async()=>({access_token:'new'}),
+    fetchImpl:async(_,options)=>{
+      assert.equal(options.headers.get('Authorization'),++calls===1?'Bearer old':'Bearer new');
+      return calls===1?Response.json({}, {status:401}):Response.json({jobs:[]});
+    },
+  });
+  assert.deepEqual(result,{jobs:[]});
+  assert.equal(calls,2);
+});
+
+test('a network failure after refreshing is not reported as an expired session',async()=>{
+  let calls=0;
+  await assert.rejects(requestApi('/image-jobs',{}, {
+    getSession:async()=>({access_token:'old',refresh_token:'refresh'}),
+    refreshSession:async()=>({access_token:'new'}),
+    fetchImpl:async()=>{if(++calls===1)return Response.json({}, {status:401});throw new TypeError('fetch failed');},
+  }),error=>error.status===0&&error.code==='NETWORK_ERROR');
+});

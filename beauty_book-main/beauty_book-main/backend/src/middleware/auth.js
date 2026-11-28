@@ -10,6 +10,9 @@ export function authMiddleware(getAdmin = getSupabaseAdmin) {
     // service key has been rotated independently of the public client key.
     const authClient = getAdmin === getSupabaseAdmin ? userSupabase(match[1]) : getAdmin();
     const { data, error } = await authClient.auth.getUser(match[1]);
+    // An unavailable authentication service does not invalidate the session.
+    assert(!(error && (error.name === 'AuthRetryableFetchError' || error.status === 0 || error.status === 429 || error.status >= 500)),
+      503, 'AUTH_UNAVAILABLE', 'La vérification de votre session est momentanément indisponible. Réessayez dans quelques instants.');
     assert(!error && data?.user && !data.user.deleted_at, 401, 'SESSION_INVALID', 'Votre session a expiré. Reconnectez-vous.');
     req.user = data.user;
     req.accessToken = match[1];
