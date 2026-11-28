@@ -18,17 +18,30 @@ function assert(condition, status, code, message) {
   if (!condition) throw new ServerlessError(status, code, message);
 }
 
+function normalizeSupabaseUrl(raw) {
+  // Strip any path suffix — keep only https://xxxx.supabase.co
+  // Users sometimes copy the full REST URL (with /rest/v1/ at the end)
+  const trimmed = String(raw || '').trim().replace(/\/+$/, '');
+  try {
+    const parsed = new URL(trimmed);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return trimmed;
+  }
+}
+
 function supabaseConfig() {
-  const url = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/+$/, '');
+  const rawUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+  const url = normalizeSupabaseUrl(rawUrl);
   const anonKey = String(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '');
   const serviceKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
   // Log which vars are present (without values) to Netlify Function logs
   console.log('[beautybook] env check:', {
     hasSupabaseUrl: !!process.env.SUPABASE_URL,
     hasViteSupabaseUrl: !!process.env.VITE_SUPABASE_URL,
+    normalizedUrl: url ? url.replace(/\/\/[^.]+/, '//***') : '(none)',
     hasServiceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
     hasAnonKey: !!process.env.SUPABASE_ANON_KEY,
-    hasViteAnonKey: !!process.env.VITE_SUPABASE_ANON_KEY,
     hasFalKey: !!process.env.FAL_KEY,
   });
   assert(url && serviceKey, 503, 'BACKEND_NOT_CONFIGURED', 'Configurez SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY dans les variables Netlify.');
@@ -36,7 +49,7 @@ function supabaseConfig() {
 }
 
 function isSupabaseConfigured() {
-  const url = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '');
+  const url = normalizeSupabaseUrl(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '');
   const serviceKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
   return !!(url && serviceKey);
 }

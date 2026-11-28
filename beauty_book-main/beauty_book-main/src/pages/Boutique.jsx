@@ -207,20 +207,16 @@ export default function Boutique() {
           sub_category: override.sub_category ?? product.sub_category ?? "",
         };
       });
-      if (shopifyResult.status === "fulfilled" && shopifyPayload.success === false) {
-        setLoadError(shopifyPayload.error || "Les produits Shopify ne sont pas disponibles sur ce déploiement.");
-      }
       const dbIds = new Set(db.map(product => product.id));
       const products = [...db, ...shopify.filter(product => !dbIds.has(product.id))];
 
       if (products.length > 0) {
         setShopifyProducts(products);
-        // Mettre en cache les produits des deux sources.
         mergePageCache("boutique_page", { products });
         setLoadError(null);
-      } else {
-        // Si les deux sources sont vides, conserver l'erreur Shopify éventuelle
-        // afin que l'administration puisse diagnostiquer la configuration Netlify.
+      } else if (shopifyResult.status === "fulfilled" && shopifyPayload.success === false) {
+        // Shopify non configuré et aucun produit en base — afficher un message neutre
+        setLoadError("Aucun produit disponible pour le moment. Revenez bientôt !");
       }
       setLoadingProducts(false);
     });
@@ -557,8 +553,8 @@ export default function Boutique() {
               : loadError
               ? (
                 <div className="col-span-2 flex flex-col items-center justify-center py-12 gap-3">
-                  <span className="text-3xl">🔌</span>
-                  <p className="text-[13px] font-bold text-gray-500 text-center">Impossible de charger les produits Shopify.<br/>Vérifiez votre token Storefront.</p>
+                  <span className="text-3xl">📦</span>
+                  <p className="text-[13px] font-bold text-gray-500 text-center">{loadError}</p>
                 </div>
               )
               : displayedProducts.length === 0
