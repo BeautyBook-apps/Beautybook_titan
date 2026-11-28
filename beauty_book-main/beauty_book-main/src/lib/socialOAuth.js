@@ -5,7 +5,7 @@
 import { supabase } from "@/api/supabaseClient";
 
 const SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL || "https://vimusrczrjvefsbljtmf.supabase.co";
+  import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL || "";
 const FUNCTION_URL = `${SUPABASE_URL.replace(/\/$/, "")}/functions/v1/social-oauth`;
 
 export const OAUTH_PLATFORMS = ["instagram", "facebook", "whatsapp", "tiktok"];
