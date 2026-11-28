@@ -634,9 +634,18 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
 
   const tryOn = async () => {
     if (abortRef.current) return;
-    if (!userPhoto) return;
-    if (mode === "article" && !selectedProduct) return;
-    if (mode === "tenue" && !topPhoto && !bottomPhoto) return;
+    if (!userPhoto) {
+      setError("Importez votre photo pour lancer la simulation.");
+      return;
+    }
+    if (mode === "article" && !selectedProduct) {
+      setError("Sélectionnez l’article que vous souhaitez essayer.");
+      return;
+    }
+    if (mode === "tenue" && !topPhoto && !bottomPhoto) {
+      setError("Ajoutez au moins un haut ou un bas pour composer la tenue.");
+      return;
+    }
     setLoading(true); setError(null); setJobStatus('preparing');
     const controller = new AbortController();
     abortRef.current = controller;
@@ -712,7 +721,15 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
     ? baseList.filter(p => (p.name + " " + (p.brand || "")).toLowerCase().includes(searchQuery.toLowerCase()))
     : baseList;
 
-  const canTryOn = userPhoto && (mode === "article" ? selectedProduct : (topPhoto || bottomPhoto));
+  const tryOnHint = loading
+    ? "Création de votre aperçu…"
+    : !userPhoto
+      ? "Importez votre photo pour continuer"
+      : mode === "article" && !selectedProduct
+        ? "Sélectionnez un article à essayer"
+        : mode === "tenue" && !topPhoto && !bottomPhoto
+          ? "Ajoutez les pièces de votre tenue"
+          : "Simulation personnalisée";
 
   // Open history before the result branch so it remains accessible afterwards.
   if (showHistory) return <HistoryPanel kinds="article,outfit,exchange" onSelect={(url, job) => { setUserPhoto(null); setSelectedProduct(null); setMode(job.kind === 'outfit' ? 'tenue' : 'article'); setResult(url); setShowHistory(false); }} onClose={() => setShowHistory(false)} />;
@@ -962,11 +979,11 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
       )}
 
       <div className="sticky bottom-20 z-30 -mx-4 border-t border-orange-100 bg-white/95 px-4 pb-3 pt-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur-md">
-        <button type="button" onClick={tryOn} disabled={!canTryOn || loading}
+        <button type="button" onClick={tryOn} disabled={loading}
           aria-label={mode === "tenue" ? "Essayer cette tenue" : "Essayer l’article"}
-          className="group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl border border-orange-300/40 bg-gradient-to-r from-orange-500 via-primary to-amber-500 px-5 text-[14px] font-black uppercase tracking-widest text-white shadow-[0_12px_28px_rgba(232,115,42,0.38)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(232,115,42,0.45)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
+          className="group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl border border-orange-300/40 bg-gradient-to-r from-orange-500 via-primary to-amber-500 px-5 text-[14px] font-black uppercase tracking-widest text-white shadow-[0_12px_28px_rgba(232,115,42,0.38)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(232,115,42,0.45)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:cursor-wait disabled:opacity-80 disabled:hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20"><Wand2 className="h-5 w-5" /></span>
-          <span className="text-left"><span className="block">{mode === "tenue" ? "Essayer cette tenue" : "Essayer l’article"}</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/80">Simulation personnalisée</span></span>
+          <span className="text-left"><span className="block">{mode === "tenue" ? "Essayer cette tenue" : "Essayer l’article"}</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/85">{tryOnHint}</span></span>
           <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
         </button>
       </div>
@@ -1032,7 +1049,14 @@ function EchangeTenues() {
 
   const exchange = async () => {
     if (abortRef.current) return;
-    if (!userPhoto || !referencePhoto) return;
+    if (!userPhoto) {
+      setError("Importez votre photo pour lancer l’essayage.");
+      return;
+    }
+    if (!referencePhoto) {
+      setError("Ajoutez la photo de la tenue que vous souhaitez copier.");
+      return;
+    }
     setLoading(true); setError(null); setJobStatus('preparing');
     const controller = new AbortController();
     abortRef.current = controller;
@@ -1087,6 +1111,14 @@ function EchangeTenues() {
   };
   const onCompareMouseMove = (e) => { if (isDragging) handleCompareMove(e.clientX); };
   const onCompareTouchMove = (e) => { if (isDragging) handleCompareMove(e.touches[0].clientX); };
+
+  const exchangeHint = loading
+    ? "Création de votre aperçu…"
+    : !userPhoto
+      ? "Importez votre photo pour continuer"
+      : !referencePhoto
+        ? "Ajoutez la tenue à copier"
+        : "Copier la tenue sur ma photo";
 
   if (showHistory) return <HistoryPanel kinds="article,outfit,exchange" onSelect={url => { setUserPhoto(null); setResult(url); setSearchResults([]); setShowHistory(false); }} onClose={() => setShowHistory(false)} />;
 
@@ -1229,11 +1261,11 @@ function EchangeTenues() {
       )}
       {error && <div className="bg-orange-50 border border-orange-100 rounded-2xl px-4 py-3"><p className="text-[12px] text-orange-600/80 font-medium">{error}</p></div>}
       <div className="sticky bottom-20 z-30 -mx-4 border-t border-orange-100 bg-white/95 px-4 pb-3 pt-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur-md">
-        <button type="button" onClick={exchange} disabled={!userPhoto || !referencePhoto || loading}
+        <button type="button" onClick={exchange} disabled={loading}
           aria-label="Essayer cette tenue"
-          className="group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl border border-orange-300/40 bg-gradient-to-r from-orange-500 via-primary to-amber-500 px-5 text-[14px] font-black uppercase tracking-widest text-white shadow-[0_12px_28px_rgba(232,115,42,0.38)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(232,115,42,0.45)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
+          className="group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl border border-orange-300/40 bg-gradient-to-r from-orange-500 via-primary to-amber-500 px-5 text-[14px] font-black uppercase tracking-widest text-white shadow-[0_12px_28px_rgba(232,115,42,0.38)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(232,115,42,0.45)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:cursor-wait disabled:opacity-80 disabled:hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20"><Repeat2 className="h-5 w-5" /></span>
-          <span className="text-left"><span className="block">Essayer cette tenue</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/80">Copier la tenue sur ma photo</span></span>
+          <span className="text-left"><span className="block">Essayer cette tenue</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/85">{exchangeHint}</span></span>
           <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
         </button>
       </div>

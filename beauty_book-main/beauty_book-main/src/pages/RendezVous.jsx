@@ -16,6 +16,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useCachedState, readPageCache, mergePageCache } from "@/hooks/usePageCache";
 import AuthModal from "@/components/ui/AuthModal";
 import { useTheme, useThemeBg } from "@/hooks/useTheme";
+import { getReservationTime } from "@/lib/reservationTime";
 
 const DAYS_FR = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 const MONTHS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
@@ -46,7 +47,7 @@ function reservationToEvent(r) {
     service: r.service_name,
     salon: r.salon_name || r.pro_name || "",
     date: r.date,
-    time: r.time || r.time_slot,
+    time: getReservationTime(r),
     location: r.salon_address || "",
     status: r.status === "confirme" ? "confirmed" : r.status === "annule" ? "cancelled" : r.status === "termine" ? "done" : "pending",
     type: "rdv",
@@ -366,7 +367,7 @@ export default function RendezVous() {
   const handleCancelReservation = async (rdv) => {
     setCancelling(true);
     try {
-      const rdvDate = new Date(`${rdv.date}T${rdv.time || rdv.time_slot || "00:00"}`);
+      const rdvDate = new Date(`${rdv.date}T${getReservationTime(rdv) || "00:00"}`);
       const now = new Date();
       const hoursUntil = (rdvDate - now) / (1000 * 60 * 60);
       const isFullRefund = hoursUntil >= 24;
@@ -537,8 +538,8 @@ export default function RendezVous() {
   const past = reservations.filter(r => r.status === "termine" || r.date < today);
   const cancelled = reservations.filter(r => r.status === "annule");
   const nextUpcoming = [...upcoming].sort((a, b) => {
-    const left = `${a.date || ""}T${a.time || a.time_slot || "00:00"}`;
-    const right = `${b.date || ""}T${b.time || b.time_slot || "00:00"}`;
+    const left = `${a.date || ""}T${getReservationTime(a) || "00:00"}`;
+    const right = `${b.date || ""}T${getReservationTime(b) || "00:00"}`;
     return left.localeCompare(right);
   })[0] || null;
 
@@ -660,7 +661,7 @@ export default function RendezVous() {
                 <p className="text-[11px] font-black text-white/70 uppercase tracking-widest">Prochain RDV</p>
                 <p className="text-[15px] font-black text-white mt-0.5">{next.service_name}</p>
                 <p className="text-[11px] text-white/80 font-medium mt-0.5 capitalize">
-                  {formatLongDate(next.date)} · {next.time || next.time_slot}
+                  {formatLongDate(next.date)} · {getReservationTime(next) || "—"}
                 </p>
               </div>
             </div>
@@ -707,7 +708,7 @@ export default function RendezVous() {
                 <div className="flex items-center gap-3 mt-2">
                   <div className="flex items-center gap-1">
                     <Clock className="w-3 h-3 text-primary" />
-                    <span className="text-[11px] font-bold text-gray-700">{r.time || r.time_slot}</span>
+                    <span className="text-[11px] font-bold text-gray-700">{getReservationTime(r) || "—"}</span>
                   </div>
                   {r.total_price > 0 && (
                     <span className="text-[11px] font-black text-primary">{r.total_price}€</span>
@@ -814,7 +815,7 @@ export default function RendezVous() {
         const r = calendarSuggestion;
         const pad = (n) => String(n).padStart(2, "0");
         const [y, mo, d] = (r.date || "2000-01-01").split("-").map(Number);
-        const [sh, sm] = (r.time || r.time_slot || "00:00").split(":").map(Number);
+        const [sh, sm] = (getReservationTime(r) || "00:00").split(":").map(Number);
         const endT = sh * 60 + sm + (r.duration_min || 60);
         const eh = Math.floor(endT / 60) % 24, em = endT % 60;
         const fmt = (yy, mm, dd, hh, min) => `${yy}${pad(mm)}${pad(dd)}T${pad(hh)}${pad(min)}00`;
@@ -860,7 +861,7 @@ export default function RendezVous() {
               </div>
               <h3 className="text-[18px] font-black text-gray-900 mb-1">Réservation confirmée !</h3>
               <p className="text-[13px] text-gray-500 font-medium mb-1">{r.service_name}</p>
-              <p className="text-[12px] text-gray-400 font-medium mb-5 capitalize">{formatLongDate(r.date)} · {r.time || r.time_slot}</p>
+              <p className="text-[12px] text-gray-400 font-medium mb-5 capitalize">{formatLongDate(r.date)} · {getReservationTime(r) || "—"}</p>
               <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-3">Ajouter à votre agenda</p>
               <div className="space-y-2">
                 <a href={gCalUrl} target="_blank" rel="noopener noreferrer"
@@ -975,7 +976,7 @@ export default function RendezVous() {
                   <div>
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Heure</p>
                     <p className="text-[13px] font-black text-gray-900">
-                      {selectedReservation.time || selectedReservation.time_slot}{selectedReservation.end_time_slot ? ` → ${selectedReservation.end_time_slot}` : ""}
+                      {getReservationTime(selectedReservation) || "—"}{selectedReservation.end_time_slot ? ` → ${selectedReservation.end_time_slot}` : ""}
                       {selectedReservation.duration_min ? ` (${selectedReservation.duration_min} min)` : ""}
                     </p>
                   </div>
@@ -1058,7 +1059,7 @@ export default function RendezVous() {
                   href={(() => {
                     const pad = (n) => String(n).padStart(2, "0");
                     const [y, mo, d] = (selectedReservation.date || "2000-01-01").split("-").map(Number);
-                    const [sh, sm] = (selectedReservation.time || selectedReservation.time_slot || "00:00").split(":").map(Number);
+                    const [sh, sm] = (getReservationTime(selectedReservation) || "00:00").split(":").map(Number);
                     const endT = sh * 60 + sm + (selectedReservation.duration_min || 60);
                     const eh = Math.floor(endT / 60) % 24, em = endT % 60;
                     const fmt = (yy, mm, dd, hh, min) => `${yy}${pad(mm)}${pad(dd)}T${pad(hh)}${pad(min)}00`;
@@ -1082,7 +1083,7 @@ export default function RendezVous() {
                 {(() => {
                   const pad = (n) => String(n).padStart(2, "0");
                   const [y, mo, d] = (selectedReservation.date || "2000-01-01").split("-").map(Number);
-                  const [sh, sm] = (selectedReservation.time || selectedReservation.time_slot || "00:00").split(":").map(Number);
+                  const [sh, sm] = (getReservationTime(selectedReservation) || "00:00").split(":").map(Number);
                   const endT = sh * 60 + sm + (selectedReservation.duration_min || 60);
                   const eh = Math.floor(endT / 60) % 24, em = endT % 60;
                   const fmtDate = (dt) => `${dt.getFullYear()}${pad(dt.getMonth()+1)}${pad(dt.getDate())}T${pad(dt.getHours())}${pad(dt.getMinutes())}00`;
@@ -1278,7 +1279,7 @@ export default function RendezVous() {
             </div>
             <h3 className="text-[18px] font-black text-gray-900 text-center mb-2">Annuler ce RDV ?</h3>
             {(() => {
-              const rdvDate = new Date(`${showCancelConfirm.date}T${showCancelConfirm.time || showCancelConfirm.time_slot || "00:00"}`);
+              const rdvDate = new Date(`${showCancelConfirm.date}T${getReservationTime(showCancelConfirm) || "00:00"}`);
               const now = new Date();
               const hoursUntil = (rdvDate - now) / (1000 * 60 * 60);
               const isFullRefund = hoursUntil >= 24;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ClipboardList, MessageSquare, X, Clock3, ChevronRight, Search, CheckCircle2 } from "lucide-react";
+import { getReservationTime } from "@/lib/reservationTime";
 
 const ACTIVE_STATUSES = new Set(["en_attente", "confirme"]);
 const QUESTION_LABELS = {
@@ -28,7 +29,7 @@ function prettyQuestionLabel(label, id) {
 
 function getReservationStart(reservation) {
   if (!reservation?.date) return null;
-  const time = reservation.time || reservation.time_slot || "00:00";
+  const time = getReservationTime(reservation) || "00:00";
   const start = new Date(`${String(reservation.date).slice(0, 10)}T${time}`);
   return Number.isNaN(start.getTime()) ? null : start;
 }

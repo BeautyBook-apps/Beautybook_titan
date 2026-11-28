@@ -1,8 +1,7 @@
 import { ArrowLeft, MapPin, Clock, CheckCircle2, Loader, Users, Download, CreditCard, Banknote, Share2, Pencil, X, Check, Tag, Lock, Shield, Moon, MessageSquare, Wallet, Trash2, Plus, Store } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { entities } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { apiClient } from '@/lib/apiClient';
@@ -11,6 +10,7 @@ import { generateBookingCode } from "@/lib/bookingCodes";
 import { getQuestionsForPrestation } from "@/lib/serviceQuestions";
 import QRCode from "qrcode";
 import StripePaymentBox from "@/components/payment/StripePaymentBox";
+import { getReservationTime } from "@/lib/reservationTime";
 
 // ── Formatage carte bancaire ──────────────────────────────────────────────────
 function formatCardNumber(val) {
@@ -785,10 +785,11 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
     ? booking.bundle.bundle_price
     : booking.services.reduce((s, svc) => s + svc.price * (svc.persons || 1), 0);
   const totalDuration = booking.services.reduce((s, svc) => s + (svc.duration_min || parseInt(svc.duration) || 60), 0);
+  const bookingTime = getReservationTime(booking);
 
   // ── Majoration nocturne (+50%) si créneau entre 21h et 07h ──
   const isNightSlot = (() => {
-    const time = booking.time;
+    const time = bookingTime;
     if (!time) return false;
     const [h] = time.split(":").map(Number);
     return h >= 21 || h < 7;
@@ -881,7 +882,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
       service_name: booking.services.map(s => s.title || s.name).join(" + "),
       service_price: basePrice,
       date: dateStr,
-      time_slot: booking.time || "00:00",
+      time_slot: bookingTime,
       duration_min: totalDuration,
       persons: totalPersons,
       total_price: totalPrice,
@@ -909,6 +910,10 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
   };
 
   const handleConfirmAndBook = async (method = "card") => {
+    if (!bookingTime) {
+      setError("Choisissez une heure de rendez-vous avant de confirmer.");
+      return;
+    }
     const payOnSite = method === "onsite";
     setSaving(true);
     setPaid(true);
@@ -978,7 +983,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
       // Générer l'ICS côté frontend (toujours, même si le backend n'en retourne pas)
       const pad = (n) => String(n).padStart(2, "0");
       const [y, mo, d] = dateStr.split("-").map(Number);
-      const [sh, sm] = (booking.time || "00:00").split(":").map(Number);
+      const [sh, sm] = bookingTime.split(":").map(Number);
       // Créneau de nuit après minuit (00:00–07:00) : il appartient au lendemain
       // calendaire de la date de session (journée pro 09:00 → 07:00).
       const icsDay = new Date(y, mo - 1, d + (sh < 7 ? 1 : 0));
@@ -1025,7 +1030,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
       // Stocker les données pour le lien Google Calendar sur l'écran de confirmation
       window.__bb_last_booking__ = {
         dateStr,
-        time: booking.time,
+        time: bookingTime,
         totalDuration,
         serviceName,
         salonName,
@@ -1138,10 +1143,10 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
             {/* Heure */}
             <div className="px-4 py-4">
               <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">⏰ Heure</p>
-              <p className="text-[13px] font-black text-gray-900">{booking.time || "—"}</p>
-              {booking.time && (
+              <p className="text-[13px] font-black text-gray-900">{bookingTime || "—"}</p>
+              {bookingTime && (
                 <p className="text-[10px] text-gray-400 font-medium">→ {(() => {
-                  const [h, m] = (booking.time || "00:00").split(":").map(Number);
+                  const [h, m] = bookingTime.split(":").map(Number);
                   const total = h * 60 + m + totalDuration;
                   return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
                 })()}</p>
@@ -1509,7 +1514,7 @@ export default function StepConfirmation({ booking, onConfirm, onBack }) {
               ``,
               `Prestation : ${booking.services.map(s => s.title || s.name).join(" + ")}`,
               `Date       : ${booking.date ? format(booking.date, "EEEE d MMMM yyyy", { locale: fr }) : "—"}`,
-              `Heure      : ${booking.time || "—"} → ${(() => { const [h, m] = (booking.time || "00:00").split(":").map(Number); const t = h * 60 + m + totalDuration; return `${String(Math.floor(t / 60) % 24).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; })()}`,
+              `Heure      : ${bookingTime || "—"} → ${(() => { const [h, m] = (bookingTime || "00:00").split(":").map(Number); const t = h * 60 + m + totalDuration; return `${String(Math.floor(t / 60) % 24).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; })()}`,
               `Durée      : ${totalDuration} min`,
               `Siège      : ${booking.seat ? `N°${booking.seat}` : "Attribué à l'arrivée"}`,
               `Lieu       : ${savedLieu.name}`,
