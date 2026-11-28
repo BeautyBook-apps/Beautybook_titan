@@ -1,5 +1,5 @@
-const SUPABASE_URL = 'https://grlinrqxctmiegaluupi.supabase.co';
-const SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdybGlucnF4Y3RtaWVnYWx1dXBpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4Mjc3NDY0MSwiZXhwIjoyMDk4MzUwNjQxfQ.YTOLV-V8FNaa0Pol9uS6FYgUuqerOvKeGUnOO0UEZTs';
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
 
 async function run() {
   // Try SQL endpoint
