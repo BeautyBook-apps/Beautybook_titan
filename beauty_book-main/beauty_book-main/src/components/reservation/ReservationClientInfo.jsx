@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { ClipboardList, MessageSquare, X, Clock3, ChevronRight, Search, CheckCircle2 } from "lucide-react";
 import { getReservationTime } from "@/lib/reservationTime";
 
@@ -166,6 +167,27 @@ export default function ReservationClientInfo({ reservation, mode = "client", au
   const answers = useMemo(() => normalizeAnswers(reservation), [reservation]);
   const comment = getReservationComment(reservation);
 
+  const closeDetails = useCallback((event) => {
+    event?.stopPropagation();
+    setShowDetails(false);
+  }, []);
+
+  useEffect(() => {
+    if (!showDetails) return undefined;
+    const previousFocus = document.activeElement;
+    const onKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeDetails();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      if (previousFocus?.isConnected) previousFocus.focus?.({ preventScroll: true });
+    };
+  }, [showDetails, closeDetails]);
+
   useEffect(() => {
     if (!autoOnly || !reservation) return undefined;
     const tick = () => setNow(Date.now());
@@ -188,16 +210,18 @@ export default function ReservationClientInfo({ reservation, mode = "client", au
 
   if (!reservation) return null;
 
-  if (autoOnly) {
-    return showDetails ? (
-      <div className="fixed inset-0 z-[500] flex items-center justify-center p-0 md:p-5" onClick={() => setShowDetails(false)}>
+  // Escape the recap's scrolling/stacking context so the close controls remain
+  // reachable on mobile as well as in the professional agenda.
+  const detailsModal = showDetails ? createPortal(
+      <div className="fixed inset-0 z-[500] flex items-center justify-center p-0 md:p-5" onClick={closeDetails}>
         <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" />
         <div className="relative z-10 h-full w-full md:h-auto md:max-w-2xl" onClick={event => event.stopPropagation()}>
-          <InformationPanel reservation={reservation} mode={mode} modal onClose={() => setShowDetails(false)} />
+          <InformationPanel reservation={reservation} mode={mode} modal onClose={closeDetails} />
         </div>
-      </div>
+      </div>, document.body
     ) : null;
-  }
+
+  if (autoOnly) return detailsModal;
 
   return (
     <div>
@@ -217,14 +241,7 @@ export default function ReservationClientInfo({ reservation, mode = "client", au
         </button>
       </div>
 
-      {showDetails && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center p-0 md:p-5" onClick={() => setShowDetails(false)}>
-          <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" />
-          <div className="relative z-10 h-full w-full md:h-auto md:max-w-2xl" onClick={event => event.stopPropagation()}>
-            <InformationPanel reservation={reservation} mode={mode} modal onClose={() => setShowDetails(false)} />
-          </div>
-        </div>
-      )}
+      {detailsModal}
     </div>
   );
 }
