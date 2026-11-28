@@ -327,7 +327,9 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
   };
 
   const startSimulation = async () => {
-    if (!userPhoto || !selectedStyle || simulationRunningRef.current) return;
+    if (simulationRunningRef.current) return;
+    if (!userPhoto) { setErrorMsg("Importez votre photo pour lancer la simulation."); return; }
+    if (!selectedStyle) { setErrorMsg("Choisissez un style pour lancer la simulation."); return; }
     simulationRunningRef.current = true;
     setSimulationRunning(true);
     setStep(3);
@@ -725,25 +727,22 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
 
               <div className="sticky bottom-0 z-20 -mx-5 border-t border-orange-100 bg-white/95 px-5 pt-3 backdrop-blur-md" style={{ paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))" }}>
                 <button
+                  type="button"
                   onClick={startSimulation}
-                  disabled={!userPhoto || !selectedStyle || simulationRunning}
+                  disabled={simulationRunning}
                   aria-label={userPhoto && selectedStyle ? simulationCta : "Ajoutez une photo et choisissez un style"}
-                  className={`group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl px-5 py-3 text-left transition-all duration-200 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 ${
-                    userPhoto && selectedStyle
-                      ? "bg-gradient-to-r from-orange-500 via-primary to-amber-500 text-white shadow-[0_12px_28px_rgba(232,115,42,0.34)] hover:shadow-[0_16px_34px_rgba(232,115,42,0.42)]"
-                      : "cursor-not-allowed bg-slate-100 text-slate-400"
-                  }`}
+                  className="group flex min-h-16 w-full items-center justify-between gap-3 rounded-2xl border border-orange-400/60 bg-gradient-to-r from-[#FF6B00] via-[#F97316] to-[#EA580C] px-5 py-3 text-left text-white shadow-[0_14px_30px_rgba(234,88,12,0.42)] transition-all duration-200 hover:-translate-y-0.5 hover:brightness-105 hover:shadow-[0_18px_36px_rgba(234,88,12,0.5)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-500/35 disabled:cursor-wait disabled:opacity-75"
                 >
-                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${userPhoto && selectedStyle ? "bg-white/20" : "bg-slate-200"}`}>
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/25 shadow-inner">
                     <Sparkles className="h-5 w-5" strokeWidth={1.8} />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[14px] font-black uppercase tracking-[0.09em]">{simulationCta}</span>
-                    <span className={`mt-0.5 block text-[10px] font-semibold ${userPhoto && selectedStyle ? "text-white/80" : "text-slate-400"}`}>
-                      {userPhoto && selectedStyle ? "Créer mon aperçu personnalisé" : "Ajoutez une photo et choisissez un style"}
+                    <span className="mt-0.5 block text-[10px] font-semibold text-white/95">
+                      {simulationRunning ? "Création de votre aperçu…" : userPhoto && selectedStyle ? "Créer mon aperçu personnalisé" : !userPhoto ? "Importez votre photo pour continuer" : "Choisissez un style pour continuer"}
                     </span>
                   </span>
-                  {userPhoto && selectedStyle && <ArrowRight className="h-5 w-5 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />}
+                  <ArrowRight className="h-5 w-5 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
                 </button>
                 <p className="mt-2 text-center text-[10px] font-medium text-slate-400">1 génération · votre résultat sera enregistré dans votre historique privé</p>
               </div>

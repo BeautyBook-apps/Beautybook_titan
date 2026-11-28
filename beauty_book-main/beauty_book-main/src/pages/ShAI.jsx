@@ -981,9 +981,9 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
       <div className="sticky bottom-20 z-30 -mx-4 border-t border-orange-100 bg-white/95 px-4 pb-3 pt-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur-md">
         <button type="button" onClick={tryOn} disabled={loading}
           aria-label={mode === "tenue" ? "Essayer cette tenue" : "Essayer l’article"}
-          className="group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl border border-orange-300/40 bg-gradient-to-r from-orange-500 via-primary to-amber-500 px-5 text-[14px] font-black uppercase tracking-widest text-white shadow-[0_12px_28px_rgba(232,115,42,0.38)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(232,115,42,0.45)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:cursor-wait disabled:opacity-80 disabled:hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20"><Wand2 className="h-5 w-5" /></span>
-          <span className="text-left"><span className="block">{mode === "tenue" ? "Essayer cette tenue" : "Essayer l’article"}</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/85">{tryOnHint}</span></span>
+          className="group flex min-h-16 w-full items-center justify-between gap-3 rounded-2xl border border-orange-400/60 bg-gradient-to-r from-[#FF6B00] via-[#F97316] to-[#EA580C] px-5 py-3 text-[14px] font-black uppercase tracking-wider text-white shadow-[0_14px_30px_rgba(234,88,12,0.42)] transition-all duration-200 hover:-translate-y-0.5 hover:brightness-105 hover:shadow-[0_18px_36px_rgba(234,88,12,0.5)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-500/35 disabled:cursor-wait disabled:opacity-75 disabled:hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/25 shadow-inner"><Wand2 className="h-5 w-5" /></span>
+          <span className="flex-1 text-left"><span className="block">{mode === "tenue" ? "Essayer cette tenue" : "Essayer l’article"}</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/95">{tryOnHint}</span></span>
           <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
         </button>
       </div>
@@ -1263,9 +1263,9 @@ function EchangeTenues() {
       <div className="sticky bottom-20 z-30 -mx-4 border-t border-orange-100 bg-white/95 px-4 pb-3 pt-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur-md">
         <button type="button" onClick={exchange} disabled={loading}
           aria-label="Essayer cette tenue"
-          className="group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl border border-orange-300/40 bg-gradient-to-r from-orange-500 via-primary to-amber-500 px-5 text-[14px] font-black uppercase tracking-widest text-white shadow-[0_12px_28px_rgba(232,115,42,0.38)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(232,115,42,0.45)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:cursor-wait disabled:opacity-80 disabled:hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20"><Repeat2 className="h-5 w-5" /></span>
-          <span className="text-left"><span className="block">Essayer cette tenue</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/85">{exchangeHint}</span></span>
+          className="group flex min-h-16 w-full items-center justify-between gap-3 rounded-2xl border border-orange-400/60 bg-gradient-to-r from-[#FF6B00] via-[#F97316] to-[#EA580C] px-5 py-3 text-[14px] font-black uppercase tracking-wider text-white shadow-[0_14px_30px_rgba(234,88,12,0.42)] transition-all duration-200 hover:-translate-y-0.5 hover:brightness-105 hover:shadow-[0_18px_36px_rgba(234,88,12,0.5)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-500/35 disabled:cursor-wait disabled:opacity-75 disabled:hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/25 shadow-inner"><Repeat2 className="h-5 w-5" /></span>
+          <span className="flex-1 text-left"><span className="block">Essayer cette tenue</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/95">{exchangeHint}</span></span>
           <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
         </button>
       </div>
