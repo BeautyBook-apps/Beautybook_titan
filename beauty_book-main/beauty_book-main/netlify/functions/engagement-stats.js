@@ -1,7 +1,9 @@
-function json(statusCode, body) {
+function json(statusCode, body, isWebRequest = false) {
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+  if (isWebRequest) return new Response(JSON.stringify(body), { status: statusCode, headers });
   return {
     statusCode,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+    headers,
     body: JSON.stringify(body),
   };
 }
@@ -15,19 +17,25 @@ function supabaseRequest(table, params, serviceKey) {
   });
 }
 
-export default async function handler(event) {
-  if (event.httpMethod !== 'POST') return json(405, { error: 'Méthode non autorisée.' });
+export default async function handler(eventOrRequest) {
+  const isWebRequest = typeof eventOrRequest?.headers?.get === 'function'
+    && typeof eventOrRequest?.text === 'function';
+  const method = isWebRequest ? eventOrRequest.method : eventOrRequest.httpMethod;
+  if (method !== 'POST') return json(405, { error: 'Méthode non autorisée.' }, isWebRequest);
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!process.env.SUPABASE_URL || !serviceKey) {
-    return json(503, { error: 'Service Supabase non configuré.', code: 'BACKEND_NOT_CONFIGURED' });
+    return json(503, { error: 'Service Supabase non configuré.', code: 'BACKEND_NOT_CONFIGURED' }, isWebRequest);
   }
 
   let body = {};
-  try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'JSON invalide.' }); }
+  try {
+    const rawBody = isWebRequest ? await eventOrRequest.text() : (eventOrRequest.body || '{}');
+    body = JSON.parse(rawBody || '{}');
+  } catch { return json(400, { error: 'JSON invalide.' }, isWebRequest); }
   const styleIds = Array.isArray(body.styleIds)
     ? [...new Set(body.styleIds.map(id => String(id).trim()).filter(id => /^[A-Za-z0-9_-]+$/.test(id)))].slice(0, 500)
     : [];
-  if (!styleIds.length) return json(200, { stats: {} });
+  if (!styleIds.length) return json(200, { stats: {} }, isWebRequest);
 
   const stats = Object.fromEntries(styleIds.map(id => [id, { likes: 0, views: 0, shares: 0 }]));
   let partial = false;
@@ -69,5 +77,5 @@ export default async function handler(event) {
     } else partial = true;
   } catch { partial = true; }
 
-  return json(200, { stats, partial });
+  return json(200, { stats, partial }, isWebRequest);
 }

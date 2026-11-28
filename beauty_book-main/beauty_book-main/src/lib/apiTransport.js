@@ -40,7 +40,19 @@ export async function requestApi(endpoint, options = {}, { baseUrl = '', getSess
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new ApiError(body.error || 'Le serveur n’a pas pu terminer cette opération.', response.status, body.code, body.request_id);
+    const fallbackCode = response.status === 413
+      ? 'IMAGES_TOO_LARGE'
+      : [502, 503, 504].includes(response.status)
+        ? 'BACKEND_UNAVAILABLE'
+        : response.status === 404
+          ? 'ENDPOINT_NOT_FOUND'
+          : undefined;
+    const fallbackError = response.status === 413
+      ? 'Les images envoy?es sont trop volumineuses.'
+      : [502, 503, 504].includes(response.status)
+        ? 'Le serveur de simulation est momentan?ment indisponible. R?essayez dans quelques instants.'
+        : 'Le serveur n?a pas pu terminer cette op?ration.';
+    throw new ApiError(body.error || fallbackError, response.status, body.code || fallbackCode, body.request_id);
   }
   if (options.responseType === 'blob') return response.blob();
   if (response.status === 204) return null;

@@ -7,9 +7,21 @@ export function waitForPoll(ms,signal){return new Promise((resolve,reject)=>{
  signal?.addEventListener('abort',onAbort,{once:true});
 });}
 
-export async function requestImageJob(request,payload,{signal,idempotencyKey=crypto.randomUUID(),onProgress,pollMs=4000,wait=waitForPoll,maxWaitMs=600000,maxReadRetries=6}={}){
+export async function requestImageJob(request,payload,{signal,idempotencyKey=crypto.randomUUID(),onProgress,pollMs=4000,wait=waitForPoll,maxWaitMs=600000,maxReadRetries=6,maxCreateRetries=2}={}){
  signal?.throwIfAborted();
- let job=await request('/api/ai/try-on',{method:'POST',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify(payload),signal});
+ let job;
+ for(let attempt=0;;attempt++){
+  try{
+   job=await request('/api/ai/try-on',{method:'POST',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify(payload),signal});
+   break;
+  }catch(error){
+   signal?.throwIfAborted();
+   if(error.name==='AbortError')throw error;
+   const transient=error.status===0||error.status===502||error.status===504||['NETWORK_ERROR','BACKEND_UNAVAILABLE'].includes(error.code);
+   if(!transient||attempt>=maxCreateRetries)throw error;
+   await wait(2000,signal);
+  }
+ }
 
  const started=Date.now();
  let readFailures=0;

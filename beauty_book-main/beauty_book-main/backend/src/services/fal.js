@@ -89,7 +89,7 @@ async function assertFalInputImagesAccessible(images, { fetchImpl = fetch } = {}
     let response;
     try {
       response = await fetchImpl(image, { method: 'HEAD', signal: AbortSignal.timeout(15000) });
-      if (response.status === 405) {
+      if (!response.ok && [400, 403, 405, 501].includes(response.status)) {
         response = await fetchImpl(image, { headers: { Range: 'bytes=0-1023' }, signal: AbortSignal.timeout(15000) });
       }
     } catch {

@@ -1,12 +1,14 @@
 const API_VERSION = String(process.env.SHOPIFY_API_VERSION || process.env.VITE_SHOPIFY_API_VERSION || '2026-07').trim();
 
-function json(statusCode, body) {
+function json(statusCode, body, isWebRequest = false) {
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  };
+  if (isWebRequest) return new Response(JSON.stringify(body), { status: statusCode, headers });
   return {
     statusCode,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-    },
+    headers,
     body: JSON.stringify(body),
   };
 }
@@ -67,17 +69,21 @@ const PRODUCT_FIELDS = `
   }
 `;
 
-export default async function handler(event) {
+export default async function handler(eventOrRequest) {
+  const isWebRequest = typeof eventOrRequest?.headers?.get === 'function'
+    && typeof eventOrRequest?.url === 'string';
   const { domain, token } = getConfig();
   if (!domain || !token) {
     return json(503, {
       success: false,
       code: 'SHOPIFY_NOT_CONFIGURED',
       error: 'Shopify n’est pas configuré sur Netlify. Ajoutez SHOPIFY_DOMAIN et SHOPIFY_STOREFRONT_TOKEN dans les variables du site.',
-    });
+    }, isWebRequest);
   }
 
-  const params = event.queryStringParameters || {};
+  const params = isWebRequest
+    ? Object.fromEntries(new URL(eventOrRequest.url).searchParams.entries())
+    : (eventOrRequest.queryStringParameters || {});
   const productId = String(params.productId || '').trim();
   const first = Math.min(Math.max(Number.parseInt(params.first || '100', 10) || 100, 1), 250);
   const query = productId
@@ -98,15 +104,15 @@ export default async function handler(event) {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.errors?.length) {
       const message = payload.errors?.[0]?.message || `Shopify a répondu avec le statut ${response.status}.`;
-      return json(502, { success: false, code: 'SHOPIFY_REQUEST_FAILED', error: message });
+      return json(502, { success: false, code: 'SHOPIFY_REQUEST_FAILED', error: message }, isWebRequest);
     }
 
     if (productId) {
-      return json(200, { success: true, product: mapProduct(payload.data?.product) });
+      return json(200, { success: true, product: mapProduct(payload.data?.product) }, isWebRequest);
     }
     const products = (payload.data?.products?.edges || []).map(({ node }) => mapProduct(node)).filter(Boolean);
-    return json(200, { success: true, products });
+    return json(200, { success: true, products }, isWebRequest);
   } catch (error) {
-    return json(502, { success: false, code: 'SHOPIFY_REQUEST_FAILED', error: error?.message || 'Shopify est temporairement indisponible.' });
+    return json(502, { success: false, code: 'SHOPIFY_REQUEST_FAILED', error: error?.message || 'Shopify est temporairement indisponible.' }, isWebRequest);
   }
 }

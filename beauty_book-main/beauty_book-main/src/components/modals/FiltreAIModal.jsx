@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, ArrowUp, Shield, Download, Heart, Check, Search, Sparkles, ImageIcon, GalleryHorizontalEnd, Loader2, Camera, Scissors } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { apiClient } from '@/lib/apiClient';
+import { compressSimulationImage } from '@/lib/simulationImage';
 import { resolveSimulationCategory } from '../../../shared/simulationCategories';
 
 
@@ -48,23 +49,7 @@ function readBlobAsDataUrl(blob) {
 }
 
 async function imageFileToDataUrl(file) {
-  if (!file?.type?.startsWith("image/") || typeof createImageBitmap !== "function") {
-    return readBlobAsDataUrl(file);
-  }
-  try {
-    const bitmap = await createImageBitmap(file);
-    const maxSize = 1536;
-    const ratio = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
-    canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
-    canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close();
-    const compressed = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.86));
-    return readBlobAsDataUrl(compressed && compressed.size < file.size ? compressed : file);
-  } catch {
-    return readBlobAsDataUrl(file);
-  }
+  return readBlobAsDataUrl(await compressSimulationImage(file));
 }
 
 async function prepareReferenceImages(urls) {
@@ -74,7 +59,7 @@ async function prepareReferenceImages(urls) {
       const response = await fetch(source, { mode: "cors" });
       if (!response.ok) return source;
       const blob = await response.blob();
-      return blob.type.startsWith("image/") ? readBlobAsDataUrl(blob) : source;
+      return blob.type.startsWith("image/") ? await imageFileToDataUrl(blob) : source;
     } catch {
       return source;
     }
@@ -351,11 +336,6 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
     setErrorMsg(null);
     setProgressMsg('Votre demande est dans la file d’attente…');
     try {
-      let uploadedUrl = userPhotoUploadedUrl;
-      if (!uploadedUrl) {
-        uploadedUrl = (await uploadFile({ file: userPhoto }, 'uploads')).file_url;
-        setUserPhotoUploadedUrl(uploadedUrl);
-      }
       const falPhotoUrl = await imageFileToDataUrl(userPhoto);
       const referenceImages = await prepareReferenceImages(styleReferenceImages(selectedStyle));
       const response = await apiClient.callFunction('shAiTryOn', {
@@ -401,19 +381,21 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
       });
       setStep(4);
     } catch (e) {
-      const message = e.code === 'AI_NOT_CONFIGURED'
-        ? 'Le service de simulation IA n’est pas encore configuré sur le serveur.'
+      const message = ['AI_NOT_CONFIGURED', 'BACKEND_NOT_CONFIGURED'].includes(e.code)
+        ? 'Le service de simulation IA n?est pas encore configur? sur le serveur.'
         : e.code === 'DATABASE_NOT_CONFIGURED'
-          ? 'Le serveur de simulation n’est pas encore connecté à sa base de données.'
+          ? 'Le serveur de simulation n?est pas encore connect? ? sa base de donn?es.'
+          : e.code === 'IMAGES_TOO_LARGE'
+            ? 'Les images envoy?es sont trop volumineuses. Choisissez une photo plus petite.'
           : ['AI_GENERATION_BUSY', 'AI_QUOTA_REACHED'].includes(e.code)
-            ? 'Le service de simulation doit être mis à jour. Réessayez dans quelques instants ou contactez l’assistance si le problème persiste.'
+            ? 'Le service de simulation doit ?tre mis ? jour. R?essayez dans quelques instants ou contactez l?assistance si le probl?me persiste.'
           : e.code === 'RATE_LIMITED'
-            ? 'Trop de demandes rapprochées. Patientez une minute avant de réessayer.'
+            ? 'Trop de demandes rapproch?es. Patientez une minute avant de r?essayer.'
           : ['AUTH_REQUIRED', 'SESSION_INVALID'].includes(e.code)
           ? 'Connectez-vous pour lancer une simulation.'
-          : ['AI_PROVIDER_ERROR', 'FAL_PROVIDER_ERROR', 'FAL_NETWORK_ERROR', 'FAL_TIMEOUT', 'FAL_IMAGE_UNAVAILABLE', 'MUSE_PROVIDER_ERROR', 'MUSE_NETWORK_ERROR', 'MUSE_BILLING_REQUIRED', 'INVALID_IMAGE_RESULT'].includes(e.code)
-            ? 'La génération n’a pas pu aboutir. Vérifiez que le serveur est démarré puis réessayez.'
-          : e.message || 'La simulation n’a pas pu être générée.';
+          : ['AI_PROVIDER_ERROR', 'FAL_PROVIDER_ERROR', 'FAL_NETWORK_ERROR', 'FAL_TIMEOUT', 'FAL_IMAGE_UNAVAILABLE', 'MUSE_PROVIDER_ERROR', 'MUSE_NETWORK_ERROR', 'MUSE_BILLING_REQUIRED', 'INVALID_IMAGE_RESULT', 'BACKEND_UNAVAILABLE'].includes(e.code)
+            ? 'La g?n?ration n?a pas pu aboutir. V?rifiez que le serveur est d?marr? puis r?essayez.'
+          : e.message || 'La simulation n?a pas pu ?tre g?n?r?e.';
       setErrorMsg(message);
       if (['AI_GENERATION_BUSY', 'AI_QUOTA_REACHED'].includes(e.code)) {
         setStep(2);
@@ -423,6 +405,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
         error: message,
         errorCode: e.code,
         styleLabel: selectedStyle.label,
+        styleImg: selectedStyle.img,
         userPhotoUrl,
         fallback: false
       });

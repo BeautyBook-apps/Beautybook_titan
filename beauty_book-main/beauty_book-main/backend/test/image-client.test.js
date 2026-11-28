@@ -47,3 +47,17 @@ test('closing tracking aborts polling without claiming to cancel an already subm
 test('failed or missing image results cannot become successful output',async()=>{
  for(const status of ['failed','uncertain','completed'])await assert.rejects(requestImageJob(async()=>({id:'job',status}),{},{wait:async()=>{}}));
 });
+
+test('transient gateway error on create retries with the same idempotency key',async()=>{
+ const keys=[];let creates=0;
+ const result=await requestImageJob(async(path,options)=>{
+  if(options.method==='POST'){
+   keys.push(options.headers['Idempotency-Key']);
+   if(++creates===1)throw new ApiError('Indisponible',502,'BACKEND_UNAVAILABLE');
+   return {id:'retried-job',status:'completed',result_url:'https://example.com/ok.png'};
+  }
+  return {id:'retried-job',status:'completed',result_url:'https://example.com/ok.png'};
+ },{mode:'hair'},{idempotencyKey:'same-key-1234567890',wait:async()=>{}});
+ assert.equal(result.result_url,'https://example.com/ok.png');
+ assert.deepEqual(keys,['same-key-1234567890','same-key-1234567890']);
+});

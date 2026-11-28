@@ -1,3 +1,5 @@
+import { compressSimulationImage } from './simulationImage.js';
+
 export const UNUSED_IMAGE_TTL = 3 * 60 * 1000;
 
 // Object URLs are browser memory only: no public upload or persisted draft.
@@ -29,20 +31,7 @@ async function inlineImage(source, signal) {
   }
   if (!response.ok) throw new Error('Une image est inaccessible. Importez-la à nouveau.');
   const blob = await response.blob();
-  let prepared = blob;
-  if (typeof createImageBitmap === 'function') {
-    const bitmap = await createImageBitmap(blob);
-    try {
-      const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('Préparation de la photo impossible.');
-      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      prepared = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.82)) || blob;
-    } finally { bitmap.close(); }
-  }
+  const prepared = await compressSimulationImage(blob);
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
