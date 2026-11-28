@@ -39,29 +39,27 @@ export function createAICreditsService(database=db,{getStripe=stripeClient,getAp
    const {rows:[usage]}=await client.query("SELECT count(*)::integer AS used FROM public.bb_image_jobs WHERE user_id=$1 AND billing_source='free' AND billing_refunded_at IS NULL AND created_at>=date_trunc('day',now())",[userId]);
    return {
     credits:Number(wallet.balance),
-    free_limit:config.freeDailyLimit,
+    // Generations are intentionally unlimited. Keep usage for analytics only;
+    // it must never gate a customer request or trigger a credit debit.
+    unlimited:true,
+    free_limit:null,
     free_used:Number(usage?.used||0),
-    free_remaining:Math.max(0,config.freeDailyLimit-Number(usage?.used||0)),
+    free_remaining:null,
     packages:config.packages,
    };
   });
  }
 
- async function freeLimit(client,fallback=5){
-  return (await configFor(client,fallback)).freeDailyLimit;
+ async function freeLimit(){
+  return null;
  }
 
- // Called inside the image-job transaction. It reserves exactly one unit of
- // usage, preferring the daily free allowance and then paid credits.
- async function reserve(client,userId,freeLimit){
+ // Called inside the image-job transaction. There is no daily allowance or
+ // paid-credit gate: the only throttle lives in image-jobs and limits active
+ // concurrent requests so a user cannot accidentally overload the worker.
+ async function reserve(client,userId){
   const wallet=await ensureWallet(client,userId);
-  const config=await configFor(client,freeLimit);
-  const {rows:[usage]}=await client.query("SELECT count(*)::integer AS used FROM public.bb_image_jobs WHERE user_id=$1 AND billing_source='free' AND billing_refunded_at IS NULL AND created_at>=date_trunc('day',now())",[userId]);
-  if(Number(usage?.used||0)<config.freeDailyLimit)return {source:'free',credit_cost:0,credits_remaining:Number(wallet.balance)};
-  assert(Number(wallet.balance)>0,429,'AI_QUOTA_REACHED',`Vous avez utilisé vos ${config.freeDailyLimit} générations gratuites aujourd’hui. Achetez des crédits pour continuer.`);
-  const next=Number(wallet.balance)-1;
-  await client.query('UPDATE public.bb_ai_credit_wallets SET balance=$1,updated_at=now() WHERE user_id=$2',[next,userId]);
-  return {source:'credits',credit_cost:1,credits_remaining:next};
+  return {source:'free',credit_cost:0,credits_remaining:Number(wallet.balance)};
  }
 
  async function recordGeneration(client,userId,jobId,reservation){

@@ -7,6 +7,7 @@ import {isXaiConfigured,xaiImageEdit} from './xai.js';
 import {isMuseConfigured,museImageEdit,museImagePrompt} from './muse.js';
 import {isFalConfigured,falMuseImageEdit} from './fal.js';
 import {aiCredits} from './ai-credits.js';
+import {resolveSimulationCategory} from '../../../shared/simulationCategories.js';
 
 export function imageInput(input){
  const kind=input.mode||'article';
@@ -25,17 +26,20 @@ export function imageInput(input){
  for(const reference of references)images.push(checkedImage(reference));
  assert(images.join('').length<=10*1024*1024,413,'IMAGES_TOO_LARGE','Les images sont trop volumineuses.');
  const items=kind==='outfit'?Object.keys(input.outfit_pieces||{}).filter(key=>input.outfit_pieces[key]).slice(0,8):[];
+ const simulation=kind==='hair'?resolveSimulationCategory({category:input.category||'coiffure',subcategory:input.subcategory,serviceCategory:input.service_category}):null;
+ if(simulation)assert(simulation.supported,400,'SIMULATION_CATEGORY_UNSUPPORTED','Choisissez une catégorie avec une transformation visuelle précise.');
  return {
   kind,label,images,items,
   module:input.module|| (kind==='outfit'?'styliste_ia':'ai_style_changer'),
   page:input.page||'sh-ai',
-  category:input.category||'all',
-  target_area:input.target_area||input.targetArea||'not specified',
+  category:simulation?.id||input.category||'all',
+  subcategory:input.subcategory||null,
+  target_area:simulation?.target||input.target_area||input.targetArea||'not specified',
   operation:input.operation|| (kind==='outfit'?'outfit_styling':'style_change'),
  };
 }
 function promptFor(input){
- return museImagePrompt(input)+' Produce one realistic, fully clothed fashion or hairstyle preview.';
+ return museImagePrompt(input)+' Produce one realistic edited image. Keep the original framing and clothing. Do not add a body or face when the source is a close-up.';
 }
 function decodeImageResult(response){
  const item=response?.data?.[0];
@@ -53,17 +57,24 @@ export const imageStorage={
  async exists(path){const {data,error}=await getSupabaseAdmin().storage.from('ai-results').download(path);if(error){if(['404','400'].includes(String(error.statusCode)))return false;throw new HttpError(502,'IMAGE_STORAGE_FAILED','Le stockage ne répond pas.');}return data?.size>0;},
  async remove(path){const {error}=await getSupabaseAdmin().storage.from('ai-results').remove([path]);assert(!error,502,'IMAGE_STORAGE_FAILED','La suppression du résultat a échoué.');},
 };
-function provider() {
+function provider(input = null) {
  const configured=String(process.env.AI_IMAGE_PROVIDER||'').toLowerCase();
+ // Hairstyle and Styliste IA must stay on the configured image service whenever
+ // the server has the required credentials, even if an older deployment still
+ // has a legacy provider setting.
+ if(isFalConfigured() && (
+   ['hair','outfit'].includes(input?.kind || '')
+   || ['ai_style_changer','styliste_ia'].includes(input?.module || '')
+ ))return 'fal';
  if(configured==='fal')return 'fal';
  if(configured==='muse')return 'muse';
  if(configured==='openai')return 'openai';
  if(configured==='grok'||configured==='xai')return 'grok';
  return isFalConfigured()?'fal':isMuseConfigured()?'muse':isXaiConfigured()?'grok':'openai';
 }
-export function createImageJobs(database=db,{storage=imageStorage,configured=()=>provider()==='fal'?isFalConfigured():provider()==='muse'?isMuseConfigured():provider()==='grok'?isXaiConfigured():!!process.env.OPENAI_API_KEY,generate,dailyLimit=()=>Number(process.env.AI_IMAGE_FREE_DAILY_LIMIT||process.env.AI_IMAGE_DAILY_LIMIT||5),billing=aiCredits}={}){
+export function createImageJobs(database=db,{storage=imageStorage,configured=()=>provider()==='fal'?isFalConfigured():provider()==='muse'?isMuseConfigured():provider()==='grok'?isXaiConfigured():!!process.env.OPENAI_API_KEY,generate,billing=aiCredits}={}){
  const generateImage=generate||(async(input)=>{
-  const selectedProvider=provider();
+  const selectedProvider=provider(input);
   if(selectedProvider==='fal')return falMuseImageEdit({images:input.images,prompt:promptFor(input)});
   if(selectedProvider==='muse')return museImageEdit({images:input.images,prompt:promptFor(input)});
   if(selectedProvider==='grok')return xaiImageEdit({images:input.images,prompt:promptFor(input)});
@@ -72,10 +83,10 @@ export function createImageJobs(database=db,{storage=imageStorage,configured=()=
  async function present(row){
   const result={id:row.id,status:row.status,kind:row.kind,label:row.label,created_at:row.created_at,error_code:row.error_code};
   if(row.status==='completed'&&row.output_path)result.result_url=await storage.url(row.output_path);
-  if(row.status==='failed')result.message=row.error_code==='MUSE_BILLING_REQUIRED'
-   ?'La facturation Muse Image n’est pas active. Vérifiez le compte Meta Model API puis relancez la simulation.'
-   :row.error_code==='MUSE_ACCESS_DENIED'
-    ?'Muse Image n’a pas accès à cette génération. Vérifiez la clé API et les autorisations du compte.'
+  if(row.status==='failed')result.message=row.error_code==='FAL_NOT_CONFIGURED'
+   ?'Le service de génération n’est pas configuré sur le serveur. Redémarrez le backend après avoir configuré ses identifiants.'
+   :['FAL_PROVIDER_ERROR','FAL_NETWORK_ERROR','FAL_TIMEOUT','FAL_IMAGE_UNAVAILABLE','MUSE_BILLING_REQUIRED','MUSE_ACCESS_DENIED','MUSE_PROVIDER_ERROR'].includes(row.error_code)
+    ?'Le service de génération n’a pas pu créer cette image. Vérifiez la connexion du serveur puis réessayez.'
     :'La génération a échoué. Aucun résultat n’a été créé.';
   if(row.status==='uncertain')result.message='Le fournisseur n’a pas confirmé le résultat. La génération ne sera pas relancée automatiquement.';
   return result;
@@ -90,11 +101,8 @@ export function createImageJobs(database=db,{storage=imageStorage,configured=()=
    const {rows:[previous]}=await client.query('SELECT * FROM bb_image_jobs WHERE user_id=$1 AND request_key=$2',[user.id,key]);
    if(previous){assert(previous.request_hash===hash,409,'IDEMPOTENCY_CONFLICT','Cet identifiant correspond déjà à une autre génération.');return previous;}
    const {rows:[counts]}=await client.query("SELECT count(*) FILTER(WHERE status IN ('queued','processing'))::integer AS active FROM bb_image_jobs WHERE user_id=$1",[user.id]);
-   const configuredLimit=dailyLimit();
-   const limit=typeof billing.freeLimit==='function'?await billing.freeLimit(client,configuredLimit):configuredLimit;
-   assert(Number.isInteger(limit)&&limit>0&&limit<=100,503,'AI_QUOTA_NOT_CONFIGURED','Le quota IA doit être configuré.');
    assert(counts.active<2,429,'AI_QUOTA_REACHED','Attendez la fin de vos demandes en cours avant de lancer une nouvelle génération.');
-   const reservation=await billing.reserve(client,user.id,limit);
+   const reservation=await billing.reserve(client,user.id);
    const {rows:[job]}=await client.query('INSERT INTO bb_image_jobs(user_id,request_key,request_hash,kind,label,input,billing_source,credit_cost) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING *',[user.id,key,hash,input.kind,input.label,JSON.stringify(input),reservation.source,reservation.credit_cost]);
    await billing.recordGeneration(client,user.id,job.id,reservation);
    return job;
@@ -102,7 +110,14 @@ export function createImageJobs(database=db,{storage=imageStorage,configured=()=
   return present(row);
  }
  async function get(user,id){const {rows:[row]}=await database.query("SELECT * FROM bb_image_jobs WHERE id::text=$1 AND user_id=$2 AND status<>'deleted'",[id,user.id]);assert(row,404,'IMAGE_NOT_FOUND','Essayage introuvable.');return present(row);}
- async function list(user){const {rows}=await database.query("SELECT * FROM bb_image_jobs WHERE user_id=$1 AND status<>'deleted' ORDER BY created_at DESC LIMIT 20",[user.id]);return {jobs:await Promise.all(rows.map(present))};}
+ async function list(user,{limit=20,kinds}={}){
+  const count=Number(limit);
+  assert(Number.isInteger(count)&&count>=1&&count<=200,400,'INVALID_HISTORY_LIMIT','Nombre de résultats invalide.');
+  const selected=kinds?String(kinds).split(','):['hair','article','outfit','exchange'];
+  assert(selected.length>0&&selected.every(kind=>['hair','article','outfit','exchange'].includes(kind)),400,'INVALID_IMAGE_MODE','Type de génération invalide.');
+  const {rows}=await database.query("SELECT * FROM bb_image_jobs WHERE user_id=$1 AND status<>'deleted' AND kind=ANY($2::text[]) ORDER BY created_at DESC,id DESC LIMIT $3",[user.id,selected,count+1]);
+  return {jobs:await Promise.all(rows.slice(0,count).map(present)),has_more:rows.length>count};
+ }
  async function remove(user,id){return database.transaction(async client=>{
   const {rows:[row]}=await client.query('SELECT * FROM bb_image_jobs WHERE id::text=$1 AND user_id=$2 FOR UPDATE',[id,user.id]);assert(row,404,'IMAGE_NOT_FOUND','Essayage introuvable.');
   assert(row.status!=='processing',409,'IMAGE_PROCESSING','La génération a déjà commencé. Supprimez le résultat une fois le traitement terminé.');

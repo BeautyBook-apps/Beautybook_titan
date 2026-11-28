@@ -27,21 +27,31 @@ export async function submitFalModel(endpoint, payload, { fetchImpl = fetch, max
     throw new HttpError(502, 'FAL_NETWORK_ERROR', 'fal.ai ne répond pas. Réessayez dans un instant.');
   }
 
-  const { request_id: requestId, response_url: responseUrl } = await submitRes.json();
+  const { request_id: requestId, response_url: responseUrl, status_url: statusUrl } = await submitRes.json();
   assert(requestId, 502, 'FAL_PROVIDER_ERROR', 'fal.ai n’a pas retourné d’identifiant de génération.');
+  // Queue URLs omit the model subpath (e.g. /edit). Reusing the submit
+  // endpoint here returns 405 even when the billable generation succeeds.
+  const requestUrl = `${FAL_BASE}/${endpoint.split('/').slice(0, 2).join('/')}/requests/${encodeURIComponent(requestId)}`;
+  const queueUrl = value => {
+    const url = new URL(value);
+    assert(url.origin === FAL_BASE && !url.username && !url.password, 502, 'FAL_PROVIDER_ERROR', 'Adresse de suivi invalide.');
+    return url.href;
+  };
+  const pollingUrl = queueUrl(statusUrl || `${requestUrl}/status`);
+  const resultUrl = queueUrl(responseUrl || requestUrl);
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < maxWaitMs) {
     let statusRes;
     try {
-      statusRes = await fetchImpl(`${FAL_BASE}/${endpoint}/requests/${requestId}/status`, {
+      statusRes = await fetchImpl(pollingUrl, {
         headers: { 'Authorization': `Key ${falKey}` },
         signal: AbortSignal.timeout(30000),
       });
       if (!statusRes.ok) throw new HttpError(502, 'FAL_PROVIDER_ERROR', 'fal.ai n’a pas pu lire l’état de la génération.');
       const status = await statusRes.json();
       if (status.status === 'COMPLETED') {
-        const resultRes = await fetchImpl(responseUrl || `${FAL_BASE}/${endpoint}/requests/${requestId}`, {
+        const resultRes = await fetchImpl(resultUrl, {
           headers: { 'Authorization': `Key ${falKey}` },
           signal: AbortSignal.timeout(60000),
         });
@@ -73,8 +83,25 @@ async function downloadFalImage(url, { fetchImpl = fetch } = {}) {
   return bytes;
 }
 
+async function assertFalInputImagesAccessible(images, { fetchImpl = fetch } = {}) {
+  for (const image of images) {
+    if (/^data:image\/(jpeg|png|webp);base64,/.test(image)) continue;
+    let response;
+    try {
+      response = await fetchImpl(image, { method: 'HEAD', signal: AbortSignal.timeout(15000) });
+      if (response.status === 405) {
+        response = await fetchImpl(image, { headers: { Range: 'bytes=0-1023' }, signal: AbortSignal.timeout(15000) });
+      }
+    } catch {
+      throw new HttpError(400, 'FAL_IMAGE_UNAVAILABLE', 'Une image de référence n’est pas accessible. Importez-la à nouveau puis réessayez.');
+    }
+    assert(response.ok, 400, 'FAL_IMAGE_UNAVAILABLE', 'Une image de référence n’est pas accessible. Importez-la à nouveau puis réessayez.');
+  }
+}
+
 export async function falMuseImageEdit({ images, prompt, fetchImpl = fetch }) {
   assert(Array.isArray(images) && images.length >= 1 && images.length <= 10, 400, 'REFERENCE_REQUIRED', 'Ajoutez une image de référence.');
+  await assertFalInputImagesAccessible(images, { fetchImpl });
   const result = await submitFalModel(MUSE_EDIT_MODEL, {
     prompt,
     image_urls: images,

@@ -53,6 +53,7 @@ export default function AICreditsCard({ compact = false, returnPath = '/sh-ai' }
     }
   };
 
+  const unlimited = account?.unlimited === true;
   const freeRemaining = account?.free_remaining ?? 5;
   const freeLimit = account?.free_limit ?? 5;
   const credits = account?.credits ?? 0;
@@ -68,7 +69,7 @@ export default function AICreditsCard({ compact = false, returnPath = '/sh-ai' }
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[12px] font-black uppercase tracking-widest text-gray-900">Crédits IA synchronisés</p>
-              <p className="mt-1 text-[11px] font-medium text-gray-500">{freeLimit} génération{freeLimit > 1 ? 's' : ''} gratuite{freeLimit > 1 ? 's' : ''} chaque jour, puis 1 crédit par simulation.</p>
+              <p className="mt-1 text-[11px] font-medium text-gray-500">{unlimited ? 'Générations IA illimitées, sans quota quotidien.' : `${freeLimit} génération${freeLimit > 1 ? 's' : ''} gratuite${freeLimit > 1 ? 's' : ''} chaque jour.`}</p>
             </div>
             <div className="shrink-0 rounded-2xl bg-white px-3 py-2 text-right shadow-sm">
               <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">Crédits</p>
@@ -77,12 +78,12 @@ export default function AICreditsCard({ compact = false, returnPath = '/sh-ai' }
           </div>
           <div className="mt-3 flex items-center gap-2 text-[11px] font-bold text-green-700">
             <Check className="h-3.5 w-3.5" />
-            {loading ? 'Vérification du quota…' : `${freeRemaining} gratuite${freeRemaining > 1 ? 's' : ''} restante${freeRemaining > 1 ? 's' : ''} aujourd’hui`}
+            {loading ? 'Vérification de votre accès…' : unlimited ? 'Générations illimitées actives' : `${freeRemaining} gratuite${freeRemaining > 1 ? 's' : ''} restante${freeRemaining > 1 ? 's' : ''} aujourd’hui`}
           </div>
         </div>
       </div>
 
-      {packages.length > 0 && (
+      {!unlimited && packages.length > 0 && (
         <div className="mt-4">
           <div className="mb-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-gray-500">
             <Coins className="h-3.5 w-3.5 text-primary" /> Acheter des crédits

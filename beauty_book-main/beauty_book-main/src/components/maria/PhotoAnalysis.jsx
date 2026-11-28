@@ -12,12 +12,20 @@ function frenchText(value) {
 export default function PhotoAnalysis({ analysis }) {
   if (!analysis) return null;
 
-  const ready = Boolean(analysis.quality_ok && analysis.has_person);
-  const checks = [
-    { label: "Visage détecté", ok: Boolean(analysis.has_person) },
-    { label: "Cadrage", ok: Boolean(analysis.quality_ok) },
-    { label: "Corps visible", ok: Boolean(analysis.body_visible) },
-  ];
+  const uploadReady = analysis.mode === "upload_ready";
+  const uploadError = analysis.mode === "upload_error";
+  const ready = uploadReady || Boolean(analysis.quality_ok && analysis.has_person);
+  const checks = uploadReady
+    ? [
+      { label: "Photo reçue", ok: true },
+      { label: "Style choisi", ok: true },
+      { label: "Prête à générer", ok: true },
+    ]
+    : [
+      { label: "Visage détecté", ok: Boolean(analysis.has_person) },
+      { label: "Cadrage", ok: Boolean(analysis.quality_ok) },
+      { label: "Corps visible", ok: Boolean(analysis.body_visible) },
+    ];
 
   return (
     <section
@@ -33,10 +41,10 @@ export default function PhotoAnalysis({ analysis }) {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Analyse de votre photo</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{uploadReady ? "Préparation de votre photo" : "Analyse de votre photo"}</p>
               <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-wider ${ready ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{ready ? "Photo prête" : "À améliorer"}</span>
             </div>
-            <h4 className="mt-1 text-[15px] font-black text-slate-900">{ready ? "Votre photo est idéale pour l’essayage" : "Optimisons votre photo"}</h4>
+            <h4 className="mt-1 text-[15px] font-black text-slate-900">{uploadReady ? "Votre photo est prête pour la simulation" : ready ? "Votre photo est idéale pour l’essayage" : "Optimisons votre photo"}</h4>
             {analysis.suggestion && <p className="mt-1.5 text-[12px] leading-relaxed text-slate-600">{frenchText(analysis.suggestion)}</p>}
           </div>
         </div>
@@ -52,16 +60,18 @@ export default function PhotoAnalysis({ analysis }) {
           ))}
         </div>
 
-        {analysis.issues?.length > 0 ? (
+        {uploadError ? (
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3 text-[11px] font-semibold text-amber-700">{frenchText(analysis.suggestion)}</div>
+        ) : analysis.issues?.length > 0 ? (
           <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3">
             <p className="flex items-center gap-1.5 text-[11px] font-black text-amber-800"><Lightbulb className="h-3.5 w-3.5" /> Conseils pour un meilleur résultat</p>
             <ul className="mt-1.5 space-y-1 text-[11px] leading-relaxed text-amber-700">{analysis.issues.map((issue, index) => <li key={index} className="flex gap-1.5"><span aria-hidden="true">•</span><span>{frenchText(issue)}</span></li>)}</ul>
           </div>
         ) : (
-          <div className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2.5 text-[10px] font-semibold text-slate-500"><Camera className="h-3.5 w-3.5 shrink-0 text-primary" /> L’IA préservera votre visage et votre identité pendant la simulation.</div>
+          <div className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2.5 text-[10px] font-semibold text-slate-500"><Camera className="h-3.5 w-3.5 shrink-0 text-primary" /> {uploadReady ? "La simulation conservera votre visage et votre identité." : "L’IA préservera votre visage et votre identité pendant la simulation."}</div>
         )}
       </div>
-      <div className="flex items-center justify-center gap-1.5 border-t border-slate-100 px-4 py-2 text-[9px] font-black uppercase tracking-wider text-slate-400"><Sparkles className="h-3 w-3 text-primary" /> Analyse IA terminée</div>
+      <div className="flex items-center justify-center gap-1.5 border-t border-slate-100 px-4 py-2 text-[9px] font-black uppercase tracking-wider text-slate-400"><Sparkles className="h-3 w-3 text-primary" /> {uploadReady ? "Vérification d’import terminée" : "Analyse IA terminée"}</div>
     </section>
   );
 }

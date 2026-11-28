@@ -1,5 +1,6 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import PhotoAnalysis from '@/components/maria/PhotoAnalysis';
+import ImageJobHistory from '@/components/maria/ImageJobHistory';
 import AICreditsCard from '@/components/ai/AICreditsCard';
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
@@ -7,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, ArrowUp, Shield, Download, Heart, Check, Search, Sparkles, ImageIcon, GalleryHorizontalEnd, Loader2, Camera, Scissors } from "lucide-react";
 import { entities, uploadFile } from '@/api/entities';
 import { apiClient } from '@/lib/apiClient';
+import { resolveSimulationCategory } from '../../../shared/simulationCategories';
 
 
 
@@ -37,6 +39,97 @@ function imageUrl(value) {
   return typeof value === "string" ? value : value?.url || value?.src || value?.image_url || "";
 }
 
+function readBlobAsDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function imageFileToDataUrl(file) {
+  if (!file?.type?.startsWith("image/") || typeof createImageBitmap !== "function") {
+    return readBlobAsDataUrl(file);
+  }
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxSize = 1536;
+    const ratio = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
+    canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
+    canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const compressed = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.86));
+    return readBlobAsDataUrl(compressed && compressed.size < file.size ? compressed : file);
+  } catch {
+    return readBlobAsDataUrl(file);
+  }
+}
+
+async function prepareReferenceImages(urls) {
+  return Promise.all(urls.slice(0, 2).map(async source => {
+    if (!source || source.startsWith("data:image/")) return source;
+    try {
+      const response = await fetch(source, { mode: "cors" });
+      if (!response.ok) return source;
+      const blob = await response.blob();
+      return blob.type.startsWith("image/") ? readBlobAsDataUrl(blob) : source;
+    } catch {
+      return source;
+    }
+  }));
+}
+
+function generationStepsForStyle(style) {
+  const simulation = resolveSimulationCategory({ category: style?.category, subcategory: style?.subcategory, serviceCategory: style?.serviceCategory });
+  const products = (style?.produits_utilises || style?.products || [])
+    .map(product => typeof product === "string" ? product : product?.name || product?.title)
+    .filter(Boolean)
+    .slice(0, 2);
+  const productDetail = products.length > 0
+    ? `Références sélectionnées : ${products.join(", ")}.`
+    : "Les détails du style sélectionné sont conservés.";
+
+  if (simulation.id === 'maquillage') {
+    return [
+      { key: "queued", label: "Demande reçue", detail: "Votre photo et votre style sont sécurisés.", Icon: Check },
+      { key: "analyzing", label: "Analyse du visage", detail: "Notre IA repère les zones à préserver.", Icon: ImageIcon },
+      { key: "transforming", label: "Application du maquillage", detail: productDetail, Icon: Sparkles },
+      { key: "finalizing", label: "Finalisation du résultat", detail: "Encore quelques secondes avant votre aperçu.", Icon: Sparkles },
+    ];
+  }
+  if (simulation.id === 'manucure' || simulation.id === 'pedicure') {
+    return [
+      { key: "queued", label: "Demande reçue", detail: "Votre photo et votre style sont sécurisés.", Icon: Check },
+      { key: "analyzing", label: simulation.id === 'pedicure' ? "Analyse des ongles des pieds" : "Analyse des ongles des mains", detail: "Notre IA repère uniquement les ongles visibles.", Icon: ImageIcon },
+      { key: "transforming", label: simulation.action, detail: productDetail, Icon: Sparkles },
+      { key: "finalizing", label: "Finalisation du résultat", detail: "Encore quelques secondes avant votre aperçu.", Icon: Sparkles },
+    ];
+  }
+  if (simulation.id === 'tatouage' || simulation.id === 'piercing') {
+    return [
+      { key: "queued", label: "Demande reçue", detail: "Votre photo et votre motif sont sécurisés.", Icon: Check },
+      { key: "analyzing", label: "Analyse de la zone", detail: "Notre IA isole la zone à modifier.", Icon: ImageIcon },
+      { key: "transforming", label: simulation.action, detail: productDetail, Icon: Sparkles },
+      { key: "finalizing", label: "Finalisation du résultat", detail: "Encore quelques secondes avant votre aperçu.", Icon: Sparkles },
+    ];
+  }
+  if (['perruque', 'tresses', 'extensions', 'barbe', 'cils', 'epilation', 'soin'].includes(simulation.id)) return [
+    { key: "queued", label: "Demande reçue", detail: "Votre photo et votre style sont sécurisés.", Icon: Check },
+    { key: "analyzing", label: `Analyse : ${simulation.target}`, detail: "Notre IA préserve toutes les zones hors cible.", Icon: ImageIcon },
+    { key: "transforming", label: simulation.action, detail: productDetail, Icon: Sparkles },
+    { key: "finalizing", label: "Finalisation du résultat", detail: "Encore quelques secondes avant votre aperçu.", Icon: Sparkles },
+  ];
+  return [
+    { key: "queued", label: "Demande reçue", detail: "Votre photo et votre style sont sécurisés.", Icon: Check },
+    { key: "analyzing", label: "Analyse de l’image", detail: "Notre IA prépare les éléments à conserver.", Icon: ImageIcon },
+    { key: "transforming", label: simulation.action, detail: productDetail, Icon: Scissors },
+    { key: "finalizing", label: "Finalisation du résultat", detail: "Encore quelques secondes avant votre aperçu.", Icon: Sparkles },
+  ];
+}
+
 function styleReferenceImages(style) {
   return [...new Set([
     ...(Array.isArray(style?.allImages) ? style.allImages : []),
@@ -44,14 +137,8 @@ function styleReferenceImages(style) {
   ].map(imageUrl).filter(Boolean))].slice(0, 8);
 }
 
-function styleTargetArea(category) {
-  const targets = {
-    manucure: "ongles des mains",
-    pedicure: "ongles des pieds",
-    maquillage: "zones de maquillage du visage",
-    tatouage: "zone du tatouage",
-  };
-  return targets[String(category || "").toLowerCase()] || "cheveux";
+function simulationForStyle(style) {
+  return resolveSimulationCategory({ category: style?.category, subcategory: style?.subcategory, serviceCategory: style?.serviceCategory });
 }
 
 // Les galeries de styles peuvent contenir plus d'une centaine de photos.
@@ -108,6 +195,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
   const [result, setResult] = useState(null);
   const [progress, setProgress] = useState(0);
   const [progressMsg, setProgressMsg] = useState("");
+  const [generationPhase, setGenerationPhase] = useState("queued");
   const [liked, setLiked] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
   const [styleSearch, setStyleSearch] = useState("");
@@ -119,9 +207,23 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
   const [errorMsg, setErrorMsg] = useState(null);
   const [photoAnalysis, setPhotoAnalysis] = useState(null);
   const [analyzingPhoto, setAnalyzingPhoto] = useState(false);
+  const selectedSimulation = simulationForStyle(selectedStyle);
+  const simulationCta = selectedSimulation.id === 'coiffure' ? 'Générer ma coiffure' : 'Générer ma simulation';
   const compareRef = useRef(null);
   const fileInputRef = useRef(null);
   const modalScrollRef = useRef(null);
+
+  useEffect(() => {
+    if (step !== 3) return undefined;
+    const timer = setInterval(() => {
+      setProgress(current => {
+        const next = Math.min(92, current < 24 ? current + 4 : current < 70 ? current + 2 : current + 1);
+        setGenerationPhase(next < 22 ? "queued" : next < 44 ? "analyzing" : next < 78 ? "transforming" : "finalizing");
+        return next;
+      });
+    }, 900);
+    return () => clearInterval(timer);
+  }, [step]);
 
   // Charger les styles : UNIQUEMENT les publications de l'onglet Style (entité Style).
   // Affichage immédiat depuis le cache local, rafraîchissement réseau en arrière-plan.
@@ -138,6 +240,8 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
             allImages: [...(s.images || []), s.thumbnail_url].map(imageUrl).filter(Boolean),
             author: s.author_name || null,
             category: s.category,
+            subcategory: s.subcategory,
+            produits_utilises: s.produits_utilises || [],
           }))
           // Une publication peut être renvoyée plusieurs fois après une
           // fusion de cache. Ne garder qu'une carte par identifiant évite les
@@ -220,37 +324,17 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
     try {
       const { file_url } = await uploadFile({ file }, 'uploads');
       setUserPhotoUploadedUrl(file_url);
-      
-      // Keep the whole hairstyle flow on the server-side Muse integration.
-      // This avoids using a browser-side Grok key and keeps the validation
-      // provider consistent with the image generation provider.
-      const res = await apiClient.callFunction('museAnalyze', {
-        module: 'ai_style_changer',
-        page: 'maria/filtre-ai',
-        category: selectedStyle?.category || 'coiffure',
-        target_area: styleTargetArea(selectedStyle?.category),
-        operation: 'photo_validation',
-        photo_url: file_url,
-        image_urls: styleReferenceImages(selectedStyle),
-        user_context: { productName: selectedStyle?.label || 'style' },
-      });
+
+      // Keep upload validation local and let the server perform the real image
+      // transformation during the generation job.
       setPhotoAnalysis({
-        ...res.data,
-        has_person: res.data?.has_person !== false,
-        body_visible: res.data?.body_visible !== false,
-        quality_ok: res.data?.quality_ok !== false,
+        mode: 'upload_ready',
+        status: 'exploitable_avec_restrictions',
+        suggestion: 'Photo importée. Notre IA vérifiera la cohérence de la référence pendant la génération.',
       });
     } catch (e) {
       console.error('Photo analysis failed:', e);
-      // Keep the simulation available, but never pretend that the image was
-      // validated when Muse could not analyze it.
-      setPhotoAnalysis({
-        has_person: false,
-        body_visible: false,
-        quality_ok: false,
-        issues: ['ANALYSIS_UNAVAILABLE'],
-        suggestion: 'L’analyse Muse IA est momentanément indisponible. Vérifiez la photo et réessayez.'
-      });
+      setPhotoAnalysis({ mode: 'upload_error', suggestion: 'La photo n’a pas pu être importée. Réessayez.' });
     } finally {
       setAnalyzingPhoto(false);
     }
@@ -259,31 +343,51 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
   const startSimulation = async () => {
     if (!userPhoto || !selectedStyle) return;
     setStep(3);
-    setProgress(50);
+    setProgress(6);
+    setGenerationPhase('queued');
     setErrorMsg(null);
-    setProgressMsg('Préparation de votre demande…');
+    setProgressMsg('Votre demande est dans la file d’attente…');
     try {
       let uploadedUrl = userPhotoUploadedUrl;
       if (!uploadedUrl) {
         uploadedUrl = (await uploadFile({ file: userPhoto }, 'uploads')).file_url;
         setUserPhotoUploadedUrl(uploadedUrl);
       }
+      const falPhotoUrl = await imageFileToDataUrl(userPhoto);
+      const referenceImages = await prepareReferenceImages(styleReferenceImages(selectedStyle));
       const response = await apiClient.callFunction('shAiTryOn', {
-        user_photo: uploadedUrl,
-        garment_photo: styleReferenceImages(selectedStyle)[0],
-        reference_images: styleReferenceImages(selectedStyle),
+        // Use a data URI for the source photo so the image provider does not
+        // depend on the visibility or expiration of a storage URL.
+        user_photo: falPhotoUrl,
+        garment_photo: referenceImages[0],
+        reference_images: referenceImages,
         garment_name: `${selectedStyle.category || 'style'}: ${selectedStyle.label}`,
         styleName: selectedStyle.label,
         mode: 'hair',
         module: 'ai_style_changer',
         page: 'maria/filtre-ai',
         category: selectedStyle.category || 'coiffure',
-        target_area: styleTargetArea(selectedStyle.category),
+        subcategory: selectedStyle.subcategory || null,
+        service_category: selectedStyle.serviceCategory || null,
+        target_area: simulationForStyle(selectedStyle).target,
         operation: 'style_change',
       }, {
-        onProgress: job => setProgressMsg(job.status === 'queued' ? 'Votre demande est dans la file d’attente…' : 'Génération de votre coiffure…')
+        onProgress: job => {
+          if (job.status === 'queued') {
+            setGenerationPhase('queued');
+            setProgress(current => Math.max(current, 12));
+            setProgressMsg('Votre demande est dans la file d’attente…');
+          } else if (job.status === 'processing') {
+            setGenerationPhase('analyzing');
+            setProgress(current => Math.max(current, 30));
+            setProgressMsg('Analyse de l’image en cours…');
+          }
+        }
       });
       if (!response.data?.result_url) throw new Error('Aucun résultat généré.');
+      setGenerationPhase('finalizing');
+      setProgress(100);
+      setProgressMsg('Résultat finalisé.');
       setResult({
         generatedImageUrl: response.data.result_url,
         styleLabel: selectedStyle.label,
@@ -301,11 +405,9 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
           : e.code === 'AI_QUOTA_REACHED'
             ? 'Votre quota gratuit du jour est épuisé. Achetez un pack de crédits pour continuer.'
           : ['AUTH_REQUIRED', 'SESSION_INVALID'].includes(e.code)
-          ? 'Connectez-vous pour lancer une simulation de coiffure.'
-          : ['AI_PROVIDER_ERROR', 'MUSE_PROVIDER_ERROR', 'MUSE_NETWORK_ERROR', 'INVALID_IMAGE_RESULT'].includes(e.code)
-            ? (e.code === 'MUSE_PROVIDER_ERROR' && e.message
-              ? e.message
-              : 'Muse IA n’a pas pu générer cette simulation. Vérifiez que le serveur est démarré puis réessayez dans quelques instants.')
+          ? 'Connectez-vous pour lancer une simulation.'
+          : ['AI_PROVIDER_ERROR', 'FAL_PROVIDER_ERROR', 'FAL_NETWORK_ERROR', 'FAL_TIMEOUT', 'FAL_IMAGE_UNAVAILABLE', 'MUSE_PROVIDER_ERROR', 'MUSE_NETWORK_ERROR', 'MUSE_BILLING_REQUIRED', 'INVALID_IMAGE_RESULT'].includes(e.code)
+            ? 'La génération n’a pas pu aboutir. Vérifiez que le serveur est démarré puis réessayez.'
           : e.message || 'La simulation n’a pas pu être générée.';
       setErrorMsg(message);
       if (e.code === 'AI_QUOTA_REACHED') {
@@ -341,7 +443,10 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
     } catch(e) {setErrorMsg(e.message||'Le téléchargement a échoué.');}
   };
 
-  const handleSaveToMaria=async()=>{if(!result?.generatedImageUrl||!onResultSaved)return;try{await onResultSaved({styleLabel:result.styleLabel,styleImg:result.generatedImageUrl,userPhotoUrl:result.userPhotoUrl,message:'Aperçu de coiffure généré par IA.',savedAt:new Date().toISOString()});setLiked(true);}catch(e){setErrorMsg(e.message||'Le partage a échoué.');}};
+  const handleSaveToMaria=async()=>{if(!result?.generatedImageUrl||!onResultSaved)return;try{await onResultSaved({styleLabel:result.styleLabel,styleImg:result.generatedImageUrl,userPhotoUrl:result.userPhotoUrl,message:'Aperçu de style généré par IA.',savedAt:new Date().toISOString()});setLiked(true);}catch(e){setErrorMsg(e.message||'Le partage a échoué.');}};
+
+  const generationSteps = generationStepsForStyle(selectedStyle);
+  const activeGenerationIndex = Math.max(0, generationSteps.findIndex(item => item.key === generationPhase));
 
   const modal = (
     <div className="fixed inset-0 bg-black/70 z-[9999] flex items-end">
@@ -372,6 +477,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
               {step === 2 && "Choisir un Style"}
               {step === 3 && "Génération IA…"}
               {step === 4 && "Votre Simulation"}
+              {step === 5 && "Historique des générations"}
             </h2>
             <div className="flex items-center justify-center gap-1.5 mt-1">
               {(step === 1 ? [1, 2, 3] : [1, 2, 3, 4]).map(s => (
@@ -383,6 +489,11 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
         </div>
 
         <div className="flex-1 px-5 py-6">{errorMsg && <p role="alert" className="mb-4 p-3 rounded-xl bg-red-50 text-red-800 text-sm">{errorMsg}</p>}
+          {[2,4].includes(step) && <button onClick={() => { setErrorMsg(null); setStep(5); }} className="mb-4 min-h-11 w-full rounded-xl border border-orange-100 bg-orange-50 px-4 text-sm font-bold text-primary">Historique des générations</button>}
+          {step === 5 && <ImageJobHistory kinds="hair" onClose={() => setStep(result ? 4 : 2)} onSelect={(url, job) => {
+            setResult({generatedImageUrl:url,styleLabel:job.label,styleImg:url,fromHistory:true});
+            setErrorMsg(null); setDownloaded(false); setLiked(false); setStep(4);
+          }} />}
 
           {/* ── STEP 1: Guide ── */}
           {step === 1 && (
@@ -391,14 +502,14 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                 <>
                   <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-3xl p-6 text-center">
                     <span className="text-[52px]">✨</span>
-                    <h3 className="text-[24px] font-black text-gray-900 mt-3">AI Hairstyle</h3>
-                    <p className="text-[22px] font-black text-primary">Changer</p>
+                    <h3 className="text-[24px] font-black text-gray-900 mt-3">Filtre IA</h3>
+                    <p className="text-[22px] font-black text-primary">Simulation personnalisée</p>
                     <p className="text-[13px] text-gray-600 mt-3 leading-relaxed">
-                      Muse IA génère une <strong>vraie photo de vous</strong> avec la coiffure choisie en quelques secondes.
+                      Notre IA génère une <strong>vraie photo de vous</strong> en ne transformant que la zone du style choisi.
                     </p>
                     <div className="mt-3 flex items-center justify-center gap-1.5 bg-white/70 rounded-2xl px-3 py-2">
                       <Sparkles className="w-3.5 h-3.5 text-primary" />
-                      <span className="text-[11px] font-black text-primary">Propulsé par Muse IA</span>
+                      <span className="text-[11px] font-black text-primary">Propulsé par BeautyBook IA</span>
                     </div>
                   </div>
                   <div className="space-y-3">
@@ -421,7 +532,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-white shadow-sm"><Camera className="h-10 w-10 text-blue-500" /></div>
                     <p className="mt-5 text-[11px] font-black uppercase tracking-[0.18em] text-blue-600">Étape 2</p>
                     <h3 className="mt-2 text-[22px] font-black text-gray-900">Importez votre photo</h3>
-                    <p className="mt-3 text-[13px] leading-relaxed text-gray-600">Choisissez une photo nette, bien éclairée, avec votre visage et vos cheveux visibles.</p>
+                    <p className="mt-3 text-[13px] leading-relaxed text-gray-600">{selectedSimulation.photoHint}</p>
                   </div>
                   <div className="space-y-3">
                     {[
@@ -439,7 +550,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     {selectedStyle?.img ? <BeautyImage src={selectedStyle.img} alt={selectedStyle.label} className="mx-auto h-36 w-36 rounded-3xl object-cover shadow-lg" /> : <div className="mx-auto flex h-36 w-36 items-center justify-center rounded-3xl bg-white shadow-sm"><GalleryHorizontalEnd className="h-12 w-12 text-purple-500" /></div>}
                     <p className="mt-5 text-[11px] font-black uppercase tracking-[0.18em] text-purple-600">Étape 3</p>
                     <h3 className="mt-2 text-[22px] font-black text-gray-900">Choisissez votre style</h3>
-                    <p className="mt-3 text-[13px] leading-relaxed text-gray-600">Sélectionnez une coiffure de la galerie, puis lancez votre simulation personnalisée.</p>
+                    <p className="mt-3 text-[13px] leading-relaxed text-gray-600">Sélectionnez un style de la galerie, puis lancez votre simulation personnalisée.</p>
                     {selectedStyle && <p className="mt-3 rounded-xl bg-white/80 px-3 py-2 text-[12px] font-black text-purple-700">Style prêt : {selectedStyle.label}</p>}
                   </div>
                   <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-center text-[12px] leading-relaxed text-blue-700"><Shield className="mx-auto mb-2 h-5 w-5 text-blue-500" />Vos images sont transmises de manière sécurisée au service IA.</div>
@@ -537,7 +648,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     {selectedStyle.author && (
                       <p className="text-[10px] text-primary font-bold">✦ Publié par {selectedStyle.author}</p>
                     )}
-                    <p className="text-[11px] text-gray-500">Muse IA va générer votre photo avec ce style</p>
+                    <p className="text-[11px] text-gray-500">BeautyBook IA va générer votre photo avec ce style</p>
                   </div>
                   {!stylesExpanded && <Check className="h-5 w-5 shrink-0 text-green-600" aria-label="Style actif" />}
                 </div>
@@ -627,7 +738,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                 <button
                   onClick={startSimulation}
                   disabled={!userPhoto || !selectedStyle}
-                  aria-label={userPhoto && selectedStyle ? "Générer ma coiffure" : "Ajoutez une photo et choisissez un style"}
+                  aria-label={userPhoto && selectedStyle ? simulationCta : "Ajoutez une photo et choisissez un style"}
                   className={`group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl px-5 py-3 text-left transition-all duration-200 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 ${
                     userPhoto && selectedStyle
                       ? "bg-gradient-to-r from-orange-500 via-primary to-amber-500 text-white shadow-[0_12px_28px_rgba(232,115,42,0.34)] hover:shadow-[0_16px_34px_rgba(232,115,42,0.42)]"
@@ -638,7 +749,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     <Sparkles className="h-5 w-5" strokeWidth={1.8} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-black uppercase tracking-[0.09em]">Générer ma coiffure</span>
+                    <span className="block text-[14px] font-black uppercase tracking-[0.09em]">{simulationCta}</span>
                     <span className={`mt-0.5 block text-[10px] font-semibold ${userPhoto && selectedStyle ? "text-white/80" : "text-slate-400"}`}>
                       {userPhoto && selectedStyle ? "Créer mon aperçu personnalisé" : "Ajoutez une photo et choisissez un style"}
                     </span>
@@ -652,44 +763,75 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
 
           {/* ── STEP 3: Loading ── */}
           {step === 3 && (
-            <div className="relative -mx-5 -my-4 flex flex-col items-center justify-center min-h-[70vh] overflow-hidden">
-              {/* Blurred background with user photo */}
+            <div className="relative -mx-5 -my-4 flex min-h-[70vh] flex-col items-center justify-center overflow-hidden bg-slate-950 px-5 py-10">
               {userPhotoUrl ? (
                 <div className="absolute inset-0">
-                  <BeautyImage src={userPhotoUrl} alt="" className="w-full h-full object-cover scale-110 blur-sm" />
-                  <div className="absolute inset-0 bg-black/40" />
+                  <BeautyImage src={userPhotoUrl} alt="" className="h-full w-full scale-105 object-cover opacity-60 blur-sm" />
+                  <div className="absolute inset-0 bg-slate-950/50" />
+                  <div className="absolute inset-0 bg-gradient-to-b from-slate-950/55 via-slate-950/35 to-slate-950/90" />
                 </div>
               ) : (
-                <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900" />
+                <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-orange-950" />
               )}
 
-              {/* Content */}
-              <div className="relative z-10 flex flex-col items-center w-full px-8">
-                {/* Scissors icon */}
-                <div className="w-16 h-16 rounded-2xl bg-primary/20 border-2 border-primary/50 flex items-center justify-center mb-8">
-                  <Scissors className="w-8 h-8 text-primary" />
+              <div className="relative z-10 w-full max-w-md">
+                <div className="mb-5 text-center">
+                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[1.35rem] border border-orange-300/50 bg-orange-400/15 shadow-[0_0_40px_rgba(249,115,22,0.25)]">
+                    <Sparkles className="h-8 w-8 animate-pulse text-orange-300 motion-reduce:animate-none" />
+                  </div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.24em] text-orange-200">BeautyBook IA</p>
+                  <h3 className="mt-2 text-[24px] font-black tracking-tight text-white">Votre style prend vie</h3>
+                  <p className="mt-1 text-[12px] font-medium text-white/60">Une simulation personnalisée, étape par étape</p>
                 </div>
 
-                {/* Title + percentage */}
-                <div className="w-full flex items-center justify-between mb-3">
-                  <p className="text-white text-[18px] font-black drop-shadow-lg">{progressMsg}</p>
-                  <p className="text-primary text-[22px] font-black drop-shadow-lg">En cours</p>
+                <div className="rounded-[1.75rem] border border-white/15 bg-white/10 p-4 shadow-2xl backdrop-blur-xl">
+                  <div className="mb-3 flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/50">Génération IA</p>
+                      <p className="mt-1 text-[16px] font-black text-white">{progressMsg || "Préparation de votre demande…"}</p>
+                    </div>
+                    <p className="text-[25px] font-black tabular-nums text-orange-300">{Math.round(progress)}<span className="text-[14px]">%</span></p>
+                  </div>
+
+                  <div className="h-3 overflow-hidden rounded-full border border-white/10 bg-white/10" role="progressbar" aria-label="Progression de la génération" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(progress)}>
+                    <div className="h-full rounded-full bg-gradient-to-r from-orange-400 via-primary to-amber-300 shadow-[0_0_18px_rgba(251,146,60,0.7)] transition-[width] duration-700 ease-out" style={{ width: `${Math.max(progress, 4)}%` }} />
+                  </div>
+
+                  <div className="relative mt-5">
+                    <div className="absolute left-[12.5%] right-[12.5%] top-5 h-0.5 bg-white/10" aria-hidden="true">
+                      <div className="h-full bg-gradient-to-r from-emerald-300 via-orange-300 to-orange-400 transition-[width] duration-500" style={{ width: `${activeGenerationIndex / (generationSteps.length - 1) * 100}%` }} />
+                    </div>
+                    <div className="relative grid grid-cols-4 gap-1">
+                      {generationSteps.map((item, index) => {
+                        const active = index === activeGenerationIndex;
+                        const complete = index < activeGenerationIndex || progress >= 100;
+                        const Icon = item.Icon;
+                        return (
+                          <div key={item.key} className="flex min-w-0 flex-col items-center text-center">
+                            <div className={`relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all duration-300 ${active ? "border-orange-200 bg-orange-400 text-white shadow-lg shadow-orange-500/30" : complete ? "border-emerald-200/60 bg-emerald-400/25 text-emerald-100" : "border-white/10 bg-slate-800/80 text-white/35"}`}>
+                              {complete ? <Check className="h-4 w-4" /> : <Icon className={`h-4 w-4 ${active ? "animate-pulse motion-reduce:animate-none" : ""}`} />}
+                              {active && <Loader2 className="absolute -right-2 -top-2 h-4 w-4 animate-spin rounded-full bg-slate-950 text-orange-200 motion-reduce:animate-none" />}
+                            </div>
+                            <p className={`mt-2 line-clamp-2 px-0.5 text-[9px] font-black leading-tight ${active ? "text-white" : complete ? "text-emerald-100" : "text-white/40"}`}>{item.label}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-4 rounded-2xl border border-orange-300/20 bg-orange-400/10 px-3 py-2.5 text-center">
+                      <p className="text-[11px] font-black text-white">{generationSteps[activeGenerationIndex]?.label}</p>
+                      <p className="mt-0.5 truncate text-[10px] font-medium text-white/55">{generationSteps[activeGenerationIndex]?.detail}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-black/15 px-3 py-2.5 text-center text-[11px] font-medium text-white/65">
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-orange-300 motion-reduce:animate-none" />
+                    Résultat dans quelques secondes…
+                  </div>
                 </div>
 
-                {/* Progress bar */}
-                <div className="w-full h-3 bg-white/15 rounded-full overflow-hidden border border-white/10 mb-4">
-                  <Loader2 className="h-8 w-8 animate-spin motion-reduce:animate-none text-primary mb-4" aria-label="Traitement en cours"/>
-                </div>
-
-                {/* Subtitle */}
-                <p className="text-white/60 text-[13px] font-medium text-center mb-6">
-                  Simulation IA en cours — patientez...
-                </p>
-
-                {/* Cancel */}
                 <button
                   onClick={onClose}
-                  className="text-white/50 text-[13px] font-medium underline underline-offset-2 active:scale-95 transition-all"
+                  className="mx-auto mt-5 flex min-h-11 items-center justify-center rounded-xl px-4 text-[11px] font-black uppercase tracking-widest text-white/55 underline decoration-white/25 underline-offset-4 transition-all active:scale-95"
                 >
                   Fermer le suivi
                 </button>
@@ -706,7 +848,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                 <div className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 border ${result.fallback ? "bg-purple-50 border-purple-100" : "bg-gradient-to-r from-orange-50 to-yellow-50 border-orange-100"}`}>
                   <Sparkles className={`w-3.5 h-3.5 ${result.fallback ? "text-purple-500" : "text-primary"}`} />
                   <span className={`text-[11px] font-black ${result.fallback ? "text-purple-600" : "text-primary"}`}>
-                    {result.fallback ? "Généré par IA (mode fallback)" : "Généré par Muse IA"}
+                    {result.error ? "BeautyBook IA" : result.fallback ? "Généré par IA (mode secours)" : "Généré par BeautyBook IA"}
                   </span>
                 </div>
               </div>
@@ -719,9 +861,9 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
               {result.error ? (
                 // Erreur — afficher un message clair
                 <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
-                  <p className="text-[14px] font-black text-red-600 mb-2">⚠️ Génération échouée</p>
+                  <p className="text-[14px] font-black text-red-600 mb-2">{result.errorCode === 'IMAGE_PENDING' ? 'Suivi temporairement interrompu' : '⚠️ Génération échouée'}</p>
                   <p className="text-[12px] text-gray-600">{result.error}</p>
-                  <p className="text-[11px] text-gray-500 mt-2">Vérifiez votre connexion ou réessayez dans quelques instants.</p>
+                  <p className="text-[11px] text-gray-500 mt-2">{result.errorCode === 'IMAGE_PENDING' ? 'Consultez l’historique pour retrouver cette demande.' : 'Vérifiez votre connexion ou réessayez dans quelques instants.'}</p>
                   {['AUTH_REQUIRED', 'SESSION_INVALID'].includes(result.errorCode) && (
                     <button
                       type="button"
@@ -732,6 +874,8 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     </button>
                   )}
                 </div>
+              ) : result.fromHistory ? (
+                <BeautyImage src={result.generatedImageUrl} alt={result.styleLabel} className="w-full rounded-2xl object-contain" />
               ) : result.fallback ? (
                 /* Mode fallback — analyse IA sans image générée */
                 <div className="space-y-4">
@@ -785,7 +929,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     onTouchEnd={() => setIsDragging(false)}
                     onTouchMove={onTouchMove}
                   >
-                    {/* APRÈS — image générée par Muse IA */}
+                    {/* APRÈS — image générée par BeautyBook IA */}
                     <div className="absolute inset-0">
                       <BeautyImage
                         src={result.generatedImageUrl}
@@ -834,7 +978,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
                     {result.author && (
                       <p className="text-[11px] text-primary font-bold">✦ Style de {result.author}</p>
                     )}
-                    <p className="text-[11px] text-gray-400 font-medium">Image générée par Muse IA</p>
+                    <p className="text-[11px] text-gray-400 font-medium">{result.generatedImageUrl ? 'Image générée par BeautyBook IA' : 'Votre demande de simulation'}</p>
                   </div>
                 </div>
               </div>

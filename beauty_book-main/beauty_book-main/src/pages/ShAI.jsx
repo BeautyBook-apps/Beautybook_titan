@@ -11,7 +11,9 @@ import {
   ShoppingCart, Check, Sparkles, Shirt, Repeat2, Clock,
   FlipHorizontal, RotateCw
 } from "lucide-react";
-import { entities, uploadFile } from '@/api/entities';
+import { entities } from '@/api/entities';
+import { useTemporaryImages } from '@/hooks/useTemporaryImages';
+import { prepareStylistImages } from '@/lib/stylistImages';
 import { apiClient } from '@/lib/apiClient';
 import { useLikedProducts } from "@/hooks/useLikedProducts";
 import { useCartSync } from "@/hooks/useCartSync";
@@ -83,7 +85,21 @@ function productsForOutfitSlot(products, slot) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 
-function LoadingOverlay({onCancel}){return <div role="status" className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm p-6 text-center"><Wand2 className="h-10 w-10 text-primary animate-pulse motion-reduce:animate-none"/><p className="text-white font-bold mt-5">Votre essayage est en cours</p><p className="text-white/70 text-sm mt-2">Le traitement peut prendre quelques minutes. Le résultat apparaîtra dans votre historique privé.</p><button onClick={onCancel} className="mt-6 min-h-11 px-4 text-white underline">Fermer le suivi</button></div>;}
+function LoadingOverlay({ onCancel, status = 'preparing', mode = 'article' }) {
+  const steps = ['Préparation', 'En attente', mode === 'exchange' ? 'Transfert de tenue' : mode === 'tenue' ? 'Création du look' : 'Essayage', 'Résultat'];
+  const active = status === 'processing' ? 2 : status === 'queued' ? 1 : 0;
+  return <div role="status" aria-live="polite" className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm p-4 text-center">
+    <Sparkles className="h-9 w-9 text-orange-300 animate-pulse motion-reduce:animate-none" />
+    <p className="text-orange-200 text-[10px] font-bold tracking-widest mt-3">BEAUTYBOOK IA</p>
+    <p className="text-white font-bold mt-2">Votre style prend vie</p>
+    <div className="w-full mt-5 h-2 overflow-hidden rounded-full bg-white/20" role="progressbar" aria-label={steps[active]} aria-valuetext="Traitement en cours">
+      <div className="w-1/3 h-full rounded-full bg-orange-400 animate-pulse motion-reduce:animate-none" />
+    </div>
+    <ol className="grid grid-cols-4 gap-1 w-full mt-4">{steps.map((label, index) => <li key={label} className={index <= active ? 'text-white' : 'text-white/50'}><span className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full border ${index === active ? 'bg-orange-500 border-orange-300' : 'bg-white/10 border-white/20'}`}>{index < active ? <Check className="h-4 w-4" /> : index + 1}</span><span className="block mt-2 text-[10px] leading-tight">{label}</span></li>)}</ol>
+    <p className="text-white/75 text-xs mt-5">{status === 'queued' ? 'Votre demande attend son tour.' : status === 'processing' ? 'La génération est en cours. Le résultat sera enregistré dans votre historique.' : 'Préparation de vos images…'}</p>
+    <button onClick={onCancel} className="mt-4 min-h-11 px-4 text-white underline text-xs">Fermer le suivi</button>
+  </div>;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HISTORIQUE ESSAYAGES
@@ -480,6 +496,8 @@ function ProductCard({ product, selected, onSelect }) {
 const SHAI_DRAFT_KEY = 'shai_cabine_draft';
 
 function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
+  const temporaryImages = useTemporaryImages();
+  const [jobStatus, setJobStatus] = useState('preparing');
   // ── Restore draft from localStorage ──
   const loadDraft=()=>null;
   const draft = useRef(loadDraft()).current;
@@ -563,24 +581,11 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
 
   const doUploadFile = async (file) => {
     try {
-      return (await uploadFile({ file }, 'uploads')).file_url;
+      return temporaryImages.add(file);
     } catch (err) {
-      console.warn('Upload error, falling back to local base64:', err);
-      try {
-        return await fileToBase64(file);
-      } catch (fallbackError) {
-        setError(fallbackError.message || err.message || 'La photo n’a pas été envoyée.');
-        return null;
-      }
+      setError(err.message); return null;
     }
   };
-
-  const fileToBase64 = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 
   const analyzePhoto = async (photoUrl, productName, file) => {
     setAnalyzingPhoto(true);
@@ -589,22 +594,7 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
       const url = photoUrl || (file ? await doUploadFile(file) : null);
       if (!url) return;
       
-      let analysisData = null;
-      try {
-        const res = await apiClient.callFunction('museAnalyze', {
-          photo_url: url,
-          image_urls: productReferenceImages(selectedProduct),
-          user_context: { productName },
-          module: mode === 'tenue' ? 'styliste_ia' : 'ai_style_changer',
-          page: 'sh-ai',
-          category: mode === 'tenue' ? 'outfit' : 'article',
-          target_area: 'silhouette et vêtement sélectionné',
-        });
-        analysisData = res.data;
-      } catch (err) {
-        console.warn('Muse analysis unavailable in ShAI:', err);
-      }
-      setPhotoAnalysis(analysisData);
+      setPhotoAnalysis({ mode: 'upload_ready', suggestion: 'Photo prête sur cet appareil. Elle sera transmise uniquement au lancement de la génération.' });
     } catch (e) {
       console.warn('Photo analysis soft fallback:', e);
       setPhotoAnalysis({
@@ -641,38 +631,41 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
   };
 
   const abortRef = useRef(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const tryOn = async () => {
+    if (abortRef.current) return;
     if (!userPhoto) return;
     if (mode === "article" && !selectedProduct) return;
     if (mode === "tenue" && !topPhoto && !bottomPhoto) return;
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setJobStatus('preparing');
     const controller = new AbortController();
     abortRef.current = controller;
     const referenceImages = mode === "article"
       ? productReferenceImages(selectedProduct)
       : [topPhoto, bottomPhoto, jacketPhoto, shoesPhoto, bagPhoto].filter(Boolean).slice(0, 8);
-    const garmentPhoto = referenceImages[0];
     const garmentName = mode === "article"
       ? selectedProduct.name
       : `tenue (${[topPhoto && "haut", bottomPhoto && "bas", jacketPhoto && "veste", shoesPhoto && "chaussures", bagPhoto && "sac"].filter(Boolean).join(", ")})`;
     try {
+      const prepared = await prepareStylistImages({
+        photo: userPhoto, references: referenceImages,
+        pieces: mode === 'tenue' ? { top: topPhoto, bottom: bottomPhoto, jacket: jacketPhoto, shoes: shoesPhoto, bag: bagPhoto } : undefined,
+        signal: controller.signal,
+      });
       const apiCall = apiClient.callFunction("shAiTryOn", {
-        user_photo: userPhoto,
-        garment_photo: garmentPhoto,
-        reference_images: referenceImages,
+        ...prepared,
         garment_name: garmentName,
         styleName: garmentName,
         preserve_face: true,
         preserve_background: true,
         mode: mode === "tenue" ? "outfit" : "article",
-        outfit_pieces: mode === "tenue" ? { top: topPhoto, bottom: bottomPhoto, jacket: jacketPhoto, shoes: shoesPhoto, bag: bagPhoto } : undefined,
-        module: mode === "tenue" ? "styliste_ia" : "ai_style_changer",
+        module: "styliste_ia",
         page: "sh-ai",
-        category: mode === "tenue" ? "outfit" : "article",
+        category: mode === "tenue" ? "outfit" : selectedProduct.category || "article",
         target_area: "silhouette complète",
         operation: mode === "tenue" ? "outfit_styling" : "style_change",
-      }, { signal: controller.signal });
+      }, { signal: controller.signal, onProgress: job => setJobStatus(job.status) });
       const res = await apiCall;
       setLoading(false);
       if (res.data?.result_url) {
@@ -690,7 +683,7 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
       } else {
         setError(err.message || "La génération n’a pas abouti.");
       }
-    }
+    } finally { if (abortRef.current === controller) abortRef.current = null; }
   };
 
   const cancelTryOn = () => {
@@ -722,10 +715,14 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
 
   const canTryOn = userPhoto && (mode === "article" ? selectedProduct : (topPhoto || bottomPhoto));
 
+  // Open history before the result branch so it remains accessible afterwards.
+  if (showHistory) return <HistoryPanel kinds="article,outfit,exchange" onSelect={(url, job) => { setUserPhoto(null); setSelectedProduct(null); setMode(job.kind === 'outfit' ? 'tenue' : 'article'); setResult(url); setShowHistory(false); }} onClose={() => setShowHistory(false)} />;
+
   // — Résultat —
   if (result) {
     return (
       <div className="px-4 pt-4 pb-10 space-y-4">
+        <button onClick={() => setShowHistory(true)} className="min-h-11 flex items-center gap-2 text-primary font-bold"><Clock className="h-4 w-4" /> Historique des générations</button>
         {/* Avant / Après Slider */}
         {userPhoto && (
           <div>
@@ -790,7 +787,6 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
   }
 
   // — Historique —
-  if (showHistory) return <HistoryPanel onSelect={(url) => { setResult(url); setShowHistory(false); }} onClose={() => setShowHistory(false)} />;
 
   return (
     <div className="px-4 pt-4 pb-10 space-y-5">
@@ -798,11 +794,12 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
       <button onClick={() => setShowHistory(true)}
         className="w-full flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl px-4 py-3 active:scale-98 transition-all">
         <Clock className="w-4 h-4 text-gray-400 shrink-0" />
-        <span className="text-[12px] font-black text-gray-600">Voir mes derniers essayages</span>
+        <span className="text-[12px] font-black text-gray-600">Historique des générations</span>
         <span className="ml-auto text-gray-300 text-lg">›</span>
       </button>
 
       <AICreditsCard />
+      <p className="text-xs text-gray-500">Les photos importées restent sur cet appareil jusqu’à la génération. Elles sont effacées au plus tard 3 minutes après avoir quitté cette page.</p>
 
       {/* Pré-sélection depuis produit */}
       {preSelectedProduct && !selectedProduct && (
@@ -844,7 +841,7 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
           {userPhoto ? (
             <>
               <BeautyImage src={userPhoto} alt="" className={`w-full h-full object-cover transition-opacity duration-300 ${loading ? 'opacity-30' : 'opacity-100'}`} />
-              {loading && <LoadingOverlay onCancel={cancelTryOn} />}
+              {loading && <LoadingOverlay onCancel={cancelTryOn} status={jobStatus} mode={mode} />}
               {!loading && (
                 <button onClick={() => { setUserPhoto(null); setResult(null); }}
                   className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center active:scale-90 z-10">
@@ -966,11 +963,14 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
         </div>
       )}
 
-      <button onClick={tryOn} disabled={!canTryOn || loading}
-        className="w-full bg-primary text-white font-black text-[14px] uppercase tracking-widest py-4 rounded-2xl shadow-lg shadow-primary/30 active:scale-95 transition-all disabled:opacity-40 disabled:scale-100 flex items-center justify-center gap-3">
-        <Wand2 className="w-5 h-5" />
-        {mode === "tenue" ? "Essayer cette tenue" : "Essayer cet article"}
-      </button>
+      <div className="sticky bottom-20 z-20 -mx-4 border-t border-orange-100 bg-white/95 px-4 pb-3 pt-3 backdrop-blur">
+        <button onClick={tryOn} disabled={!canTryOn || loading}
+          className="group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-primary to-orange-400 px-5 text-[14px] font-black uppercase tracking-widest text-white shadow-xl shadow-primary/35 transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20"><Wand2 className="h-5 w-5" /></span>
+          <span className="text-left"><span className="block">{mode === "tenue" ? "Essayer cette tenue" : "Essayer l’article"}</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/80">Simulation personnalisée</span></span>
+          <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
+        </button>
+      </div>
       {outfitPickerSlot && <OutfitProductPicker
         slot={outfitPickerSlot}
         products={products}
@@ -993,6 +993,9 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
 const SHAI_TENUES_DRAFT_KEY = 'shai_echange_draft';
 
 function EchangeTenues() {
+  const temporaryImages = useTemporaryImages();
+  const [jobStatus, setJobStatus] = useState('preparing');
+  const [showHistory, setShowHistory] = useState(false);
   const loadDraft=()=>null;
   const draft = useRef(loadDraft()).current;
 
@@ -1010,7 +1013,7 @@ function EchangeTenues() {
 
   useEffect(()=>{localStorage.removeItem(SHAI_TENUES_DRAFT_KEY);},[]);
 
-  const doUploadFile=async(file)=>{try{return (await uploadFile({file},'private-images')).file_url;}catch(e){setError(e.message||'La photo n’a pas été envoyée.');return null;}};
+  const doUploadFile=async(file)=>{try{return temporaryImages.add(file);}catch(e){setError(e.message);return null;}};
 
   const handleUserPhoto = async (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -1022,37 +1025,29 @@ function EchangeTenues() {
     const file = e.target.files[0]; if (!file) return;
     const url = await doUploadFile(file); if(!url)return;
     setReferencePhoto(url); setResult(null); setSearchResults([]); setDetectedItems([]);
-    setSearching(true);
-    const res = await apiClient.callFunction("shAiImageSearch", {
-      image_url: url,
-      module: "ai_style_changer",
-      page: "sh-ai",
-      category: "article",
-      target_area: "vêtement sélectionné",
-    }).catch(e => {setError(e.message);return null;});
-    if (res?.data?.products) setSearchResults(res.data.products);
-    if (res?.data?.detected_items) setDetectedItems(res.data.detected_items);
-    setSearching(false);
+    // Do not transmit unused reference photos for automatic product searches.
     e.target.value = "";
   };
 
   const abortRef = useRef(null);
 
   const exchange = async () => {
+    if (abortRef.current) return;
     if (!userPhoto || !referencePhoto) return;
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setJobStatus('preparing');
     const controller = new AbortController();
     abortRef.current = controller;
     try {
+      const prepared = await prepareStylistImages({ photo: userPhoto, references: [referencePhoto], signal: controller.signal });
       const apiCall = apiClient.callFunction("shAiTryOn", {
-        user_photo: userPhoto, garment_photo: referencePhoto, garment_name: "tenue de référence",
+        ...prepared, garment_name: "Échange de tenue",
         preserve_face: true, preserve_background: true, mode: "exchange",
-        module: "ai_style_changer",
+        module: "styliste_ia",
         page: "sh-ai",
         category: "article",
         target_area: "silhouette complète",
         operation: "exchange_style",
-      }, {signal:controller.signal});
+      }, {signal:controller.signal, onProgress: job => setJobStatus(job.status)});
       const res = await apiCall;
       setLoading(false);
       if (res.data?.result_url) {
@@ -1068,8 +1063,10 @@ function EchangeTenues() {
       } else {
         setError(err.message || "La génération n’a pas abouti.");
       }
-    }
+    } finally { if (abortRef.current === controller) abortRef.current = null; }
   };
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const cancelExchange = () => {
     if (abortRef.current) abortRef.current.abort();
@@ -1092,8 +1089,11 @@ function EchangeTenues() {
   const onCompareMouseMove = (e) => { if (isDragging) handleCompareMove(e.clientX); };
   const onCompareTouchMove = (e) => { if (isDragging) handleCompareMove(e.touches[0].clientX); };
 
+  if (showHistory) return <HistoryPanel kinds="article,outfit,exchange" onSelect={url => { setUserPhoto(null); setResult(url); setSearchResults([]); setShowHistory(false); }} onClose={() => setShowHistory(false)} />;
+
   if (result) return (
     <div className="px-4 pt-4 pb-10 space-y-4">
+      <button onClick={() => setShowHistory(true)} className="min-h-11 flex items-center gap-2 text-primary font-bold"><Clock className="h-4 w-4" /> Historique des générations</button>
       {/* Avant / Après Slider */}
       {userPhoto && (
         <div>
@@ -1157,6 +1157,8 @@ function EchangeTenues() {
   return (
     <div className="px-4 pt-4 pb-10 space-y-5">
       <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-2">
+        <button onClick={() => setShowHistory(true)} className="min-h-11 flex items-center gap-2 text-primary font-bold"><Clock className="h-4 w-4" /> Historique des générations</button>
+        <p className="text-xs text-gray-500">Les photos restent sur cet appareil jusqu’à la génération et sont effacées au plus tard 3 minutes après avoir quitté cette page.</p>
         <p className="text-[13px] font-black text-gray-800">Comment ça marche ?</p>
         {["Importez votre photo (corps entier)", "Importez une image de référence avec la tenue à copier", "Le Styliste IA transfère la tenue sur votre silhouette"].map((s, i) => (
           <div key={i} className="flex items-start gap-2">
@@ -1174,7 +1176,7 @@ function EchangeTenues() {
             {userPhoto ? (
               <>
                 <BeautyImage src={userPhoto} alt="" className={`w-full h-full object-cover transition-opacity duration-300 ${loading ? 'opacity-30' : 'opacity-100'}`} />
-                {loading && <LoadingOverlay onCancel={cancelExchange} />}
+                {loading && <LoadingOverlay onCancel={cancelExchange} status={jobStatus} mode="exchange" />}
                 {!loading && (
                   <button onClick={() => setUserPhoto(null)} className="absolute top-2 right-2 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center z-10">
                     <X className="w-3.5 h-3.5 text-white" />

@@ -1099,6 +1099,9 @@ export default function StyleDetail() {
               .filter(url => url && !/\.(mp4|webm|mov)(\?|$)/i.test(url)),
             author: st.author_name || st.author || null,
             category: st.category || null,
+            subcategory: st.subcategory || null,
+            serviceCategory: st.service_category || null,
+            produits_utilises: st.produits_utilises || [],
           }}
           onClose={() => setShowAIModal(false)}
         />

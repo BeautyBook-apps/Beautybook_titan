@@ -3,9 +3,35 @@ import {useEffect,useState} from 'react';
 import {Clock,Loader2,Trash2} from 'lucide-react';
 import {apiClient} from '@/lib/apiClient';
 const labels={queued:'En attente',processing:'Génération en cours',completed:'Terminé',failed:'Échec',uncertain:'Résultat non confirmé'};
-export default function ImageJobHistory({onSelect,onClose}){
+const types={hair:'Style',article:'Article seul',outfit:'Tenue complète',exchange:'Échange'};
+export default function ImageJobHistory({onSelect,onClose,kinds=''}){
  const [jobs,setJobs]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[deleting,setDeleting]=useState('');
- useEffect(()=>{let active=true;async function refresh(){try{const result=await apiClient.get('/api/image-jobs');if(active){setJobs(result.jobs);setError('');}}catch(e){if(active)setError(e.message);}finally{if(active)setLoading(false);}}refresh();const timer=setInterval(refresh,5000);return()=>{active=false;clearInterval(timer);};},[]);
+ const [filter,setFilter]=useState(''),[limit,setLimit]=useState(20),[hasMore,setHasMore]=useState(false);
+ useEffect(()=>{
+  let active=true,timer;
+  async function refresh(){
+   try{
+    const query=new URLSearchParams({limit:String(limit),kinds:filter||kinds||Object.keys(types).join(',')});
+    const result=await apiClient.get('/api/image-jobs?'+query);
+    if(active){setJobs(result.jobs);setHasMore(result.has_more);setError('');}
+   }catch(e){if(active)setError(e.message);}
+   finally{if(active){setLoading(false);timer=setTimeout(refresh,5000);}}
+  }
+  setLoading(true);refresh();return()=>{active=false;clearTimeout(timer);};
+ },[filter,kinds,limit]);
  async function remove(id){setDeleting(id);try{await apiClient.delete('/api/image-jobs/'+id);setJobs(old=>old.filter(j=>j.id!==id));}catch(e){setError(e.message);}finally{setDeleting('');}}
- return <section className="p-4 space-y-3" aria-label="Historique privé des essayages"><header className="flex justify-between items-center"><h2 className="font-bold">Mes derniers essayages</h2>{onClose&&<button onClick={onClose} className="min-h-11 px-3 text-primary font-semibold">Fermer</button>}</header><p className="text-xs text-gray-500">Résultats privés, visibles uniquement avec votre compte. Les rendus IA sont des aperçus et ne garantissent pas la coupe ou la taille réelle.</p>{error&&<p role="alert" className="text-sm text-red-700 bg-red-50 rounded-xl p-3">{error}</p>}{loading?<p role="status" className="flex gap-2 py-6"><Loader2 className="animate-spin"/>Chargement…</p>:!jobs.length&&!error?<p className="py-8 text-gray-500 flex items-center gap-2"><Clock/>Aucun essayage enregistré.</p>:jobs.map(job=><article key={job.id} className="rounded-2xl border border-gray-200 p-3 flex items-center gap-3"><button disabled={!job.result_url} onClick={()=>onSelect?.(job.result_url)} className="flex items-center gap-3 text-left flex-1 min-w-0">{job.result_url?<BeautyImage src={job.result_url} alt={job.label} className="w-16 h-16 rounded-xl object-cover"/>:<div className="w-16 h-16 rounded-xl bg-gray-100 grid place-items-center"><Clock className="text-gray-400"/></div>}<span className="min-w-0"><span className="block font-semibold text-sm truncate">{job.label}</span><span className="block text-xs text-gray-500 mt-1">{labels[job.status]} · {new Date(job.created_at).toLocaleDateString('fr-FR')}</span>{job.message&&<span className="block text-xs text-gray-500 mt-1">{job.message}</span>}</span></button><button title={job.status==='processing'?'Disponible à la fin du traitement':'Supprimer cet essayage'} aria-label="Supprimer cet essayage" disabled={job.status==='processing'||deleting===job.id} onClick={()=>remove(job.id)} className="min-h-11 min-w-11 grid place-items-center rounded-full text-gray-500 disabled:opacity-30"><Trash2 className="h-4 w-4"/></button></article>)}</section>;
+ return <section className="p-4 space-y-3" aria-label="Historique privé des générations">
+  <header className="flex justify-between items-center"><h2 className="font-bold">Historique des générations</h2>{onClose&&<button onClick={onClose} className="min-h-11 px-3 text-primary font-semibold">Fermer</button>}</header>
+  <p className="text-xs text-gray-500">Résultats privés, disponibles après avoir quitté la page. Ouvrez une image pour la consulter ou la télécharger.</p>
+  <div className="flex gap-2 overflow-x-auto">{['',...(kinds?kinds.split(','):Object.keys(types))].map(kind=><button key={kind} aria-pressed={filter===kind} onClick={()=>{setFilter(kind);setLimit(20);}} className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-bold ${filter===kind?'bg-primary text-white':'bg-gray-100 text-gray-600'}`}>{types[kind]||'Tout'}</button>)}</div>
+  {error&&<p role="alert" className="text-sm text-red-700 bg-red-50 rounded-xl p-3">{error}</p>}
+  {loading?<p role="status" className="flex gap-2 py-6"><Loader2 className="animate-spin"/>Chargement…</p>:!jobs.length&&!error?<p className="py-8 text-gray-500 flex items-center gap-2"><Clock/>Aucune génération enregistrée.</p>:jobs.map(job=><article key={job.id} className="rounded-2xl border border-gray-200 p-3 flex items-center gap-3">
+   <button disabled={!job.result_url} onClick={()=>onSelect?.(job.result_url,job)} className="flex items-center gap-3 text-left flex-1 min-w-0">
+    {job.result_url?<BeautyImage src={job.result_url} alt={job.label} className="w-20 h-24 shrink-0 rounded-xl object-cover"/>:<div className="w-20 h-24 shrink-0 rounded-xl bg-gray-100 grid place-items-center"><Clock className="text-gray-400"/></div>}
+    <span className="min-w-0"><span className="block text-[10px] font-bold text-primary">{types[job.kind]}</span><span className="block font-semibold text-sm truncate">{job.label}</span><span className="block text-xs text-gray-500 mt-1">{labels[job.status]} · {new Date(job.created_at).toLocaleString('fr-FR')}</span>{job.message&&<span className="block text-xs text-gray-500 mt-1">{job.message}</span>}</span>
+   </button>
+   <button title={job.status==='processing'?'Disponible à la fin du traitement':'Supprimer cette génération'} aria-label="Supprimer cette génération" disabled={job.status==='processing'||deleting===job.id} onClick={()=>remove(job.id)} className="min-h-11 min-w-11 grid place-items-center rounded-full text-gray-500 disabled:opacity-30"><Trash2 className="h-4 w-4"/></button>
+  </article>)}
+  {hasMore&&limit<200&&<button onClick={()=>setLimit(value=>Math.min(200,value+20))} className="min-h-11 w-full rounded-xl border text-primary font-bold">Voir plus</button>}
+ </section>;
 }

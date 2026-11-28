@@ -1100,6 +1100,16 @@ export default function ServiceDetail() {
       {showFiltreAI && (
         <FiltreAIModal
           styleTitle={styleRecord?.title || s.style || s.title || ""}
+          initialStyle={{
+            id: styleRecord?.id || s.id,
+            label: styleRecord?.title || s.style || s.title || "Style",
+            img: styleRecord?.image_url || styleRecord?.images?.[0]?.url || styleRecord?.images?.[0] || media.find(item => item.type === "image")?.url || "",
+            allImages: styleRecord?.images || media.filter(item => item.type === "image").map(item => item.url),
+            category: styleRecord?.category || s.category || null,
+            subcategory: styleRecord?.subcategory || s.subcategory || null,
+            serviceCategory: s.category || null,
+            produits_utilises: styleRecord?.produits_utilises || [],
+          }}
           onClose={() => setShowFiltreAI(false)}
         />
       )}
