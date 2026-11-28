@@ -24,8 +24,8 @@ export default function ImageJobHistory({onSelect,onClose,kinds=''}){
   });
  },[filter,kinds,limit,user?.id,isLoadingAuth,retry]);
  async function remove(id){setDeleting(id);try{await apiClient.delete('/api/image-jobs/'+id);setJobs(old=>old.filter(j=>j.id!==id));}catch(e){setError(e.message);}finally{setDeleting('');}}
- return <section className="p-4 space-y-3" aria-label="Historique privé des générations">
-  <header className="flex justify-between items-center"><h2 className="font-bold">Historique des générations</h2>{onClose&&<button onClick={onClose} className="min-h-11 px-3 text-primary font-semibold">Fermer</button>}</header>
+ return <section className="w-full min-w-0 max-w-full p-4 space-y-3 break-words" aria-label="Historique privé des générations">
+  <header className="flex gap-2 justify-between items-center"><h2 className="min-w-0 flex-1 text-base font-bold">Historique des générations</h2>{onClose&&<button onClick={onClose} className="shrink-0 min-h-11 px-3 text-primary font-semibold">Fermer</button>}</header>
   <p className="text-xs text-gray-500">Résultats privés, disponibles après avoir quitté la page. Ouvrez une image pour la consulter ou la télécharger.</p>
   <div className="flex gap-2 overflow-x-auto">{['',...(kinds?kinds.split(','):Object.keys(types))].map(kind=><button key={kind} aria-pressed={filter===kind} onClick={()=>{setFilter(kind);setLimit(20);}} className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-bold ${filter===kind?'bg-primary text-white':'bg-gray-100 text-gray-600'}`}>{types[kind]||'Tout'}</button>)}</div>
   {error&&<p role="alert" className="text-sm text-red-700 bg-red-50 rounded-xl p-3">{error}</p>}

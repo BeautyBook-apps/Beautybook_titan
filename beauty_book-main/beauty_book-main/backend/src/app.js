@@ -25,6 +25,7 @@ import { chatCompletion } from './services/xai.js';
 import { isMuseConfigured, museOrchestrate } from './services/muse.js';
 import { isFalConfigured } from './services/fal.js';
 import {inspectSchema} from './services/readiness.js';
+import {checkAuthConnectivity} from './services/auth-health.js';
 import contentRoutes from './routes/content.routes.js';
 import mapsRoutes from './routes/maps.routes.js';
 
@@ -44,6 +45,8 @@ export function createApp() {
   app.get('/api/health', (req,res) => res.json({ status:'ok', configured: missingConfiguration().length === 0, image_queue_version:2 }));
   app.get('/api/ready', asyncRoute(async (req,res) => {
     assert(!missingConfiguration().length,503,'BACKEND_NOT_CONFIGURED','Le backend doit être configuré.');
+    const authentication = await checkAuthConnectivity();
+    assert(authentication.reachable,503,authentication.code,'Le serveur ne peut pas joindre le service de connexion. Vérifiez son accès réseau.');
     assert((await inspectSchema()).ready,503,'MIGRATIONS_REQUIRED','Les migrations BeautyBook doivent être appliquées.');
     res.json({status:'ready'});
   }));
