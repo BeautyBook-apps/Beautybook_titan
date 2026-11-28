@@ -211,6 +211,8 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
   const compareRef = useRef(null);
   const fileInputRef = useRef(null);
   const modalScrollRef = useRef(null);
+  const simulationRunningRef = useRef(false);
+  const [simulationRunning, setSimulationRunning] = useState(false);
 
   useEffect(() => {
     if (step !== 3) return undefined;
@@ -340,7 +342,9 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
   };
 
   const startSimulation = async () => {
-    if (!userPhoto || !selectedStyle) return;
+    if (!userPhoto || !selectedStyle || simulationRunningRef.current) return;
+    simulationRunningRef.current = true;
+    setSimulationRunning(true);
     setStep(3);
     setProgress(6);
     setGenerationPhase('queued');
@@ -402,7 +406,9 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
         : e.code === 'DATABASE_NOT_CONFIGURED'
           ? 'Le serveur de simulation n’est pas encore connecté à sa base de données.'
           : ['AI_GENERATION_BUSY', 'AI_QUOTA_REACHED'].includes(e.code)
-            ? 'Deux générations sont déjà en cours. Attendez leur fin avant d’en lancer une autre.'
+            ? 'Le service de simulation doit être mis à jour. Réessayez dans quelques instants ou contactez l’assistance si le problème persiste.'
+          : e.code === 'RATE_LIMITED'
+            ? 'Trop de demandes rapprochées. Patientez une minute avant de réessayer.'
           : ['AUTH_REQUIRED', 'SESSION_INVALID'].includes(e.code)
           ? 'Connectez-vous pour lancer une simulation.'
           : ['AI_PROVIDER_ERROR', 'FAL_PROVIDER_ERROR', 'FAL_NETWORK_ERROR', 'FAL_TIMEOUT', 'FAL_IMAGE_UNAVAILABLE', 'MUSE_PROVIDER_ERROR', 'MUSE_NETWORK_ERROR', 'MUSE_BILLING_REQUIRED', 'INVALID_IMAGE_RESULT'].includes(e.code)
@@ -421,6 +427,9 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
         fallback: false
       });
       setStep(4);
+    } finally {
+      simulationRunningRef.current = false;
+      setSimulationRunning(false);
     }
   };
 
@@ -734,7 +743,7 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
               <div className="sticky bottom-0 z-20 -mx-5 border-t border-orange-100 bg-white/95 px-5 pt-3 backdrop-blur-md" style={{ paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))" }}>
                 <button
                   onClick={startSimulation}
-                  disabled={!userPhoto || !selectedStyle}
+                  disabled={!userPhoto || !selectedStyle || simulationRunning}
                   aria-label={userPhoto && selectedStyle ? simulationCta : "Ajoutez une photo et choisissez un style"}
                   className={`group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl px-5 py-3 text-left transition-all duration-200 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 ${
                     userPhoto && selectedStyle

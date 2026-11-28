@@ -41,7 +41,7 @@ export function createApp() {
     res.json(await (orderEvent?commerce.handleEvent(event):handleStripeEvent(event)));
   }));
   app.use(express.json({ limit: '12mb' }));
-  app.get('/api/health', (req,res) => res.json({ status:'ok', configured: missingConfiguration().length === 0 }));
+  app.get('/api/health', (req,res) => res.json({ status:'ok', configured: missingConfiguration().length === 0, image_queue_version:2 }));
   app.get('/api/ready', asyncRoute(async (req,res) => {
     assert(!missingConfiguration().length,503,'BACKEND_NOT_CONFIGURED','Le backend doit être configuré.');
     assert((await inspectSchema()).ready,503,'MIGRATIONS_REQUIRED','Les migrations BeautyBook doivent être appliquées.');
