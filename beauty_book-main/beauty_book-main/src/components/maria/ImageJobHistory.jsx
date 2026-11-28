@@ -19,7 +19,13 @@ export default function ImageJobHistory({onSelect,onClose,kinds=''}){
   const query=new URLSearchParams({limit:String(limit),kinds:filter||kinds||Object.keys(types).join(',')});
   return watchImageJobHistory(apiClient.request.bind(apiClient),query,{
    onData:result=>{setJobs(result.jobs);setHasMore(result.has_more);setError('');},
-   onError:e=>{setError(e.message);if(e.status===401||e.status===403){setAuthRequired(e.status===401);setJobs([]);setHasMore(false);}},
+   onError:e=>{
+     // If the backend isn't configured yet or is temporarily unavailable, show empty history silently
+     const silent=['BACKEND_NOT_CONFIGURED','BACKEND_UNAVAILABLE','ENDPOINT_NOT_FOUND'];
+     if(silent.includes(e.code)){setJobs([]);setHasMore(false);return;}
+     setError(e.message);
+     if(e.status===401||e.status===403){setAuthRequired(e.status===401);setJobs([]);setHasMore(false);}
+   },
    onSettled:()=>setLoading(false),
   });
  },[filter,kinds,limit,user?.id,isLoadingAuth,retry]);

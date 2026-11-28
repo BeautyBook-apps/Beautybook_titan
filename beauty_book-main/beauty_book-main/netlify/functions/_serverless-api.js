@@ -22,8 +22,23 @@ function supabaseConfig() {
   const url = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/+$/, '');
   const anonKey = String(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '');
   const serviceKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+  // Log which vars are present (without values) to Netlify Function logs
+  console.log('[beautybook] env check:', {
+    hasSupabaseUrl: !!process.env.SUPABASE_URL,
+    hasViteSupabaseUrl: !!process.env.VITE_SUPABASE_URL,
+    hasServiceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    hasAnonKey: !!process.env.SUPABASE_ANON_KEY,
+    hasViteAnonKey: !!process.env.VITE_SUPABASE_ANON_KEY,
+    hasFalKey: !!process.env.FAL_KEY,
+  });
   assert(url && serviceKey, 503, 'BACKEND_NOT_CONFIGURED', 'Configurez SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY dans les variables Netlify.');
   return { url, anonKey: anonKey || serviceKey, serviceKey };
+}
+
+function isSupabaseConfigured() {
+  const url = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '');
+  const serviceKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+  return !!(url && serviceKey);
 }
 
 function falKey() {
@@ -324,8 +339,7 @@ export async function serverlessApiHandler(req, res) {
       });
     }
 
-    const user = await authenticate(req);
-
+    // For read-only endpoints: return empty data gracefully when Supabase isn't configured yet
     if (req.method === 'GET' && path === '/api/ai/credits') {
       return res.status(200).json({
         credits: 0,
@@ -336,6 +350,16 @@ export async function serverlessApiHandler(req, res) {
         packages: [],
       });
     }
+
+    if (req.method === 'GET' && path === '/api/image-jobs') {
+      // Return empty history if Supabase isn't configured — avoids blocking the UI
+      if (!isSupabaseConfigured()) {
+        console.warn('[beautybook] SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing — returning empty history');
+        return res.status(200).json({ jobs: [], has_more: false });
+      }
+    }
+
+    const user = await authenticate(req);
 
     if (req.method === 'POST' && (path === '/api/ai/try-on' || path === '/api/ai/simulate-hairstyle')) {
       const key = String(req.headers?.['idempotency-key'] || '');
