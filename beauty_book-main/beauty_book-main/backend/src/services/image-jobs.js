@@ -101,7 +101,7 @@ export function createImageJobs(database=db,{storage=imageStorage,configured=()=
    const {rows:[previous]}=await client.query('SELECT * FROM bb_image_jobs WHERE user_id=$1 AND request_key=$2',[user.id,key]);
    if(previous){assert(previous.request_hash===hash,409,'IDEMPOTENCY_CONFLICT','Cet identifiant correspond déjà à une autre génération.');return previous;}
    const {rows:[counts]}=await client.query("SELECT count(*) FILTER(WHERE status IN ('queued','processing'))::integer AS active FROM bb_image_jobs WHERE user_id=$1",[user.id]);
-   assert(counts.active<2,429,'AI_QUOTA_REACHED','Attendez la fin de vos demandes en cours avant de lancer une nouvelle génération.');
+   assert(counts.active<2,429,'AI_GENERATION_BUSY','Deux générations sont déjà en cours. Attendez leur fin avant d’en lancer une autre.');
    const reservation=await billing.reserve(client,user.id);
    const {rows:[job]}=await client.query('INSERT INTO bb_image_jobs(user_id,request_key,request_hash,kind,label,input,billing_source,credit_cost) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING *',[user.id,key,hash,input.kind,input.label,JSON.stringify(input),reservation.source,reservation.credit_cost]);
    await billing.recordGeneration(client,user.id,job.id,reservation);

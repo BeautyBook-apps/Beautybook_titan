@@ -1,7 +1,6 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import PhotoAnalysis from '@/components/maria/PhotoAnalysis';
 import ImageJobHistory from '@/components/maria/ImageJobHistory';
-import AICreditsCard from '@/components/ai/AICreditsCard';
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
@@ -402,15 +401,15 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
         ? 'Le service de simulation IA n’est pas encore configuré sur le serveur.'
         : e.code === 'DATABASE_NOT_CONFIGURED'
           ? 'Le serveur de simulation n’est pas encore connecté à sa base de données.'
-          : e.code === 'AI_QUOTA_REACHED'
-            ? 'Votre quota gratuit du jour est épuisé. Achetez un pack de crédits pour continuer.'
+          : ['AI_GENERATION_BUSY', 'AI_QUOTA_REACHED'].includes(e.code)
+            ? 'Deux générations sont déjà en cours. Attendez leur fin avant d’en lancer une autre.'
           : ['AUTH_REQUIRED', 'SESSION_INVALID'].includes(e.code)
           ? 'Connectez-vous pour lancer une simulation.'
           : ['AI_PROVIDER_ERROR', 'FAL_PROVIDER_ERROR', 'FAL_NETWORK_ERROR', 'FAL_TIMEOUT', 'FAL_IMAGE_UNAVAILABLE', 'MUSE_PROVIDER_ERROR', 'MUSE_NETWORK_ERROR', 'MUSE_BILLING_REQUIRED', 'INVALID_IMAGE_RESULT'].includes(e.code)
             ? 'La génération n’a pas pu aboutir. Vérifiez que le serveur est démarré puis réessayez.'
           : e.message || 'La simulation n’a pas pu être générée.';
       setErrorMsg(message);
-      if (e.code === 'AI_QUOTA_REACHED') {
+      if (['AI_GENERATION_BUSY', 'AI_QUOTA_REACHED'].includes(e.code)) {
         setStep(2);
         return;
       }
@@ -587,8 +586,6 @@ export default function FiltreAIModal({ styleTitle, initialStyle = null, onClose
               >
                 <ImageIcon className="h-4 w-4" /> VOIR LE GUIDE PHOTO · 3 ÉTAPES
               </button>
-
-              <AICreditsCard compact returnPath="/maria" />
 
               {/* Photo upload — grande zone */}
               <div>

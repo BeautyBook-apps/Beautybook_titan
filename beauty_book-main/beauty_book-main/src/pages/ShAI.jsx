@@ -1,6 +1,5 @@
 import BeautyImage from '@/components/ui/BeautyImage';
 import ImageJobHistory from '@/components/maria/ImageJobHistory';
-import AICreditsCard from '@/components/ai/AICreditsCard';
 import PhotoAnalysis from '@/components/maria/PhotoAnalysis';
 import { fetchShopifyProducts } from "@/api/shopifyClient";
 import { useState, useRef, useEffect, Component } from "react";
@@ -798,7 +797,6 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
         <span className="ml-auto text-gray-300 text-lg">›</span>
       </button>
 
-      <AICreditsCard />
       <p className="text-xs text-gray-500">Les photos importées restent sur cet appareil jusqu’à la génération. Elles sont effacées au plus tard 3 minutes après avoir quitté cette page.</p>
 
       {/* Pré-sélection depuis produit */}
@@ -963,9 +961,10 @@ function CabineEssayage({ products, likedProducts, preSelectedProduct }) {
         </div>
       )}
 
-      <div className="sticky bottom-20 z-20 -mx-4 border-t border-orange-100 bg-white/95 px-4 pb-3 pt-3 backdrop-blur">
-        <button onClick={tryOn} disabled={!canTryOn || loading}
-          className="group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-primary to-orange-400 px-5 text-[14px] font-black uppercase tracking-widest text-white shadow-xl shadow-primary/35 transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40">
+      <div className="sticky bottom-20 z-30 -mx-4 border-t border-orange-100 bg-white/95 px-4 pb-3 pt-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur-md">
+        <button type="button" onClick={tryOn} disabled={!canTryOn || loading}
+          aria-label={mode === "tenue" ? "Essayer cette tenue" : "Essayer l’article"}
+          className="group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl border border-orange-300/40 bg-gradient-to-r from-orange-500 via-primary to-amber-500 px-5 text-[14px] font-black uppercase tracking-widest text-white shadow-[0_12px_28px_rgba(232,115,42,0.38)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(232,115,42,0.45)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20"><Wand2 className="h-5 w-5" /></span>
           <span className="text-left"><span className="block">{mode === "tenue" ? "Essayer cette tenue" : "Essayer l’article"}</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/80">Simulation personnalisée</span></span>
           <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
@@ -1229,10 +1228,15 @@ function EchangeTenues() {
         </div>
       )}
       {error && <div className="bg-orange-50 border border-orange-100 rounded-2xl px-4 py-3"><p className="text-[12px] text-orange-600/80 font-medium">{error}</p></div>}
-      <button onClick={exchange} disabled={!userPhoto || !referencePhoto || loading}
-        className="w-full bg-primary text-white font-black text-[14px] uppercase tracking-widest py-4 rounded-2xl shadow-lg shadow-primary/30 active:scale-95 transition-all disabled:opacity-40 flex items-center justify-center gap-3">
-        <Repeat2 className="w-5 h-5" /> Échanger la tenue
-      </button>
+      <div className="sticky bottom-20 z-30 -mx-4 border-t border-orange-100 bg-white/95 px-4 pb-3 pt-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur-md">
+        <button type="button" onClick={exchange} disabled={!userPhoto || !referencePhoto || loading}
+          aria-label="Essayer cette tenue"
+          className="group flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl border border-orange-300/40 bg-gradient-to-r from-orange-500 via-primary to-amber-500 px-5 text-[14px] font-black uppercase tracking-widest text-white shadow-[0_12px_28px_rgba(232,115,42,0.38)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(232,115,42,0.45)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20"><Repeat2 className="h-5 w-5" /></span>
+          <span className="text-left"><span className="block">Essayer cette tenue</span><span className="mt-0.5 block text-[10px] font-semibold normal-case tracking-normal text-white/80">Copier la tenue sur ma photo</span></span>
+          <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
+        </button>
+      </div>
     </div>
   );
 }
